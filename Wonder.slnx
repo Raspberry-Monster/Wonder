@@ -1,0 +1,18 @@
+<Solution>
+    <Folder Name="/src/">
+        <Project Path="src/Wonder.Core/Wonder.Core.csproj"/>
+        <Project Path="src/Wonder.Persona/Wonder.Persona.csproj"/>
+        <Project Path="src/Wonder.Emotion/Wonder.Emotion.csproj"/>
+        <Project Path="src/Wonder.Memory/Wonder.Memory.csproj"/>
+        <Project Path="src/Wonder.AI/Wonder.AI.csproj"/>
+        <Project Path="src/Wonder.Chat/Wonder.Chat.csproj"/>
+        <Project Path="src/Wonder.Platforms/Wonder.Platforms.csproj"/>
+        <Project Path="src/Wonder.Infrastructure/Wonder.Infrastructure.csproj"/>
+        <Project Path="src/Wonder.Host/Wonder.Host.csproj"/>
+    </Folder>
+    <Folder Name="/tests/">
+        <Project Path="tests/Wonder.UnitTests/Wonder.UnitTests.csproj"/>
+        <Project Path="tests/Wonder.ContractTests/Wonder.ContractTests.csproj"/>
+        <Project Path="tests/Wonder.IntegrationTests/Wonder.IntegrationTests.csproj"/>
+    </Folder>
+</Solution>

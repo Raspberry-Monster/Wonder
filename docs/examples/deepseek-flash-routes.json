@@ -1,0 +1,62 @@
+[
+  {
+    "taskKind": "Chat",
+    "endpoint": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "apiKey": "REPLACE_WITH_YOUR_DEEPSEEK_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "supportsImages": true,
+    "supportsJson": false,
+    "thinkingEnabled": false,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "LightReflection",
+    "endpoint": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "apiKey": "REPLACE_WITH_YOUR_DEEPSEEK_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 4096,
+    "supportsImages": false,
+    "supportsJson": true,
+    "thinkingEnabled": false,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "StrongReflection",
+    "endpoint": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "apiKey": "REPLACE_WITH_YOUR_DEEPSEEK_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 8192,
+    "supportsImages": false,
+    "supportsJson": true,
+    "thinkingEnabled": true,
+    "reasoningEffort": "high"
+  },
+  {
+    "taskKind": "DailyNarrative",
+    "endpoint": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "apiKey": "REPLACE_WITH_YOUR_DEEPSEEK_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 1024,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": false,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "RollingSummary",
+    "endpoint": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "apiKey": "REPLACE_WITH_YOUR_DEEPSEEK_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": false,
+    "reasoningEffort": null
+  }
+]

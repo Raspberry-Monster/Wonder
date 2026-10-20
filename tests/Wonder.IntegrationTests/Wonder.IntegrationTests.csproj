@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../src/Wonder.Host/Wonder.Host.csproj" />
+        <PackageReference Include="TUnit" Version="1.75.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
+    </ItemGroup>
+</Project>

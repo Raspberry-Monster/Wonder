@@ -1,0 +1,72 @@
+[
+  {
+    "taskKind": "Chat",
+    "endpoint": "https://provider.example/v1/",
+    "model": "your-chat-model",
+    "apiKey": "REPLACE_WITH_YOUR_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "inputCostPerMillion": 0,
+    "outputCostPerMillion": 0,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": null,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "LightReflection",
+    "endpoint": "https://provider.example/v1/",
+    "model": "your-chat-model",
+    "apiKey": "REPLACE_WITH_YOUR_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "inputCostPerMillion": 0,
+    "outputCostPerMillion": 0,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": null,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "StrongReflection",
+    "endpoint": "https://provider.example/v1/",
+    "model": "your-chat-model",
+    "apiKey": "REPLACE_WITH_YOUR_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "inputCostPerMillion": 0,
+    "outputCostPerMillion": 0,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": null,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "DailyNarrative",
+    "endpoint": "https://provider.example/v1/",
+    "model": "your-chat-model",
+    "apiKey": "REPLACE_WITH_YOUR_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "inputCostPerMillion": 0,
+    "outputCostPerMillion": 0,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": null,
+    "reasoningEffort": null
+  },
+  {
+    "taskKind": "RollingSummary",
+    "endpoint": "https://provider.example/v1/",
+    "model": "your-chat-model",
+    "apiKey": "REPLACE_WITH_YOUR_API_KEY",
+    "contextWindow": 32768,
+    "maxOutputTokens": 2048,
+    "inputCostPerMillion": 0,
+    "outputCostPerMillion": 0,
+    "supportsImages": false,
+    "supportsJson": false,
+    "thinkingEnabled": null,
+    "reasoningEffort": null
+  }
+]

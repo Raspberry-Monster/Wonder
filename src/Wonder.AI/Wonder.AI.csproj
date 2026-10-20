@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference Include="../Wonder.Core/Wonder.Core.csproj" />
+        <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+    </ItemGroup>
+</Project>

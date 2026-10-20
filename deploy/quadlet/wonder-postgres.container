@@ -1,0 +1,25 @@
+[Unit]
+Description=Wonder PostgreSQL with pgvector
+
+[Container]
+Image=docker.io/pgvector/pgvector:pg17
+ContainerName=wonder-postgres
+Network=wonder.network
+NetworkAlias=postgres
+EnvironmentFile=%h/.config/wonder/postgres.env
+Volume=wonder-postgres.volume:/var/lib/postgresql/data
+Exec=postgres -c shared_buffers=256MB -c work_mem=4MB -c max_connections=40
+PodmanArgs=--memory=1g
+HealthCmd=pg_isready -U wonder -d wonder
+HealthInterval=5s
+HealthTimeout=3s
+HealthRetries=20
+Notify=healthy
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

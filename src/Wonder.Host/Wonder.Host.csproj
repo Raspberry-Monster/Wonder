@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+    <ItemGroup>
+        <ProjectReference Include="../Wonder.Infrastructure/Wonder.Infrastructure.csproj" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" PrivateAssets="all" />
+    </ItemGroup>
+    <ItemGroup>
+        <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" />
+        <Content Remove="data/**" />
+        <None Remove="data/**" />
+    </ItemGroup>
+</Project>

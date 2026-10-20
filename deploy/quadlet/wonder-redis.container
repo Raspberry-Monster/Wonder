@@ -1,0 +1,24 @@
+[Unit]
+Description=Wonder Redis Streams
+
+[Container]
+Image=docker.io/library/redis:7.4-alpine
+ContainerName=wonder-redis
+Network=wonder.network
+NetworkAlias=redis
+Volume=wonder-redis.volume:/data
+Exec=redis-server --appendonly yes --maxmemory 192mb --maxmemory-policy noeviction
+PodmanArgs=--memory=256m
+HealthCmd=redis-cli ping
+HealthInterval=5s
+HealthTimeout=3s
+HealthRetries=20
+Notify=healthy
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

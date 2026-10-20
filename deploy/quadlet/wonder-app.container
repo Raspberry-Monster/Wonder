@@ -1,0 +1,29 @@
+[Unit]
+Description=Wonder application
+Requires=wonder-postgres.service wonder-redis.service
+After=wonder-postgres.service wonder-redis.service
+
+[Container]
+Image=localhost/wonder:0.1
+ContainerName=wonder-app
+Network=wonder.network
+EnvironmentFile=%h/.config/wonder/app.env
+Environment=DOTNET_GCHeapHardLimit=0x40000000
+Volume=wonder-data.volume:/app/data
+Volume=wonder-deletion-ledger.volume:/app/data/deletion-ledger
+PublishPort=127.0.0.1:5080:8080
+PodmanArgs=--memory=1536m --cpus=2
+HealthCmd=curl --fail --silent http://localhost:8080/health/ready
+HealthInterval=20s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+Notify=healthy
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

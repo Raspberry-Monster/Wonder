@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference Include="../Wonder.Core/Wonder.Core.csproj" />
+        <ProjectReference Include="../Wonder.Chat/Wonder.Chat.csproj" />
+        <ProjectReference Include="../Wonder.Persona/Wonder.Persona.csproj" />
+        <ProjectReference Include="../Wonder.Emotion/Wonder.Emotion.csproj" />
+        <ProjectReference Include="../Wonder.Memory/Wonder.Memory.csproj" />
+        <ProjectReference Include="../Wonder.AI/Wonder.AI.csproj" />
+        <ProjectReference Include="../Wonder.Platforms/Wonder.Platforms.csproj" />
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" PrivateAssets="all" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+        <PackageReference Include="StackExchange.Redis" Version="3.4.5" />
+    </ItemGroup>
+</Project>

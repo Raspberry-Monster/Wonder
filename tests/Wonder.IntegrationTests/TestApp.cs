@@ -1,0 +1,137 @@
+using System.Net;
+using System.Text;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Wonder.Core;
+using Wonder.Infrastructure;
+using Wonder.Platforms;
+
+namespace Wonder.IntegrationTests;
+
+public sealed class TestApp : WebApplicationFactory<Program>
+{
+    private readonly SqliteConnection connection = new("Data Source=:memory:");
+
+    public TestApp()
+    {
+        connection.Open();
+    }
+
+    public List<string> ModelRequests { get; } = [];
+    public Queue<string> ModelResponses { get; } = [];
+    public FakeSender Sender { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Workers:Enabled"] = "false", ["Storage:KeysPath"] = Path.GetFullPath(".local/test-keys"),
+            ["Authentication:AllowRegistration"] = "true"
+        }));
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IHostedService>();
+            services.AddSingleton<IHttpClientFactory>(new FakeHttpFactory(ModelRequests, ModelResponses));
+            services.AddSingleton<IPlatformConnection>(Sender);
+            services.RemoveAll<IDbContextFactory<WonderDbContext>>();
+            services.RemoveAll<WonderDbContext>();
+            services.RemoveAll<DbContextOptions<WonderDbContext>>();
+            var options = new DbContextOptionsBuilder<WonderDbContext>().UseSqlite(connection)
+                .ConfigureWarnings(w => w.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)).Options;
+            services.AddSingleton<IDbContextFactory<WonderDbContext>>(new TestFactory(options));
+            services.AddScoped<WonderDbContext>(_ => new TestDb(options));
+            using var db = new TestDb(options);
+            db.Database.EnsureCreated();
+        });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing) connection.Dispose();
+    }
+
+    public sealed class FakeSender : IPlatformConnection
+    {
+        public List<string> Sent { get; } = [];
+        public bool Unknown { get; set; }
+
+        public Task<string> SendAsync(Guid bindingId, ConversationKind kind, string target, string text,
+            CancellationToken ct)
+        {
+            if (Unknown) throw new DeliveryUnknownException("Simulated disconnect after sending.");
+            Sent.Add(text);
+            return Task.FromResult(Sent.Count.ToString());
+        }
+    }
+
+    private sealed class FakeHttpFactory(List<string> requests, Queue<string> responses) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name)
+        {
+            return new HttpClient(new FakeHandler(requests, responses));
+        }
+    }
+
+    private sealed class FakeHandler(List<string> requests, Queue<string> responses) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            requests.Add(await request.Content!.ReadAsStringAsync(ct));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responses.Count > 0 ? responses.Dequeue() :
+                    "{\"choices\":[{\"message\":{\"content\":\"这是上一轮的回复。\"}}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":8}}",
+                    Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    public sealed class TestFactory(DbContextOptions<WonderDbContext> options) : IDbContextFactory<WonderDbContext>
+    {
+        public WonderDbContext CreateDbContext()
+        {
+            return new TestDb(options);
+        }
+    }
+
+    private sealed class TestDb(DbContextOptions<WonderDbContext> options) : WonderDbContext(options)
+    {
+        private static long sequence;
+
+        protected override void OnModelCreating(ModelBuilder b)
+        {
+            base.OnModelCreating(b);
+            b.Entity<ChatMessage>().Property(x => x.Sequence).ValueGeneratedNever();
+            b.Entity<OutboxMessage>().Property(x => x.Sequence).ValueGeneratedNever();
+            var array = b.Entity<MemoryEmbedding>().Property(x => x.Values)
+                .HasConversion(v => Json.Write(v), v => Json.Read<float[]>(v)).HasColumnType("text");
+            array.Metadata.SetValueComparer(new ValueComparer<float[]>((a, b) => a!.SequenceEqual(b!),
+                a => a.Aggregate(0, (x, y) => HashCode.Combine(x, y.GetHashCode())), a => a.ToArray()));
+            foreach (var entity in b.Model.GetEntityTypes())
+            foreach (var property in entity.GetProperties())
+                if (property.ClrType == typeof(DateTimeOffset) || property.ClrType == typeof(DateTimeOffset?))
+                    property.SetValueConverter(new ValueConverter<DateTimeOffset, long>(x => x.UtcTicks,
+                        x => new DateTimeOffset(x, TimeSpan.Zero)));
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken ct = default)
+        {
+            foreach (var entry in ChangeTracker.Entries<ChatMessage>().Where(x => x.State == EntityState.Added))
+                entry.Entity.Sequence = Interlocked.Increment(ref sequence);
+            foreach (var entry in ChangeTracker.Entries<OutboxMessage>().Where(x => x.State == EntityState.Added))
+                entry.Entity.Sequence = Interlocked.Increment(ref sequence);
+            return base.SaveChangesAsync(ct);
+        }
+    }
+}

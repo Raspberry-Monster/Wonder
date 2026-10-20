@@ -1,0 +1,33 @@
+name: build-and-test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: wonder
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U wonder -d postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      WONDER_TEST_POSTGRES: Host=localhost;Database=postgres;Username=wonder;Password=ci-password
+      WONDER_TEST_REDIS: localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore Wonder.slnx
+      - run: dotnet test --solution Wonder.slnx --configuration Release --no-restore
+      - run: dotnet publish src/Wonder.Host -c Release --no-restore -o artifacts/host
