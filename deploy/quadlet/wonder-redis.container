@@ -1,12 +1,13 @@
 [Unit]
-Description=Wonder Redis Streams
+Description=Wonder Redis Podman Container
 
 [Container]
-Image=docker.io/library/redis:7.4-alpine
 ContainerName=wonder-redis
-Network=wonder.network
+Image=docker.io/library/redis:7.4-alpine
+Network=wonder
 NetworkAlias=redis
-Volume=wonder-redis.volume:/data
+Environment=TZ=Asia/Shanghai
+Volume=%h/quadlet.config.d/Wonder/Redis:/data:Z
 Exec=redis-server --appendonly yes --maxmemory 192mb --maxmemory-policy noeviction
 PodmanArgs=--memory=256m
 HealthCmd=redis-cli ping
@@ -14,9 +15,10 @@ HealthInterval=5s
 HealthTimeout=3s
 HealthRetries=20
 Notify=healthy
+StopTimeout=60
 
 [Service]
-Restart=on-failure
+Restart=always
 RestartSec=5
 TimeoutStartSec=900
 

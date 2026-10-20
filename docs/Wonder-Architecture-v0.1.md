@@ -17,7 +17,7 @@ Wonder 是一个基于 QQ 的、多实例 AI 聊天机器人平台。每个逻�
 
 ```mermaid
 flowchart TB
-  QQ[QQ / NapCat · OneBot 11] --> GW[Gateway]
+  QQ[QQ / SnowLuma · OneBot 11] --> GW[Gateway]
   UI[Web Dashboard] --> API[MVC API · Cookie 认证与资源授权]
   GW --> DB[(PostgreSQL + pgvector · 消息 / 状态 / Outbox / Inbox)]
   API --> DB
@@ -113,7 +113,7 @@ M(t + Δt) = Clamp(B + λ^Δt · (M(t) - B) + α · ΔE)
 
 ## 可靠聊天链路
 
-1. NapCat 正向 WebSocket 接收入站消息，标准化文本、图片、@ 和引用；按群策略决定触发。保存、回复与反思分别判断，未触发群消息不默认提取长期记忆。
+1. SnowLuma 正向 WebSocket 接收入站消息，标准化文本、图片、@ 和引用；按群策略决定触发。保存、回复与反思分别判断，未触发群消息不默认提取长期记忆。
 2. 消息与 Outbox 在同一 PostgreSQL 事务提交，以平台消息标识去重；Redis 只传 EventId 等元信息。
 3. Publisher 允许重复发布；Consumer Group 领取任务，业务效果与 Inbox 同事务提交后确认消费，失败有限重试并进入持久失败记录 / DLQ。
 4. 同一对话检查前序聊天及未完成发送，再固定上下文并调用模型；模型调用期间不持有长数据库事务。

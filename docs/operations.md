@@ -12,11 +12,11 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
 
 ## 手动备份
 
-应用镜像内包含 PostgreSQL 17 客户端和 age。应用外使用 age-keygen 生成密钥；仅将公开 age1... 收件人填入 AGE_RECIPIENT / Backups:AgeRecipient，私钥放在异机。
+应用镜像内包含 PostgreSQL 17 客户端和 age。应用外使用 age-keygen 生成密钥；仅将公开 age1... 收件人填入 Backups__AgeRecipient，私钥放在异机。Compose 直接编辑 deploy/compose.yaml 的 environment；Quadlet 直接编辑 wonder-app.container 的 Environment=，不使用独立 env 文件。
 
-将系统管理员账号 UUID 写入 SYSTEM_ADMIN_ID / SystemAdminIds。登录后 POST /api/v1/system/backups，携带 X-Wonder: 1。接口执行 pg_dump 并直接流式 age 加密，不写明文数据库转储，同时在独立目录输出加密撤销账本。
+将系统管理员账号 UUID 写入 SystemAdminIds__0。登录后 POST /api/v1/system/backups，携带 X-Wonder: 1。接口执行 pg_dump 并直接流式 age 加密，不写明文数据库转储，同时在独立目录输出加密撤销账本。
 
-删除账本默认位于 data/deletion-ledger。Compose 为它设置独立卷，但默认仍在同一物理主机；请将这个卷挂到独立磁盘或同步到异机。启用收件人后，每次删除会排入账本导出任务；可以 POST /api/v1/system/deletion-ledger 手动再导出。关注导出任务失败和积压。
+容器数据统一映射到 ~/quadlet.config.d/Wonder/ 下的 PostgreSQL、Redis、Host、DeletionLedger 和 SnowLuma 子目录。删除账本在容器内仍位于 data/deletion-ledger，宿主对应 DeletionLedger；默认仍在同一物理主机，请将它挂到独立磁盘或同步到异机。启用收件人后，每次删除会排入账本导出任务；可以 POST /api/v1/system/deletion-ledger 手动再导出。关注导出任务失败和积压。
 
 数据库备份之外还需要独立加密保存 data/keys。丢失 Data Protection 密钥会导致现有模型 Key、QQ 令牌和登录 Cookie 无法解密。恢复后可以重新输入模型 Key / QQ 令牌，但不能从密文反推出它们。
 
@@ -51,7 +51,7 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
 
 - dotnet run / IDE：查看运行终端或调试输出。
 - Podman Quadlet：journalctl --user -u wonder-app.service -n 200 -f。
-- Compose（项目根目录）：docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail 200 -f app。
+- Compose（项目根目录）：docker compose -f deploy/compose.yaml logs --tail 200 -f app。
 
 按任务 UUID 查找对应失败记录。ModelConfigurationException 的消息可区分缺少模型路由、Token 预算耗尽和供应商拒绝请求的 HTTP 状态码；供应商错误响应正文目前没有写入异常。修正配置后，在控制台“状态与任务”重试。
 

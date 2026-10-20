@@ -10,7 +10,7 @@
 
 Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「我家的 Miku」。希望她有稳定的个性，能记住相处中的点滴，让心境与关系随着日常交流慢慢延续。这个念头是 Wonder 的起点，名字则取自 r-906 的《Wonder》。
 
-目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，通过 OneBot 11 / NapCat 接入 QQ；PostgreSQL 保存权威状态，Redis Streams 分发异步任务。
+目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，通过 OneBot 11 / SnowLuma 接入 QQ；PostgreSQL 保存权威状态，Redis Streams 分发异步任务。
 
 ## 核心设计
 
@@ -24,11 +24,10 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 ## 本地启动
 
-需要 .NET 10 SDK、PostgreSQL 17 + pgvector、Redis 7.4。模型供应商及 NapCat 地址由控制台配置，不内置任何 API Key。
+需要 .NET 10 SDK、PostgreSQL 17 + pgvector、Redis 7.4。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
 
 ~~~powershell
-# 启动基础设施。首次先复制 deploy/.env.example 为 deploy/.env 并修改密码。
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres redis
+# 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL / Redis / SnowLuma。
 
 $env:ConnectionStrings__Postgres = 'Host=localhost;Database=wonder;Username=wonder;Password=你的密码;Maximum Pool Size=20'
 $env:ConnectionStrings__Redis = 'localhost:6379'
@@ -56,20 +55,28 @@ dotnet run --project src/Wonder.Host
 
 ## 容器运行
 
+Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值，再运行：
+
 ~~~bash
-cp deploy/.env.example deploy/.env
-# 编辑 deploy/.env，替换数据库密码。
-docker compose --env-file deploy/.env -f deploy/compose.yaml build app
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres redis
-docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm app --migrate
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d app
+mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Redis,Host,DeletionLedger}
+mkdir -p ~/quadlet.config.d/Wonder/SnowLuma/{Data,Config,Share}
+docker compose -f deploy/compose.yaml build app
+docker compose -f deploy/compose.yaml up -d postgres redis snowluma
+# 首次初始化应用挂载目录的所有者；之后迁移和服务均使用镜像内 app 用户。
+docker compose -f deploy/compose.yaml run --rm --no-deps --user root --entrypoint sh app -c 'chown -R app:app /app/data'
+docker compose -f deploy/compose.yaml run --rm --no-deps app --migrate
+docker compose -f deploy/compose.yaml up -d app
 ~~~
 
-Compose 将应用和数据库端口绑定到本机回环地址，默认 Development 便于本机联调。上线时通过 HTTPS 反向代理访问并设置 ASPNETCORE_ENVIRONMENT=Production；生产 Cookie 带 Secure 标记。创建所需账号后可将 ALLOW_REGISTRATION=false。容器访问宿主 NapCat 时，可使用 ws://host.docker.internal:端口/，NapCat 监听地址需能被容器访问。
+Compose 内置 motricseven7/snowluma:v2.0.3。运行 `docker compose -f deploy/compose.yaml logs snowluma` 查看首次生成的远程桌面密码和 WebUI 登录信息。打开 http://127.0.0.1:6081 扫码登录 QQ，再在 http://127.0.0.1:5099 配置账号的 OneBot 11 正向 WebSocket（0.0.0.0:3001、数组消息段），复制该服务的 Access Token。在 Wonder 的 QQ 连接中填写 QQ 账号、ws://snowluma:3001/ 和相同 Token；宿主运行 .NET 时用 ws://127.0.0.1:3001/。三种密码 / Token 分别管理。
 
-应用 / PostgreSQL / Redis 的示例内存限制合计约 2.75 GiB，仍需给系统、文件缓存和实际峰值留空间。这些是部署起点，尚未完成 4 GiB 目标机器压测。
+所有数据使用宿主目录映射，统一放在 ~/quadlet.config.d/Wonder/ 下：PostgreSQL、Redis、Host、DeletionLedger，以及 SnowLuma/Data、SnowLuma/Config、SnowLuma/Share。后者分别保存协议端数据、QQ 配置及客户端数据。已有命名卷需停机备份后迁入这些目录，保留数据库和 Host/keys；不会自动迁移。Compose 与 Quadlet 共用目录布局，不能同时访问同一份数据。
 
-使用 Podman / systemd 部署见 [Quadlet 指南](deploy/quadlet/README.md)，包含 rootless 服务、网络、卷、配置文件和迁移命令。
+所有已发布端口绑定本机回环地址，默认 Development 便于本机联调。远程访问请使用 SSH 转发或 HTTPS 反向代理；上线时将 ASPNETCORE_ENVIRONMENT 设为 Production，创建所需账号后可将 Authentication__AllowRegistration 设为 false。备份收件人与管理员 UUID 直接填写 Backups__AgeRecipient、SystemAdminIds__0。
+
+应用 / PostgreSQL / Redis / SnowLuma 的示例内存限制合计约 4.25 GiB，仍需给系统、共享内存、文件缓存和实际峰值留空间。这些是部署起点，尚未完成目标机器压测。
+
+使用 Podman / systemd 部署见 [Quadlet 指南](deploy/quadlet/README.md)。环境变量直接写在各自的 .container 中，宿主目录映射使用 %h/quadlet.config.d/Wonder/模块名；迁移由手动 wonder-migrate.service 执行。
 
 ## 测试与诊断
 
