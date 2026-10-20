@@ -67,10 +67,12 @@ public sealed class ModelRouter(
     }
 
     public async Task<ChatResponse> GenerateAsync(ModelProfile profile, IEnumerable<ChatMessage> messages, bool json,
-        CancellationToken ct)
+        CancellationToken ct, IList<AITool>? tools = null, bool disableTools = false)
     {
         var input = messages.ToArray();
-        await CheckBudgetAsync(profile, input.Sum(x => x.Text.Length) + profile.MaxOutputTokens, ct);
+        if (tools is { Count: > 0 } && EstimateInput(input, tools) + profile.MaxOutputTokens + 512 > profile.ContextWindow)
+            throw new ModelResponseException("Tool conversation exceeds the configured context window.");
+        await CheckBudgetAsync(profile, EstimateInput(input, tools) + profile.MaxOutputTokens, ct);
         using var clientHttp = CompatibleHttp.Configure(http.CreateClient("models"), profile.Endpoint,
             secrets.Unprotect(profile.ProtectedApiKey));
         using IChatClient client = new CompatibleChatClient(clientHttp, profile.Model, profile.SupportsJson,
@@ -79,11 +81,13 @@ public sealed class ModelRouter(
             new ChatOptions
             {
                 MaxOutputTokens = profile.MaxOutputTokens,
-                ResponseFormat = json ? ChatResponseFormat.Json : ChatResponseFormat.Text
+                ResponseFormat = json ? ChatResponseFormat.Json : ChatResponseFormat.Text,
+                Tools = tools,
+                ToolMode = disableTools ? ChatToolMode.None : ChatToolMode.Auto
             }, ct);
         await using var db = await factory.CreateDbContextAsync(ct);
-        var i = result.Usage?.InputTokenCount ?? input.Sum(x => x.Text.Length);
-        var o = result.Usage?.OutputTokenCount ?? result.Text.Length;
+        var i = result.Usage?.InputTokenCount ?? EstimateInput(input, tools);
+        var o = result.Usage?.OutputTokenCount ?? EstimateInput(result.Messages, null);
         db.Usage.Add(new UsageRecord
         {
             BotId = profile.BotId,
@@ -102,10 +106,22 @@ public sealed class ModelRouter(
         if (json && result.FinishReason == ChatFinishReason.Length)
             throw new ModelResponseException("Structured model response was truncated. " + details +
                 " Increase the output limit or reduce input/thinking before retrying.");
-        if (string.IsNullOrWhiteSpace(result.Text))
+        var calls = result.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().Any();
+        if (calls && (tools is not { Count: > 0 } || disableTools || result.FinishReason == ChatFinishReason.Length))
+            throw new ModelResponseException("Unexpected, truncated or excessive tool calls. " + details);
+        if (string.IsNullOrWhiteSpace(result.Text) && !calls)
             throw new ModelResponseException("Model returned no final content. " + details);
         return result;
     }
+
+    public static int EstimateInput(IEnumerable<ChatMessage> messages, IList<AITool>? tools) =>
+        messages.Sum(x => x.Text.Length + 16 + (x.AdditionalProperties?.TryGetValue("reasoning_content", out var reasoning) == true ? reasoning?.ToString()?.Length ?? 0 : 0) +
+            x.Contents.Sum(c => c switch
+            {
+                FunctionCallContent call => Json.Write(call.Arguments).Length + call.Name.Length + 32,
+                FunctionResultContent result => (result.Result is string text ? text.Length : Json.Write(result.Result).Length) + 32,
+                _ => 0
+            })) + (tools?.OfType<AIFunctionDeclaration>().Sum(t => t.JsonSchema.GetRawText().Length + t.Description.Length + t.Name.Length + 32) ?? 0);
 
     public async Task<float[]> EmbedAsync(ModelProfile profile, string text, CancellationToken ct)
     {

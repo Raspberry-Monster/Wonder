@@ -19,10 +19,14 @@ namespace Wonder.IntegrationTests;
 
 public sealed class TestApp : WebApplicationFactory<Program>
 {
-    private readonly SqliteConnection connection = new("Data Source=:memory:");
+    private readonly SqliteConnection connection;
+    private readonly TimeProvider? time;
 
-    public TestApp()
+    public TestApp(TimeProvider? time = null, string? databaseFile = null)
     {
+        this.time = time;
+        connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = databaseFile ?? ":memory:", Pooling = false }.ToString());
         connection.Open();
     }
 
@@ -41,6 +45,11 @@ public sealed class TestApp : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IHostedService>();
+            if (time is not null)
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton(time);
+            }
             services.AddSingleton<IHttpClientFactory>(new FakeHttpFactory(ModelRequests, ModelResponses));
             services.AddSingleton<IPlatformConnection>(Sender);
             services.RemoveAll<IDbContextFactory<WonderDbContext>>();

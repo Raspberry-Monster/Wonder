@@ -283,6 +283,12 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("MessageIdsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
                     b.Property<long>("Revision")
                         .HasColumnType("bigint");
 
@@ -709,6 +715,9 @@ namespace Wonder.Infrastructure.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("SupportsJson")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("SupportsTools")
                         .HasColumnType("boolean");
 
                     b.Property<int>("TaskKind")

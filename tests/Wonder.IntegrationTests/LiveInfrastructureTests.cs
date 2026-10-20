@@ -96,6 +96,33 @@ public sealed class LiveInfrastructureTests
             await Assert.That(withdrawnMatches).HasSingleItem();
             await Assert.That(withdrawnMatches[0].Id).IsEqualTo(groupFact.Id);
 
+            var conversation = new Conversation { BotId = bot.Id, Kind = ConversationKind.Group, ExternalId = "continuity" };
+            var previousSession = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id, Status = SessionStatus.Closed };
+            var currentSession = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
+            db.Conversations.Add(conversation);
+            db.Sessions.AddRange(previousSession, currentSession);
+            var historical = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = previousSession.Id,
+                SenderId = alice.Id, ExternalMessageId = "history", Text = "previous session", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+            db.Messages.Add(historical);
+            await db.SaveChangesAsync();
+            var summary = new ConversationSummary { BotId = bot.Id, SessionId = previousSession.Id,
+                ThroughSequence = historical.Sequence, Text = "previous summary" };
+            db.Summaries.Add(summary);
+            var currentMessage = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = currentSession.Id,
+                SenderId = alice.Id, ExternalMessageId = "current", Text = "continue", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+            db.Messages.Add(currentMessage);
+            var toolProfile = new ModelProfile { BotId = bot.Id, TaskKind = TaskKind.Chat, SupportsTools = true };
+            db.Models.Add(toolProfile);
+            await db.SaveChangesAsync();
+            await Assert.That((await ConversationHistory.LatestSummaryAsync(db, bot.Id, conversation.Id, currentMessage.Sequence, default))!.Id)
+                .IsEqualTo(summary.Id);
+            var retainedHistory = await ConversationHistory.Visible(db, bot.Id, conversation.Id, currentMessage.Sequence, DateTimeOffset.UtcNow)
+                .OrderByDescending(x => x.Sequence).Take(5).ToListAsync();
+            await Assert.That(retainedHistory).HasSingleItem();
+            await Assert.That(retainedHistory[0].Id).IsEqualTo(historical.Id);
+            await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).MessageIdsJson).IsEqualTo("[]");
+            await Assert.That((await db.Models.AsNoTracking().SingleAsync()).SupportsTools).IsTrue();
+
             var stream = queue.GetDatabase();
             await stream.StreamCreateConsumerGroupAsync(key, "test", "0-0");
             await stream.StreamAddAsync(key, [new NameValueEntry("eventId", job.Id.ToString())]);

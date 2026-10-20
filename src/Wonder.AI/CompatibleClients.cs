@@ -30,8 +30,14 @@ public sealed class CompatibleChatClient(
             ["model"] = model,
             ["stream"] = false,
             ["max_tokens"] = options?.MaxOutputTokens ?? 1024,
-            ["messages"] = messages.Select(m => new { role = m.Role.Value, content = MessageContent(m) }).ToArray()
+            ["messages"] = messages.SelectMany(MessageObjects).ToArray()
         };
+        if (options?.Tools is { Count: > 0 } tools)
+        {
+            body["tools"] = tools.OfType<AIFunctionDeclaration>().Select(t => new
+            { type = "function", function = new { name = t.Name, description = t.Description, parameters = t.JsonSchema } }).ToArray();
+            body["tool_choice"] = options.ToolMode == ChatToolMode.None ? "none" : "auto";
+        }
         if (thinkingEnabled.HasValue)
             body["thinking"] = new { type = thinkingEnabled.Value ? "enabled" : "disabled" };
         if (thinkingEnabled == true && reasoningEffort is not null)
@@ -41,8 +47,26 @@ public sealed class CompatibleChatClient(
         using var response = await CompatibleHttp.PostAsync(http, "chat/completions", body, cancellationToken);
         var e = response.RootElement;
         var choice = e.GetProperty("choices")[0];
-        var text = choice.GetProperty("message").GetProperty("content").GetString() ?? "";
-        var result = new ChatResponse(new AiMessage(ChatRole.Assistant, text))
+        var wire = choice.GetProperty("message");
+        var text = wire.TryGetProperty("content", out var content) ? content.GetString() ?? "" : "";
+        var assistant = new AiMessage(ChatRole.Assistant, text);
+        if (wire.TryGetProperty("reasoning_content", out var reasoning) && reasoning.ValueKind == JsonValueKind.String)
+            assistant.AdditionalProperties = new() { ["reasoning_content"] = reasoning.GetString() };
+        if (wire.TryGetProperty("tool_calls", out var calls) && calls.ValueKind == JsonValueKind.Array)
+            foreach (var call in calls.EnumerateArray())
+            {
+                var function = call.GetProperty("function");
+                IDictionary<string, object?> arguments;
+                try
+                {
+                    arguments = JsonSerializer.Deserialize<Dictionary<string, object?>>(
+                        function.GetProperty("arguments").GetString() ?? "{}", Core.Json.Options) ?? new();
+                }
+                catch (JsonException) { arguments = new Dictionary<string, object?> { ["__invalid_arguments"] = true }; }
+                assistant.Contents.Add(new FunctionCallContent(call.GetProperty("id").GetString()!,
+                    function.GetProperty("name").GetString()!, arguments));
+            }
+        var result = new ChatResponse(assistant)
         {
             ModelId = model,
             FinishReason = choice.TryGetProperty("finish_reason", out var finish) && finish.GetString() is { } reason
@@ -73,6 +97,26 @@ public sealed class CompatibleChatClient(
 
     public void Dispose()
     {
+    }
+
+    private static IEnumerable<Dictionary<string, object?>> MessageObjects(AiMessage message)
+    {
+        if (message.Role == ChatRole.Tool)
+        {
+            foreach (var result in message.Contents.OfType<FunctionResultContent>())
+                yield return new() { ["role"] = "tool", ["tool_call_id"] = result.CallId,
+                    ["content"] = result.Result is string text ? text : Core.Json.Write(result.Result) };
+            yield break;
+        }
+        var calls = message.Contents.OfType<FunctionCallContent>().ToArray();
+        var wire = new Dictionary<string, object?> { ["role"] = message.Role.Value,
+            ["content"] = calls.Length == 0 ? MessageContent(message) : message.Text.Length == 0 ? null : message.Text };
+        if (calls.Length > 0)
+            wire["tool_calls"] = calls.Select(c => new { id = c.CallId, type = "function",
+                function = new { name = c.Name, arguments = Core.Json.Write(c.Arguments) } }).ToArray();
+        if (message.AdditionalProperties?.TryGetValue("reasoning_content", out var reasoning) == true)
+            wire["reasoning_content"] = reasoning;
+        yield return wire;
     }
 
     private static object MessageContent(AiMessage message)

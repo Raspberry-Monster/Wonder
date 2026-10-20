@@ -35,7 +35,8 @@ public sealed record ModelRouteInput(
     decimal InputCostPerMillion = 0,
     decimal OutputCostPerMillion = 0,
     bool? ThinkingEnabled = null,
-    string? ReasoningEffort = null);
+    string? ReasoningEffort = null,
+    bool? SupportsTools = null);
 
 public sealed record GroupPolicyInput(
     bool RespondToMention = true,

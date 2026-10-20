@@ -221,7 +221,7 @@ async function renderModels() {
     const generationTasks = Object.entries(tasks).filter(([id]) => id !== 'Embedding');
     const dropdown = (label, name, values, current) => '<label>' + label + '<select name="' + name + '">' + values.map(([value, text]) => '<option value="' + value + '" ' + (value === current ? 'selected' : '') + '>' + text + '</option>').join('') + '</select></label>';
 
-    function routeFields(r = {}, embedding = false, batch = false) {
+    function routeFields(r = {}, embedding = false, batch = false, chat = false) {
         return '<div class="form-grid">' +
             field('接口基础地址', 'endpoint', r.endpoint || '', 'url', 'required placeholder="https://provider.example/v1/"') +
             field('模型名称', 'model', r.model || '', 'text', 'required') +
@@ -234,6 +234,7 @@ async function renderModels() {
             (embedding ? '<p class="muted">请填写提供向量接口的 Embedding 模型。</p>' :
                 checkbox('支持图片输入', 'supportsImages', r.supportsImages) +
                 checkbox('支持 JSON 输出格式', 'supportsJson', r.supportsJson) +
+                (chat ? checkbox('启用只读工具（当前时间、当前对话历史检索；需模型支持工具调用）', 'supportsTools', r.supportsTools) : '') +
                 dropdown('思考模式', 'thinkingEnabled', [['', '跟随供应商默认'], ['false', '关闭'], ['true', '开启']], r.thinkingEnabled == null ? '' : String(r.thinkingEnabled)) +
                 dropdown('思考强度', 'reasoningEffort', [['', '跟随供应商默认'], ['low', 'low'], ['high', 'high'], ['max', 'max']], r.reasoningEffort || '') +
                 '<p class="muted">按模型实际能力设置图片、JSON 和思考参数。思考内容不会显示在聊天中；开启时请为思考和最终回答预留足够的输出 Token。</p>');
@@ -259,6 +260,7 @@ async function renderModels() {
         }
         data.supportsImages = form.elements.supportsImages ? check(form, 'supportsImages') : false;
         data.supportsJson = form.elements.supportsJson ? check(form, 'supportsJson') : false;
+        if (form.elements.supportsTools) data.supportsTools = check(form, 'supportsTools');
         data.thinkingEnabled = data.thinkingEnabled === 'true' ? true : data.thinkingEnabled === 'false' ? false : null;
         data.reasoningEffort = data.thinkingEnabled === true ? data.reasoningEffort || null : null;
         return data;
@@ -288,7 +290,7 @@ async function renderModels() {
     const select = modelForm.elements.taskKind;
     function fields() {
         const route = routes.find(x => x.taskKind === select.value) || {};
-        $('#model-fields').innerHTML = routeFields(route, select.value === 'Embedding');
+        $('#model-fields').innerHTML = routeFields(route, select.value === 'Embedding', false, select.value === 'Chat');
         setupThinking(modelForm);
     }
     select.onchange = fields;

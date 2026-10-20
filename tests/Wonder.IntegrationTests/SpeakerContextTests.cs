@@ -45,7 +45,7 @@ public sealed class SpeakerContextTests
         await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "user" &&
             m.GetProperty("content").GetString()!.StartsWith($"[Message author: {firstTag}]", StringComparison.Ordinal))).IsTrue();
         await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "assistant" &&
-            m.GetProperty("content").GetString() == "这是上一轮的回复。")).IsTrue();
+            m.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。", StringComparison.Ordinal))).IsTrue();
         await Assert.That(app.ModelRequests[1]).DoesNotContain(first.SenderId!.Value.ToString());
         await Assert.That(app.ModelRequests[1]).DoesNotContain(second.SenderId!.Value.ToString());
         await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing &&

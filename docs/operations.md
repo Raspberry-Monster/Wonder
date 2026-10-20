@@ -64,3 +64,5 @@ Redis 消费遇到 NOGROUP 时会重新初始化 Consumer Group；并发创建�
 停止当前 Host（包括 IDE 调试进程），执行 README 或对应容器指南中的 --migrate，再启动新版应用。不要在旧版本仍运行时切换数据库结构。
 
 用户称呼、共享空间与记忆授权的操作见 [跨群记忆与用户称呼](shared-context.md)。核心状态、权限和派生上下文处理见 [核心架构](Wonder-Architecture-v0.1.md)。
+
+跨 Session 对话延续与工具功能需要执行 ConversationContinuityAndTools 迁移。默认使用 Asia/Shanghai 时区；可设置 Chat__TimeZone。历史查询工具需在聊天路由中单独开启，当前时间每轮自动注入。使用范围和验证说明见 [对话延续与时间](conversation-continuity.md)。

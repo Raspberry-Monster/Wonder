@@ -201,7 +201,7 @@ public sealed class ApiTests
         using var secondRequest = JsonDocument.Parse(app.ModelRequests[1]);
         await Assert.That(secondRequest.RootElement.GetProperty("messages").EnumerateArray().Any(x =>
             x.GetProperty("role").GetString() == "assistant" &&
-            x.GetProperty("content").GetString() == "这是上一轮的回复。")).IsTrue();
+            x.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。", StringComparison.Ordinal))).IsTrue();
         await Assert.That(app.Sender.Sent).HasSingleItem();
         await Assert.That(await db.Messages.CountAsync(x => x.Role == "assistant")).IsEqualTo(2);
         await Assert.That((await db.Messages.FirstAsync(x => x.Role == "assistant")).ContextSnapshotJson).IsNotNull();
@@ -425,5 +425,27 @@ public sealed class ApiTests
                 apiKey = "test-key", thinkingEnabled = enabled, reasoningEffort = effort }
         });
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+    }
+
+    [Test]
+    public async Task ToolCapabilityIsChatOnlyAndOmittedUpdatesPreserveIt()
+    {
+        using var app = new TestApp();
+        var (client, _) = await LoginAsync(app, "tool-settings@example.com");
+        var created = await client.PostAsJsonAsync("/api/v1/bots", new { name = "Tools", identity = "Wonder" });
+        var bot = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var url = $"/api/v1/bots/{bot}/model-routes";
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Chat", endpoint = "https://model.example/v1/",
+            model = "test", apiKey = "test-key", supportsTools = true } })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Chat", endpoint = "https://model.example/v1/",
+            model = "updated", apiKey = "" } })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        var routes = await client.GetFromJsonAsync<JsonElement>(url);
+        await Assert.That(routes[0].GetProperty("supportsTools").GetBoolean()).IsTrue();
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Embedding", endpoint = "https://model.example/v1/",
+            model = "vectors", apiKey = "test-key", supportsTools = true } })).StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Chat", endpoint = "https://model.example/v1/",
+            model = "updated", apiKey = "", supportsTools = false } })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        routes = await client.GetFromJsonAsync<JsonElement>(url);
+        await Assert.That(routes[0].GetProperty("supportsTools").GetBoolean()).IsFalse();
     }
 }

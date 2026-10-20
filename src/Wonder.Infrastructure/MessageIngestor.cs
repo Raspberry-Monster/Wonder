@@ -130,6 +130,7 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory)
             ExternalMessageId = e.MessageId,
             SegmentsJson = Json.Write(e.Segments),
             Text = text,
+            CreatedAt = e.OccurredAt,
             AllowReflection = decision.ShouldReflect,
             ShouldRespond = decision.ShouldRespond,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(bot.MessageRetentionDays)

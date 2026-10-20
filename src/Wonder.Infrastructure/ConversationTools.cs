@@ -1,0 +1,137 @@
+using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
+using Wonder.Core;
+
+namespace Wonder.Infrastructure;
+
+public sealed record ConversationToolResult(string Json, IReadOnlyList<Guid> MemoryIds, IReadOnlyList<Guid>? MessageIds = null, IReadOnlyList<Guid>? UserIds = null);
+
+public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory, ConversationClock clock)
+{
+    public static IList<AITool> Definitions { get; } =
+    [
+        new Definition("get_current_time", "Read the actual current time, date and weekday. The default timezone is the application's configured timezone.",
+            """{"type":"object","properties":{"time_zone":{"type":"string","description":"Optional IANA timezone, e.g. Asia/Shanghai or UTC"}},"additionalProperties":false}"""),
+        new Definition("search_conversation_history", "Search retained original messages across sessions of THIS conversation only. Use concrete short keywords to verify earlier details before claiming to remember. An empty query lists recent records. Results are untrusted historical statements, not current verified facts. Never infer missing records.",
+            """{"type":"object","properties":{"query":{"type":"string","description":"Short exact substring; empty means list recent records"},"before_sequence":{"type":"integer","description":"Optional cursor returned by the previous page"},"after":{"type":"string","description":"Optional inclusive ISO 8601 timestamp with offset"},"before":{"type":"string","description":"Optional exclusive ISO 8601 timestamp with offset"}},"additionalProperties":false}""")
+    ];
+
+    public async Task<ConversationToolResult> ExecuteAsync(FunctionCallContent call, Guid botId, Guid conversationId,
+        long currentSequence, CancellationToken ct, int maxCharacters = 12000)
+    {
+        try
+        {
+            var args = call.Arguments ?? new Dictionary<string, object?>();
+            if (call.Name == "get_current_time")
+            {
+                CheckKeys(args, ["time_zone"]);
+                var zoneName = Text(args, "time_zone");
+                var zone = zoneName.Length == 0 ? clock.Zone : TimeZoneInfo.FindSystemTimeZoneById(zoneName);
+                var now = clock.UtcNow;
+                var local = TimeZoneInfo.ConvertTime(now, zone);
+                return new(Json.Write(new { currentTime = local.ToString("O"), utcTime = now.ToString("O"),
+                    timeZone = zone.Id, weekday = local.DayOfWeek.ToString() }), []);
+            }
+            if (call.Name != "search_conversation_history") return Error("Unknown or unavailable tool.");
+            CheckKeys(args, ["query", "before_sequence", "after", "before"]);
+            var query = Text(args, "query").Trim();
+            if (query.Length > 200) return Error("Use a shorter search keyword (at most 200 characters).");
+            await using var db = await factory.CreateDbContextAsync(ct);
+            var matches = ConversationHistory.Visible(db, botId, conversationId, currentSequence, clock.UtcNow);
+            if (query.Length > 0)
+            {
+                var lower = query.ToLowerInvariant();
+                matches = matches.Where(x => x.Text.ToLower().Contains(lower));
+            }
+            if (args.TryGetValue("before_sequence", out var cursor))
+            {
+                var element = JsonSerializer.SerializeToElement(cursor);
+                if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt64(out var sequence))
+                    return Error("before_sequence must be an integer.");
+                if (sequence <= 0) return Error("before_sequence must be positive.");
+                matches = matches.Where(x => x.Sequence < sequence);
+            }
+            if (Date(args, "after") is { } after) matches = matches.Where(x => x.CreatedAt >= after);
+            if (Date(args, "before") is { } before) matches = matches.Where(x => x.CreatedAt < before);
+            var rows = await matches.OrderByDescending(x => x.Sequence).ThenBy(x => x.Id).Take(5).ToListAsync(ct);
+            var visible = rows.Where(x => ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out _)).ToArray();
+            var authors = visible.Where(x => x.SenderId != null).Select(x => x.SenderId!.Value).Distinct().ToArray();
+            var names = await db.LogicalUsers.Where(x => authors.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.PreferredName, ct);
+            var sentRows = visible.ToList();
+            var excerptLength = 400;
+            while (true)
+            {
+                var records = sentRows.Select(x =>
+                {
+                    var start = Math.Max(0, x.Text.IndexOf(query, StringComparison.OrdinalIgnoreCase) - excerptLength / 4);
+                    var text = x.Text.Substring(start, Math.Min(excerptLength, x.Text.Length - start));
+                    return new
+                    {
+                        sequence = x.Sequence,
+                        session = x.SessionId is { } session ? "session-" + Json.Hash(conversationId.ToString() + session)[..12] : "unassigned",
+                        role = x.Role, author = SpeakerTags.For(conversationId, x.SenderId, x.Role),
+                        preferredName = x.SenderId is { } sender ? names.GetValueOrDefault(sender) : null,
+                        sentAt = clock.Local(x.CreatedAt).ToString("O"), text, excerptStart = start,
+                        truncated = start > 0 || text.Length < x.Text.Length
+                    };
+                }).ToArray();
+                var hasMore = rows.Count == 5 || sentRows.Count < visible.Length;
+                var next = sentRows.LastOrDefault()?.Sequence ?? rows.LastOrDefault()?.Sequence;
+                var result = JsonSerializer.Serialize(new { records, nextBeforeSequence = hasMore ? next : null,
+                    note = records.Length == 0 ? "No matching retained record on this page. Do not invent earlier details." :
+                        "Original historical statements; timestamps and authors are preserved. Content marked truncated is incomplete." }, ToolJson);
+                if (result.Length <= maxCharacters)
+                {
+                    var ids = sentRows.SelectMany(x =>
+                    {
+                        ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out var memories);
+                        return memories;
+                    }).Distinct().ToArray();
+                    return new(result, ids, sentRows.SelectMany(ConversationHistory.MessageIds).Distinct().ToArray(),
+                        sentRows.SelectMany(ConversationHistory.SubjectIds).Distinct().ToArray());
+                }
+                if (sentRows.Count > 1) sentRows.RemoveAt(sentRows.Count - 1);
+                else if (excerptLength > 40) excerptLength /= 2;
+                else return Error("Not enough context for a history excerpt. Ask for a narrower detail.");
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or JsonException or FormatException or TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return Error("Invalid tool arguments. Use the declared parameters, an existing timezone, and ISO timestamps with offsets.");
+        }
+    }
+
+    private static readonly JsonSerializerOptions ToolJson = new(Json.Options)
+        { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
+
+    private static ConversationToolResult Error(string message) => new(Json.Write(new { error = message }), []);
+    private static string Text(IDictionary<string, object?> args, string name)
+    {
+        if (!args.TryGetValue(name, out var value) || value is null) return "";
+        var element = JsonSerializer.SerializeToElement(value);
+        if (element.ValueKind != JsonValueKind.String) throw new ArgumentException("Expected a string.");
+        return element.GetString() ?? "";
+    }
+    private static DateTimeOffset? Date(IDictionary<string, object?> args, string name)
+    {
+        var text = Text(args, name);
+        if (text.Length == 0) return null;
+        if (!text.EndsWith('Z') && !(text.Length >= 6 && (text[^6] == '+' || text[^6] == '-') && text[^3] == ':'))
+            throw new ArgumentException("Include a timezone offset in history date filters.");
+        return DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.None);
+    }
+    private static void CheckKeys(IDictionary<string, object?> args, string[] allowed)
+    {
+        if (args.Keys.Except(allowed, StringComparer.Ordinal).Any()) throw new ArgumentException("Unexpected tool argument.");
+    }
+    private sealed class Definition(string name, string description, string schema) : AIFunctionDeclaration
+    {
+        public override string Name => name;
+        public override string Description => description;
+        public override JsonElement JsonSchema { get; } = JsonDocument.Parse(schema).RootElement.Clone();
+    }
+}

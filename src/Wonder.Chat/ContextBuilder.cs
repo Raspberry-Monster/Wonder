@@ -4,13 +4,12 @@ using Wonder.Persona;
 namespace Wonder.Chat;
 
 public sealed record ContextTurn(
-    string Role, string Text, IReadOnlyList<MessageSegment>? Segments = null, string? SpeakerTag = null, string? PreferredName = null, IReadOnlyList<Guid>? MemoryIds = null)
+    string Role, string Text, IReadOnlyList<MessageSegment>? Segments = null, string? SpeakerTag = null, string? PreferredName = null, IReadOnlyList<Guid>? MemoryIds = null, DateTimeOffset? SentAt = null, IReadOnlyList<Guid>? MessageIds = null)
 {
-    public string ModelText => SpeakerTag is null || Role == "assistant"
-        ? Text
-        : $"[Message author: {SpeakerTag}]" +
-          (string.IsNullOrWhiteSpace(PreferredName) ? "" : $"\n[Preferred form of address: {Json.Write(PreferredName)}]") +
-          $"\n{Text}";
+    public string ModelText => (SpeakerTag is null || Role == "assistant" ? "" :
+        $"[Message author: {SpeakerTag}]\n" +
+        (string.IsNullOrWhiteSpace(PreferredName) ? "" : $"[Preferred form of address: {Json.Write(PreferredName)}]\n")) +
+        (SentAt is { } at ? $"[Message time: {at:O}]\n" : "") + Text;
 }
 
 public sealed record ContextInput(
@@ -25,13 +24,14 @@ public sealed record ContextInput(
     int OutputTokens,
     Guid? ConversationId = null,
     IReadOnlyDictionary<Guid, string>? AuthorNames = null,
-    IReadOnlyList<Guid>? SummaryMemoryIds = null);
+    IReadOnlyList<Guid>? SummaryMemoryIds = null, string? TimeContext = null, IReadOnlyList<Guid>? SummaryMessageIds = null, int ReservedForTools = 0);
 
 public sealed record BuiltContext(
     string System,
     IReadOnlyList<ContextTurn> Turns,
     IReadOnlyList<Guid> MemoryIds,
-    int EstimatedTokens);
+    int EstimatedTokens,
+    IReadOnlyList<Guid> MessageIds);
 
 public sealed class ContextBuilder(PromptComposer composer)
 {
@@ -44,10 +44,12 @@ public sealed class ContextBuilder(PromptComposer composer)
     public BuiltContext Build(ContextInput input)
     {
         var system = composer.Compile(input.Identity, input.Mood);
+        if (input.TimeContext is { } time) system += "\n\n[Application time context]\n" + time;
         var budget = input.ContextWindow - input.OutputTokens - 512;
         var used = Estimate(system) + Estimate(input.Current.ModelText) + ImageCost(input.Current);
         if (used > budget)
             throw new InvalidOperationException("Current message and identity exceed the configured context budget.");
+        budget -= Math.Min(input.ReservedForTools, budget - used);
         var history = new List<ContextTurn>();
         foreach (var turn in input.History.Reverse())
         {
@@ -74,6 +76,7 @@ public sealed class ContextBuilder(PromptComposer composer)
         var summaryBefore = references.Count;
         Add("Rolling summary", input.Summary);
         var ids = references.Count > summaryBefore ? (input.SummaryMemoryIds ?? []).ToList() : [];
+        var messageIds = references.Count > summaryBefore ? (input.SummaryMessageIds ?? []).ToList() : [];
         foreach (var memory in input.Memories.GroupBy(x => x.SharedFromMemoryId ?? x.Id).Select(x => x.First()))
         {
             var before = references.Count;
@@ -89,7 +92,8 @@ public sealed class ContextBuilder(PromptComposer composer)
         if (references.Count > 0) turns.Add(new ContextTurn("user", string.Join("\n\n", references)));
         turns.AddRange(history);
         turns.Add(input.Current);
-        return new BuiltContext(system, turns, ids.Concat(history.SelectMany(x => x.MemoryIds ?? [])).Distinct().ToArray(), used);
+        return new BuiltContext(system, turns, ids.Concat(history.SelectMany(x => x.MemoryIds ?? [])).Distinct().ToArray(), used,
+            messageIds.Concat(history.SelectMany(x => x.MessageIds ?? [])).Concat(input.Current.MessageIds ?? []).Distinct().ToArray());
     }
 
     private static int ImageCost(ContextTurn turn)

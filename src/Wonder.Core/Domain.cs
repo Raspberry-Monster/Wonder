@@ -88,7 +88,8 @@ public sealed record ContextSnapshot(
     long RelationshipRevision,
     long SummaryRevision,
     IReadOnlyList<Guid> RetrievedMemoryIds,
-    string ModelProfileId);
+    string ModelProfileId,
+    IReadOnlyList<Guid>? SourceMessageIds = null, IReadOnlyList<Guid>? SourceUserIds = null);
 
 public sealed record EmotionProposal(
     double Valence,
@@ -244,6 +245,7 @@ public sealed class ConversationSummary : Entity
     public long ThroughSequence { get; set; }
     public string SubjectIdsJson { get; set; } = "[]";
     public string MemoryIdsJson { get; set; } = "[]";
+    public string MessageIdsJson { get; set; } = "[]";
     public bool ContextInvalidated { get; set; }
     public long Revision { get; set; }
     public string Text { get; set; } = "";
@@ -404,6 +406,7 @@ public sealed class ModelProfile : Entity
     public int MaxOutputTokens { get; set; } = 1024;
     public bool SupportsImages { get; set; }
     public bool SupportsJson { get; set; }
+    public bool SupportsTools { get; set; }
     public bool? ThinkingEnabled { get; set; }
     public string? ReasoningEffort { get; set; }
     public int EmbeddingDimensions { get; set; } = 1536;

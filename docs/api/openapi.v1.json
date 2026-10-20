@@ -1402,6 +1402,12 @@
               "null",
               "string"
             ]
+          },
+          "supportsTools": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },

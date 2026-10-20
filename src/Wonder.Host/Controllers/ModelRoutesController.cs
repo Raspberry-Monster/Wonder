@@ -17,7 +17,7 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
             new
             {
                 x.Id, x.TaskKind, x.Endpoint, x.Model, x.ContextWindow, x.MaxOutputTokens, x.SupportsImages,
-                x.SupportsJson, x.ThinkingEnabled, x.ReasoningEffort, x.EmbeddingDimensions,
+                x.SupportsJson, x.SupportsTools, x.ThinkingEnabled, x.ReasoningEffort, x.EmbeddingDimensions,
                 x.InputCostPerMillion, x.OutputCostPerMillion,
                 hasApiKey = x.ProtectedApiKey != ""
             }).ToListAsync(ct));
@@ -31,6 +31,7 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
             return BadRequest();
         foreach (var input in inputs)
         {
+            if (input.SupportsTools == true && input.TaskKind != TaskKind.Chat) return BadRequest();
             if (!Enum.IsDefined(input.TaskKind) || !Uri.TryCreate(input.Endpoint, UriKind.Absolute, out var uri) ||
                 uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo) ||
                 string.IsNullOrWhiteSpace(input.Model) || input.ContextWindow is < 2048 or > 2_000_000 ||
@@ -59,6 +60,7 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
             profile.MaxOutputTokens = input.MaxOutputTokens;
             profile.SupportsImages = input.SupportsImages;
             profile.SupportsJson = input.SupportsJson;
+            if (input.SupportsTools is { } supportsTools) profile.SupportsTools = supportsTools;
             profile.ThinkingEnabled = input.ThinkingEnabled;
             profile.ReasoningEffort = input.ReasoningEffort;
             profile.EmbeddingDimensions = input.EmbeddingDimensions;

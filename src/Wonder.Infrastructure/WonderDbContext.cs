@@ -88,6 +88,7 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options) : DbCont
         b.Entity<ChatMessage>().HasOne<ConversationSession>().WithMany().HasForeignKey(x => x.SessionId)
             .OnDelete(DeleteBehavior.SetNull);
         b.Entity<ConversationSummary>().HasIndex(x => x.SessionId).IsUnique();
+        b.Entity<ConversationSummary>().Property(x => x.MessageIdsJson).HasDefaultValue("[]");
         b.Entity<GlobalEmotionState>().HasKey(x => x.BotId);
         b.Entity<GlobalEmotionState>().Property(x => x.Revision).IsConcurrencyToken();
         b.Entity<GlobalEmotionState>().ToTable(t =>

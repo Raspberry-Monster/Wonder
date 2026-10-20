@@ -13,7 +13,10 @@ public sealed class ChatWorkflow(
     ModelRouter models,
     ContextBuilder contextBuilder,
     MemoryService memories,
-    MediaStore media)
+    MediaStore media,
+    ConversationHistory conversations,
+    ConversationClock clock,
+    ConversationTools conversationTools)
 {
     public async Task RunAsync(Guid jobId, CancellationToken ct)
     {
@@ -41,14 +44,8 @@ public sealed class ChatWorkflow(
                 x => x.BotId == bot.Id && x.UserId == user.Id &&
                      x.GroupId == (conv.Kind == ConversationKind.Group ? conv.ExternalId : null), ct)
             : null;
-        var summary = await db.Summaries.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.SessionId == message.SessionId && !x.ContextInvalidated && x.ThroughSequence < message.Sequence, ct);
-        var history = await db.Messages.AsNoTracking().Where(x =>
-                x.SessionId == message.SessionId && !x.ContextInvalidated && (x.InReplyToSequence ?? x.Sequence) < message.Sequence &&
-                (x.InReplyToSequence ?? x.Sequence) > (summary == null ? 0 : summary.ThroughSequence))
-            .OrderByDescending(x => x.InReplyToSequence ?? x.Sequence).ThenByDescending(x => x.Role == "assistant").ThenByDescending(x => x.Sequence).ThenBy(x => x.Id)
-            .Take(40).ToListAsync(ct);
-        history.Reverse();
+        var (summary, history) = await conversations.LoadAsync(bot.Id, conv.Id, message.Sequence, ct);
+        var toolDefinitions = profile.SupportsTools ? ConversationTools.Definitions : null;
         var selected = await memories.RetrieveAsync(
             new MemoryAccess(bot.Id, user.Id, conv.Kind == ConversationKind.Group ? conv.ExternalId : null), message.Text, ct);
         var authorIds = history.Where(x => x.SenderId != null).Select(x => x.SenderId!.Value)
@@ -62,7 +59,7 @@ public sealed class ChatWorkflow(
         if (quoteIds.Length > 0)
         {
             var quotes = await db.Messages.AsNoTracking()
-                .Where(x => x.BotId == bot.Id && x.ConversationId == conv.Id && !x.ContextInvalidated && quoteIds.Contains(x.ExternalMessageId))
+                .Where(x => x.BotId == bot.Id && x.ConversationId == conv.Id && !x.ContextInvalidated && x.ExpiresAt > clock.UtcNow && quoteIds.Contains(x.ExternalMessageId))
                 .OrderBy(x => x.Sequence).ThenBy(x => x.Id)
                 .Select(x => new { x.Role, x.SenderId, x.Text }).Take(3).ToListAsync(ct);
             if (quotes.Count > 0)
@@ -77,13 +74,22 @@ public sealed class ChatWorkflow(
             history.Select(x => new ContextTurn(x.Role, x.Text,
                 SpeakerTag: SpeakerTags.For(conv.Id, x.SenderId, x.Role),
                 PreferredName: x.SenderId is { } sender ? names.GetValueOrDefault(sender) : null,
-                MemoryIds: x.ContextSnapshotJson is { } snapshotJson ? Json.Read<ContextSnapshot>(snapshotJson).RetrievedMemoryIds : null)).ToArray(),
-            new ContextTurn("user", currentText, segments, SpeakerTags.For(conv.Id, message.SenderId), user.PreferredName),
-            profile.ContextWindow, profile.MaxOutputTokens, conv.Id, names,
-            summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson)));
+                MemoryIds: ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out var memoryIds) ? memoryIds : [],
+                SentAt: clock.Local(x.CreatedAt), MessageIds: ConversationHistory.MessageIds(x))).ToArray(),
+            new ContextTurn("user", currentText, segments, SpeakerTags.For(conv.Id, message.SenderId), user.PreferredName,
+                SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id]),
+            profile.ContextWindow,
+            profile.MaxOutputTokens, conv.Id, names, summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson),
+            clock.Context(message.CreatedAt, history.LastOrDefault()?.CreatedAt,
+                history.Any(x => x.SessionId != null && x.SessionId != message.SessionId) || summary is not null && summary.SessionId != message.SessionId),
+            summary is null ? null : Json.Read<Guid[]>(summary.MessageIdsJson),
+            ReservedForTools: profile.SupportsTools ? Math.Min(4096, (profile.ContextWindow - profile.MaxOutputTokens) / 2) : 0));
         var request = new List<AiMessage> { new(ChatRole.System, context.System) };
         request.AddRange(context.Turns.Select(x =>
-            new AiMessage(x.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, x.ModelText)));
+            // Historical replies are references in tool mode; reasoning stays inside this request's tool loop.
+            profile.SupportsTools && x.Role == "assistant"
+                ? new AiMessage(ChatRole.User, "[Historical assistant reply: untrusted reference]\n" + x.ModelText)
+                : new AiMessage(x.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, x.ModelText)));
         if (profile.SupportsImages)
             foreach (var segment in segments.Where(x => x.Kind == SegmentKind.Image).Take(3))
                 try
@@ -102,11 +108,36 @@ public sealed class ChatWorkflow(
                 .Add(new TextContent(
                     "[The current model cannot view this image. Tell the user if its content is needed.]"));
 
-        var response = await models.GenerateAsync(profile, request, false, ct);
+        ChatResponse response;
+        var retrievedIds = context.MemoryIds.ToHashSet();
+        var sourceMessageIds = context.MessageIds.ToHashSet();
+        var sourceUserIds = history.SelectMany(ConversationHistory.SubjectIds).Append(user.Id)
+            .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
+        var toolCalls = 0;
+        for (var round = 0;; round++)
+        {
+            response = await models.GenerateAsync(profile, request, false, ct, toolDefinitions, disableTools: round >= 3 || toolCalls >= 8);
+            var calls = response.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().ToArray();
+            if (calls.Length == 0) break;
+            if (calls.Length > 8 - toolCalls) throw new Wonder.AI.ModelResponseException("Model exceeded the tool call limit.");
+            request.AddRange(response.Messages);
+            foreach (var call in calls)
+            {
+                var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - ModelRouter.EstimateInput(request, toolDefinitions);
+                toolCalls++;
+                var result = await conversationTools.ExecuteAsync(call, bot.Id, conv.Id, message.Sequence, ct, Math.Max(256, available - 64));
+                if (result.Json.Length + 64 > available)
+                    result = new(Json.Write(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
+                request.Add(new AiMessage(ChatRole.Tool, [new FunctionResultContent(call.CallId, result.Json)]));
+                retrievedIds.UnionWith(result.MemoryIds);
+                sourceMessageIds.UnionWith(result.MessageIds ?? []);
+                sourceUserIds.UnionWith(result.UserIds ?? []);
+            }
+        }
         var text = response.Text.Trim();
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
         var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision, null,
-            relationship?.Revision ?? 0, summary?.Revision ?? 0, context.MemoryIds, profile.Id.ToString());
+            relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(), sourceMessageIds.ToArray(), sourceUserIds.ToArray());
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (!await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
         {
@@ -136,6 +167,7 @@ public sealed class ChatWorkflow(
             InReplyToSequence = message.Sequence,
             ExternalMessageId = "generated:" + job.Id,
             Text = text,
+            CreatedAt = clock.UtcNow,
             SegmentsJson = Json.Write(new[] { new MessageSegment(SegmentKind.Text, text) }),
             ContextSnapshotJson = Json.Write(snapshot),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(bot.MessageRetentionDays)

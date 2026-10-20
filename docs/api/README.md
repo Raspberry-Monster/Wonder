@@ -27,6 +27,8 @@ API 按功能整理在 src/Wonder.Host/Controllers，输入类型位于 Contract
 
 API 返回的密钥字段仅有 hasApiKey / hasAccessToken，绝不返回保护后的密文。更新密钥时留空表示保留旧值。消息保留期更改只作用于新消息。
 
+模型路由的 supportsTools 仅支持 Chat 任务开启；省略时保留原值，false 显式关闭。对应只读时间与当前对话历史查询工具，详见 [对话延续与时间](../conversation-continuity.md)。
+
 模型路由支持可选 thinkingEnabled（true / false / null）与 reasoningEffort（low / high / max / null）。非空强度要求 thinkingEnabled=true；Embedding 不接受思考参数。null 或省略表示供应商默认，不发送相应参数；更新时会清空该任务旧的思考设置。通用模型批量配置与完整请求数组见 [模型路由指南](../model-routes.md)，DeepSeek 另有独立配置示例。
 
 使用步骤与共享范围见 [跨群记忆与用户称呼](../shared-context.md)。

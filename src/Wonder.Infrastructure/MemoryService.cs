@@ -241,6 +241,36 @@ public sealed class MemoryService(
             .ToListAsync(ct);
         var sessionIds = await db.Messages.Where(x => messageIds.Contains(x.Id) && x.SessionId != null)
             .Select(x => x.SessionId!.Value).Distinct().ToListAsync(ct);
+        // New sessions can depend on older messages without the original author posting again.
+        var originalReplies = await db.Messages.Where(x => x.BotId == botId && x.SessionId != null &&
+            sessionIds.Contains(x.SessionId.Value) && x.Role == "assistant").Select(x => x.Id).ToListAsync(ct);
+        var roots = messageIds.Concat(originalReplies).ToHashSet();
+        var cached = await db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.Role == "assistant" &&
+            !x.ContextInvalidated && x.ContextSnapshotJson != null)
+            .Select(x => new { x.Id, x.ExternalMessageId, x.ContextSnapshotJson }).ToListAsync(ct);
+        var dependent = cached.Where(x =>
+        {
+            try
+            {
+                var snapshot = Json.Read<ContextSnapshot>(x.ContextSnapshotJson!);
+                return snapshot.SourceUserIds?.Contains(userId) == true || snapshot.SourceMessageIds?.Any(roots.Contains) == true;
+            }
+            catch (JsonException) { return true; }
+        }).ToArray();
+        var dependentIds = dependent.Select(x => x.Id).ToArray();
+        await db.Messages.Where(x => dependentIds.Contains(x.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true), ct);
+        var cachedSummaries = await db.Summaries.AsNoTracking().Where(x => x.BotId == botId && !x.ContextInvalidated)
+            .Select(x => new { x.Id, x.MessageIdsJson }).ToListAsync(ct);
+        var dependentSummaries = cachedSummaries.Where(x => MayReferenceMemory(x.MessageIdsJson, roots, snapshot: false))
+            .Select(x => x.Id).ToArray();
+        await db.Summaries.Where(x => dependentSummaries.Contains(x.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true), ct);
+        var sourceJobs = dependent.Select(x => x.ExternalMessageId.StartsWith("generated:", StringComparison.Ordinal) &&
+            Guid.TryParse(x.ExternalMessageId[10..], out var sourceJob) ? sourceJob : Guid.Empty).Where(x => x != Guid.Empty).ToArray();
+        var dependentBatches = db.Batches.Where(x => x.BotId == botId && sourceJobs.Contains(x.SourceJobId)).Select(x => x.Id);
+        await db.Parts.Where(x => dependentBatches.Contains(x.BatchId) && x.Status == DeliveryStatus.Pending)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, DeliveryStatus.Failed), ct);
         var subjectKey = userId.ToString();
         await db.Summaries
             .Where(x => x.BotId == botId && (sessionIds.Contains(x.SessionId) || x.SubjectIdsJson.Contains(subjectKey)))
@@ -248,7 +278,7 @@ public sealed class MemoryService(
         await db.Reflections.Where(x => x.BotId == botId && x.SubjectId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Payload, "{}"), ct);
         await db.Messages.Where(x => messageIds.Contains(x.Id)).ExecuteUpdateAsync(s => s
-            .SetProperty(x => x.AllowReflection, false)
+            .SetProperty(x => x.AllowReflection, false).SetProperty(x => x.ContextInvalidated, true)
             .SetProperty(x => x.Text, "[user content removed]").SetProperty(x => x.SegmentsJson, "[]"), ct);
         await db.Messages.Where(x =>
                 x.SessionId != null && sessionIds.Contains(x.SessionId.Value) && x.Role == "assistant")

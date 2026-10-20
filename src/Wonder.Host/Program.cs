@@ -69,6 +69,10 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer
 }));
 builder.Services.AddSingleton<PromptComposer>();
 builder.Services.AddSingleton<ContextBuilder>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ConversationClock>();
+builder.Services.AddSingleton<ConversationHistory>();
+builder.Services.AddSingleton<ConversationTools>();
 builder.Services.AddSingleton<EmotionEngine>();
 builder.Services.AddSingleton<MessageIngestor>();
 builder.Services.AddSingleton<ModelRouter>();

@@ -85,7 +85,7 @@ M(t + Δt) = Clamp(B + λ^Δt · (M(t) - B) + α · ΔE)
 
 每次演化记录时间与版本，避免重复衰减；并发冲突后重读状态，重新应用同一已验证 Proposal，无需再次调用模型。
 
-会话空闲时间按私聊 / 群聊配置，初始为十分钟。关闭时固定反思范围，检查未完成的生成与发送；关闭边界后的新消息进入新会话。
+会话空闲时间按私聊 / 群聊配置，初始为十分钟。关闭时固定反思范围，检查未完成的生成与发送；关闭边界后的新消息进入新 Session。同一 Conversation 的有效近期消息和最新摘要跨 Session 延续，普通已保存群消息也可进入上下文。每轮注入当前时钟、时区和消息时间；具体读取与工具行为见 [对话延续与时间](conversation-continuity.md)。
 
 ## 长期记忆与授权
 
@@ -127,7 +127,7 @@ Outbox 同时保存持久任务状态，数据库短租约防止重复领取；R
 
 任务独立配置 `Chat`、`LightReflection`、`StrongReflection`、`DailyNarrative`、`RollingSummary`、`Embedding`，可复用同一供应商或模型。通过 Microsoft.Extensions.AI 的 `IChatClient` / `IEmbeddingGenerator` 适配兼容 API。
 
-生成采用完整响应，仅最终 content 可发送到 QQ，reasoning_content 不作为回复。图片、JSON、思考开关与强度按模型能力显式配置；Embedding 使用独立模型与向量空间。当前不执行工具、不跨供应商自动切换，也未实现本地 Embedding 进程。
+生成采用完整响应，仅最终 content 可发送到 QQ，reasoning_content 不作为回复。图片、JSON、思考开关与强度按模型能力显式配置；Embedding 使用独立模型与向量空间。聊天路由可显式开启只读工具 get_current_time 与 search_conversation_history，默认关闭；后者由服务端限定为当前 Conversation 的有效历史。工具链有轮次限制，计入用量，仅最终回答可发送。不跨供应商自动切换，也未实现本地 Embedding 进程。
 
 调用前检查 Bot 的日 / 月预算，记录实际用量或保守估算；当前预算为准入检查，尚无并发精确预留及按任务独立额度。配置操作见 [模型路由](model-routes.md)。
 
