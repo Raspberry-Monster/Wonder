@@ -154,7 +154,7 @@ public sealed class ModelRouter(
             .SumAsync(x => x.InputTokens + x.OutputTokens, ct);
         var daily = await db.Usage.Where(x => x.BotId == bot.Id && x.CreatedAt >= today)
             .SumAsync(x => x.InputTokens + x.OutputTokens, ct);
-        //if (daily + reservation > bot.DailyTokenLimit || monthly + reservation > bot.MonthlyTokenLimit)
-        //    throw new ModelConfigurationException("Bot token budget exhausted.");
+        if (daily + reservation > bot.DailyTokenLimit || monthly + reservation > bot.MonthlyTokenLimit)
+            throw new ModelConfigurationException("Bot token budget exhausted.");
     }
 }

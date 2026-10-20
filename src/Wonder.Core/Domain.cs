@@ -131,8 +131,8 @@ public sealed class BotInstance : Entity
     public int PrivateIdleMinutes { get; set; } = 10;
     public int GroupIdleMinutes { get; set; } = 10;
     public bool PersistMessages { get; set; } = true;
-    public long DailyTokenLimit { get; set; } = 100_000;
-    public long MonthlyTokenLimit { get; set; } = 2_000_000;
+    public long DailyTokenLimit { get; set; } = 5_000_000;
+    public long MonthlyTokenLimit { get; set; } = 50_000_000;
 }
 
 public sealed class LogicalUser : Entity
