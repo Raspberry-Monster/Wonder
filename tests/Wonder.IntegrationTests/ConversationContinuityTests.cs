@@ -19,6 +19,77 @@ public sealed class ConversationContinuityTests
     private static readonly DateTimeOffset Start = DateTimeOffset.Parse("2026-10-19T15:58:00Z");
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task DsmlBodyIsRejectedWithoutExecutingToolsOrPersistingAReply(bool tools)
+    {
+        using var app = new TestApp(new Clock(Start));
+        var f = await SeedAsync(app, tools: tools);
+        var next = await QueueAsync(app, f.Binding, "dsml", "Miku记得下午发生了什么事情吗");
+        app.ModelResponses.Enqueue(Response("""
+            <｜｜DSML｜｜ calls>
+            <｜｜DSML｜｜ invoke name="search_conversation_history">
+            <｜｜DSML｜｜ parameter name="query" string="true">Wonder</｜｜DSML｜｜ parameter>
+            </｜｜DSML｜｜ invoke>
+            </｜｜DSML｜｜ calls>
+            """));
+        await Assert.That(() => RunAsync(app, next.Job)).ThrowsExactly<ModelResponseException>();
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        await Assert.That(await db.Parts.AnyAsync()).IsFalse();
+        await Assert.That(await db.Messages.AnyAsync(x => x.Role == "assistant")).IsFalse();
+        await Assert.That(await db.Usage.CountAsync()).IsEqualTo(1);
+        await Assert.That(app.Sender.Sent).IsEmpty();
+    }
+
+    [Test]
+    public async Task LegacyQueuedDsmlIsBlockedAcrossPartBoundariesAndInvalidated()
+    {
+        using var app = new TestApp(new Clock(Start));
+        var f = await SeedAsync(app);
+        var next = await QueueAsync(app, f.Binding, "legacy-dsml", "查一下下午的事情");
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var original = await db.Outbox.SingleAsync(x => x.Id == next.Job);
+        ChatWorkflow.QueueReply(db, original, next.Message.SessionId!.Value, "placeholder");
+        var batch = db.Batches.Local.Single();
+        db.Parts.Local.Single().Text = "<｜｜DS";
+        db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Sequence = 1, Text = "ML｜｜ calls>unfinished" });
+        var generated = new ChatMessage { BotId = f.Bot, ConversationId = next.Message.ConversationId,
+            SessionId = next.Message.SessionId, Role = "assistant", ExternalMessageId = "generated:" + next.Job,
+            Text = "<｜｜DSML｜｜ calls>unfinished" };
+        db.Messages.Add(generated);
+        await db.SaveChangesAsync();
+        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Outgoing);
+        await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
+        await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
+        db.ChangeTracker.Clear();
+        await Assert.That(app.Sender.Sent).IsEmpty();
+        await Assert.That(await db.Parts.AllAsync(x => x.Status == DeliveryStatus.Failed)).IsTrue();
+        await Assert.That((await db.Messages.SingleAsync(x => x.Id == generated.Id)).ContextInvalidated).IsTrue();
+    }
+
+    [Test]
+    public async Task StandardFunctionLoopOnlySendsTheFinalAnswer()
+    {
+        using var app = new TestApp(new Clock(Start));
+        var f = await SeedAsync(app, tools: true);
+        var next = await QueueAsync(app, f.Binding, "standard-loop", "现在几点");
+        app.ModelResponses.Enqueue(Json.Write(new { choices = new[] { new { finish_reason = "tool_calls", message = new
+        {
+            content = "我先查询时间。", reasoning_content = "private chain of thought",
+            tool_calls = new[] { new { id = "clock", type = "function", function = new { name = "get_current_time", arguments = "{}" } } }
+        } } }, usage = new { prompt_tokens = 2, completion_tokens = 3 } }));
+        app.ModelResponses.Enqueue(Response("现在是晚上十一点五十八分。"));
+        await RunAsync(app, next.Job);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        await Assert.That((await db.Parts.SingleAsync()).Text).IsEqualTo("现在是晚上十一点五十八分。");
+        await Assert.That(await db.Usage.CountAsync()).IsEqualTo(2);
+        await Assert.That((await db.Messages.SingleAsync(x => x.Role == "assistant")).Text).DoesNotContain("我先查询");
+    }
+
+    [Test]
     public async Task TimeoutStartsANewSessionButKeepsTheConversationAndOriginalDates()
     {
         var clock = new Clock(Start);

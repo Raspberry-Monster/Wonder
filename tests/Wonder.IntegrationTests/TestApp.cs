@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -124,11 +125,18 @@ public sealed class TestApp : WebApplicationFactory<Program>
             var body = await request.Content!.ReadAsStringAsync(ct);
             requests.Add(body);
             await beforeResponse(body);
+            var payload = responses.Count > 0 ? responses.Dequeue() :
+                "{\"choices\":[{\"message\":{\"content\":\"这是上一轮的回复。\"}}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":8}}";
+            // Real compatible APIs include the assistant role; the SDK deliberately does not invent it.
+            if (JsonNode.Parse(payload) is JsonObject wire && wire["choices"] is JsonArray choices)
+            {
+                foreach (var choice in choices)
+                    if (choice?["message"] is JsonObject message) message["role"] ??= "assistant";
+                payload = wire.ToJsonString();
+            }
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(responses.Count > 0 ? responses.Dequeue() :
-                    "{\"choices\":[{\"message\":{\"content\":\"这是上一轮的回复。\"}}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":8}}",
-                    Encoding.UTF8, "application/json")
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
             };
         }
     }

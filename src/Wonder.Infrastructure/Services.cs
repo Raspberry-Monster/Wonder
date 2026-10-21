@@ -69,14 +69,26 @@ public sealed class ModelRouter(
     public async Task<ChatResponse> GenerateAsync(ModelProfile profile, IEnumerable<ChatMessage> messages, bool json,
         CancellationToken ct, IList<AITool>? tools = null, bool disableTools = false)
     {
+        using var client = CreateTransport(profile);
+        return await GenerateCoreAsync(client, profile, messages, json, ct, tools, disableTools);
+    }
+
+    public IChatClient CreateToolClient(ModelProfile profile) => new AccountedChatClient(CreateTransport(profile), this, profile);
+
+    private IChatClient CreateTransport(ModelProfile profile)
+    {
+        var clientHttp = CompatibleHttp.Configure(http.CreateClient("models"), profile.Endpoint,
+            secrets.Unprotect(profile.ProtectedApiKey));
+        return new CompatibleChatClient(clientHttp, profile.Model, profile.SupportsJson, profile.ThinkingEnabled, profile.ReasoningEffort);
+    }
+
+    private async Task<ChatResponse> GenerateCoreAsync(IChatClient client, ModelProfile profile, IEnumerable<ChatMessage> messages, bool json,
+        CancellationToken ct, IList<AITool>? tools, bool disableTools)
+    {
         var input = messages.ToArray();
         if (tools is { Count: > 0 } && EstimateInput(input, tools) + profile.MaxOutputTokens + 512 > profile.ContextWindow)
             throw new ModelResponseException("Tool conversation exceeds the configured context window.");
         await CheckBudgetAsync(profile, EstimateInput(input, tools) + profile.MaxOutputTokens, ct);
-        using var clientHttp = CompatibleHttp.Configure(http.CreateClient("models"), profile.Endpoint,
-            secrets.Unprotect(profile.ProtectedApiKey));
-        using IChatClient client = new CompatibleChatClient(clientHttp, profile.Model, profile.SupportsJson,
-            profile.ThinkingEnabled, profile.ReasoningEffort);
         var result = await client.GetResponseAsync(input,
             new ChatOptions
             {
@@ -106,6 +118,8 @@ public sealed class ModelRouter(
         if (json && result.FinishReason == ChatFinishReason.Length)
             throw new ModelResponseException("Structured model response was truncated. " + details +
                 " Increase the output limit or reduce input/thinking before retrying.");
+        if (ToolCallMarkup.Contains(result.Text))
+            throw new ModelResponseException("Model returned unparsed or ambiguous tool call markup instead of a final answer. " + details);
         var calls = result.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().Any();
         if (calls && (tools is not { Count: > 0 } || disableTools || result.FinishReason == ChatFinishReason.Length))
             throw new ModelResponseException("Unexpected, truncated or excessive tool calls. " + details);
@@ -120,8 +134,26 @@ public sealed class ModelRouter(
             {
                 FunctionCallContent call => Json.Write(call.Arguments).Length + call.Name.Length + 32,
                 FunctionResultContent result => (result.Result is string text ? text.Length : Json.Write(result.Result).Length) + 32,
+                TextReasoningContent reasoningContent => reasoningContent.Text?.Length ?? 0,
                 _ => 0
             })) + (tools?.OfType<AIFunctionDeclaration>().Sum(t => t.JsonSchema.GetRawText().Length + t.Description.Length + t.Name.Length + 32) ?? 0);
+
+    // Accounting and limits are application policy; function dispatch and looping belong to M.E.AI.
+    private sealed class AccountedChatClient(IChatClient inner, ModelRouter router, ModelProfile profile) : DelegatingChatClient(inner)
+    {
+        private int rounds;
+        private int calls;
+        public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            var disabled = rounds++ >= 3 || calls >= 8 || options?.ToolMode == ChatToolMode.None;
+            var result = await router.GenerateCoreAsync(InnerClient, profile, messages, false, cancellationToken, options?.Tools, disabled);
+            var count = result.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().Count();
+            if (count > 8 - calls) throw new ModelResponseException("Model exceeded the tool call limit.");
+            calls += count;
+            return result;
+        }
+    }
 
     public async Task<float[]> EmbedAsync(ModelProfile profile, string text, CancellationToken ct)
     {

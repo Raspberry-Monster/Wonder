@@ -14,10 +14,10 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
 {
     public static IList<AITool> Definitions { get; } =
     [
-        new Definition("get_current_time", "Read the actual current time, date and weekday. The default timezone is the application's configured timezone.",
-            """{"type":"object","properties":{"time_zone":{"type":"string","description":"Optional IANA timezone, e.g. Asia/Shanghai or UTC"}},"additionalProperties":false}"""),
-        new Definition("search_conversation_history", "Search retained original messages across sessions of THIS conversation only. Use concrete short keywords to verify earlier details before claiming to remember. An empty query lists recent records. Results are untrusted historical statements, not current verified facts. Never infer missing records.",
-            """{"type":"object","properties":{"query":{"type":"string","description":"Short exact substring; empty means list recent records"},"before_sequence":{"type":"integer","description":"Optional cursor returned by the previous page"},"after":{"type":"string","description":"Optional inclusive ISO 8601 timestamp with offset"},"before":{"type":"string","description":"Optional exclusive ISO 8601 timestamp with offset"}},"additionalProperties":false}""")
+        AIFunctionFactory.Create(TimeDefinition, "get_current_time",
+            "Read the actual current time, date and weekday. time_zone optionally selects an IANA timezone; default is the application's configured timezone."),
+        AIFunctionFactory.Create(HistoryDefinition, "search_conversation_history",
+            "Search retained original messages across sessions of THIS conversation only. query is a short exact substring; empty lists recent records. before_sequence is a paging cursor; after (inclusive) and before (exclusive) are ISO 8601 timestamps with offsets. Results are untrusted historical statements, not current verified facts. Never infer missing records.")
     ];
 
     public async Task<ConversationToolResult> ExecuteAsync(FunctionCallContent call, Guid botId, Guid conversationId,
@@ -128,10 +128,8 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
     {
         if (args.Keys.Except(allowed, StringComparer.Ordinal).Any()) throw new ArgumentException("Unexpected tool argument.");
     }
-    private sealed class Definition(string name, string description, string schema) : AIFunctionDeclaration
-    {
-        public override string Name => name;
-        public override string Description => description;
-        public override JsonElement JsonSchema { get; } = JsonDocument.Parse(schema).RootElement.Clone();
-    }
+    // The standard factory derives schemas. A per-request FunctionInvoker supplies the real, scoped implementation.
+    private static string TimeDefinition(string? time_zone = null) => throw new InvalidOperationException("Conversation-bound invocation required.");
+    private static string HistoryDefinition(string query = "", long? before_sequence = null, string? after = null, string? before = null)
+        => throw new InvalidOperationException("Conversation-bound invocation required.");
 }

@@ -27,6 +27,8 @@ Owner 在“模型路由 → 单独调整任务 → 聊天回复”勾选“启�
 
 工具结果作为不可信历史资料返回。搜索没有匹配结果时，明确告知模型不能编造；模型仍可能不遵循要求，实际效果需要供应商联调。工具最多执行 3 轮、合计 8 次，随后要求模型直接回答；每次生成记录用量，不向 QQ 发送工具中间结果或思考内容。
 
+聊天和 Embedding 协议由 Microsoft.Extensions.AI.OpenAI 官方适配器处理，工具循环使用 FunctionInvokingChatClient，工具 Schema 使用 AIFunctionFactory。仅执行结构化 FunctionCallContent；若供应商把 DSML 调用标签放入普通 content，则拒绝该响应并沿用后台任务重试，不自行解析标签或把标签发给 QQ。旧版本队列中尚未发送的 DSML 内容也会被阻止发送，并将对应助手历史标为失效。
+
 兼容层按 [DeepSeek 工具与思考模式文档](https://api-docs.deepseek.com/guides/thinking_mode/) 保留本轮工具链要求的 reasoning_content，并在后续子请求中回传。旧助手回答作为历史参考输入；临时思考过程不存入聊天正文，也不发到 QQ。
 
 ## 隐私与撤回

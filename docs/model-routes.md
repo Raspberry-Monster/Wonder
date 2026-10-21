@@ -2,6 +2,8 @@
 
 每项任务各自保存模型路由，可以使用相同或不同的模型。生成任务使用 OpenAI 兼容的 chat/completions 接口，Embedding 使用独立的 embeddings 接口。
 
+两类接口均通过 Microsoft.Extensions.AI.OpenAI 官方适配器调用，供应商扩展参数通过 SDK 扩展点传递。组件及剩余自实现清单见 [框架与自实现清单](library-audit.md)。
+
 ## 控制台
 
 进入 Bot → 模型路由 → “批量应用模型”：

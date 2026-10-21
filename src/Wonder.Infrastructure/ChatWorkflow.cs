@@ -113,28 +113,32 @@ public sealed class ChatWorkflow(
         var sourceMessageIds = context.MessageIds.ToHashSet();
         var sourceUserIds = history.SelectMany(ConversationHistory.SubjectIds).Append(user.Id)
             .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
-        var toolCalls = 0;
-        for (var round = 0;; round++)
+        if (profile.SupportsTools)
         {
-            response = await models.GenerateAsync(profile, request, false, ct, toolDefinitions, disableTools: round >= 3 || toolCalls >= 8);
-            var calls = response.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().ToArray();
-            if (calls.Length == 0) break;
-            if (calls.Length > 8 - toolCalls) throw new Wonder.AI.ModelResponseException("Model exceeded the tool call limit.");
-            request.AddRange(response.Messages);
-            foreach (var call in calls)
+            using var client = new FunctionInvokingChatClient(models.CreateToolClient(profile))
             {
-                var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - ModelRouter.EstimateInput(request, toolDefinitions);
-                toolCalls++;
-                var result = await conversationTools.ExecuteAsync(call, bot.Id, conv.Id, message.Sequence, ct, Math.Max(256, available - 64));
-                if (result.Json.Length + 64 > available)
-                    result = new(Json.Write(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
-                request.Add(new AiMessage(ChatRole.Tool, [new FunctionResultContent(call.CallId, result.Json)]));
-                retrievedIds.UnionWith(result.MemoryIds);
-                sourceMessageIds.UnionWith(result.MessageIds ?? []);
-                sourceUserIds.UnionWith(result.UserIds ?? []);
-            }
+                MaximumIterationsPerRequest = 4,
+                MaximumConsecutiveErrorsPerRequest = 0,
+                AllowConcurrentInvocation = false,
+                FunctionInvoker = async (invocation, token) =>
+                {
+                    var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - ModelRouter.EstimateInput(invocation.Messages, toolDefinitions);
+                    var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id, message.Sequence, token, Math.Max(256, available - 64));
+                    if (result.Json.Length + 64 > available)
+                        result = new(Json.Write(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
+                    retrievedIds.UnionWith(result.MemoryIds);
+                    sourceMessageIds.UnionWith(result.MessageIds ?? []);
+                    sourceUserIds.UnionWith(result.UserIds ?? []);
+                    return result.Json;
+                }
+            };
+            response = await client.GetResponseAsync(request, new ChatOptions { Tools = toolDefinitions }, ct);
         }
-        var text = response.Text.Trim();
+        else response = await models.GenerateAsync(profile, request, false, ct);
+        var final = response.Messages.LastOrDefault(x => x.Role == ChatRole.Assistant);
+        if (final is null || final.Contents.OfType<FunctionCallContent>().Any())
+            throw new Wonder.AI.ModelResponseException("Model did not return a final answer after tool use.");
+        var text = final.Text.Trim();
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
         var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision, null,
             relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(), sourceMessageIds.ToArray(), sourceUserIds.ToArray());
@@ -183,6 +187,8 @@ public sealed class ChatWorkflow(
 
     public static void QueueReply(WonderDbContext db, OutboxMessage source, Guid sessionId, string text)
     {
+        if (Wonder.AI.ToolCallMarkup.Contains(text))
+            throw new Wonder.AI.ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
         var batch = new OutgoingMessageBatch
         {
             BotId = source.BotId, ConversationId = source.ConversationId!.Value, SessionId = sessionId,
