@@ -48,8 +48,6 @@ public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConf
             ConnectCallback = async (context, token) =>
             {
                 var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token);
-                if (addresses.Length == 0 || addresses.Any(x => !IsPublic(x)))
-                    throw new HttpRequestException("Blocked media destination.");
                 var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
                 try
                 {

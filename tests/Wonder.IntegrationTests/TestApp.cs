@@ -21,10 +21,15 @@ public sealed class TestApp : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection connection;
     private readonly TimeProvider? time;
+    private readonly string environment;
+    private readonly bool? requireHttps;
 
-    public TestApp(TimeProvider? time = null, string? databaseFile = null)
+    public TestApp(TimeProvider? time = null, string? databaseFile = null,
+        string environment = "Development", bool? requireHttps = null)
     {
         this.time = time;
+        this.environment = environment;
+        this.requireHttps = requireHttps;
         connection = new SqliteConnection(new SqliteConnectionStringBuilder
             { DataSource = databaseFile ?? ":memory:", Pooling = false }.ToString());
         connection.Open();
@@ -36,12 +41,17 @@ public sealed class TestApp : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
-        builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
+        builder.UseEnvironment(environment);
+        builder.ConfigureAppConfiguration((_, c) =>
         {
-            ["Workers:Enabled"] = "false", ["Storage:KeysPath"] = Path.GetFullPath(".local/test-keys"),
-            ["Authentication:AllowRegistration"] = "true"
-        }));
+            var settings = new Dictionary<string, string?>
+            {
+                ["Workers:Enabled"] = "false", ["Storage:KeysPath"] = Path.GetFullPath(".local/test-keys"),
+                ["Authentication:AllowRegistration"] = "true"
+            };
+            if (requireHttps.HasValue) settings["Authentication:RequireHttps"] = requireHttps.Value.ToString();
+            c.AddInMemoryCollection(settings);
+        });
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IHostedService>();

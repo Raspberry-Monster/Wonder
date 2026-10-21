@@ -3,24 +3,16 @@ Description=Wonder Redis Podman Container
 
 [Container]
 ContainerName=wonder-redis
-Image=docker.io/library/redis:7.4-alpine
+Image=docker.io/library/redis:8-alpine
 Network=wonder
 NetworkAlias=redis
 Environment=TZ=Asia/Shanghai
 Volume=%h/quadlet.config.d/Wonder/Redis:/data:Z
-Exec=redis-server --appendonly yes --maxmemory 192mb --maxmemory-policy noeviction
-PodmanArgs=--memory=256m
-HealthCmd=redis-cli ping
-HealthInterval=5s
-HealthTimeout=3s
-HealthRetries=20
-Notify=healthy
+Exec=redis-server --appendonly yes
 StopTimeout=60
 
 [Service]
 Restart=always
-RestartSec=5
-TimeoutStartSec=900
 
 [Install]
 WantedBy=default.target

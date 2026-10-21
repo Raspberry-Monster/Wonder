@@ -3,27 +3,19 @@ Description=Wonder PostgreSQL Podman Container
 
 [Container]
 ContainerName=wonder-postgres
-Image=docker.io/pgvector/pgvector:pg17
+Image=docker.io/pgvector/pgvector:pg18
 Network=wonder
 NetworkAlias=postgres
 Environment=TZ=Asia/Shanghai
 Environment=POSTGRES_DB=wonder
 Environment=POSTGRES_USER=wonder
 Environment=POSTGRES_PASSWORD=replace-with-a-long-random-password
-Volume=%h/quadlet.config.d/Wonder/PostgreSQL:/var/lib/postgresql/data:Z
-Exec=postgres -c shared_buffers=256MB -c work_mem=4MB -c max_connections=40
-PodmanArgs=--memory=1g
-HealthCmd=pg_isready -U wonder -d wonder
-HealthInterval=5s
-HealthTimeout=3s
-HealthRetries=20
-Notify=healthy
+Volume=%h/quadlet.config.d/Wonder/PostgreSQL:/var/lib/postgresql:Z
+PublishPort=127.0.0.1:5432:5432
 StopTimeout=60
 
 [Service]
 Restart=always
-RestartSec=5
-TimeoutStartSec=900
 
 [Install]
 WantedBy=default.target

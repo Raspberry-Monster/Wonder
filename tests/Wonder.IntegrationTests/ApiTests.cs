@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +14,30 @@ namespace Wonder.IntegrationTests;
 
 public sealed class ApiTests
 {
+    [Test]
+    [Arguments(null, "http://localhost", false)]
+    [Arguments(null, "https://localhost", true)]
+    [Arguments(true, "http://localhost", true)]
+    [Arguments(true, "https://localhost", true)]
+    public async Task ProductionLoginCookieFollowsTransportAndOptionalHttpsRequirement(
+        bool? requireHttps, string baseAddress, bool secureCookie)
+    {
+        using var app = new TestApp(environment: "Production", requireHttps: requireHttps);
+        using var client = app.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri(baseAddress) });
+        client.DefaultRequestHeaders.Add("X-Wonder", "1");
+        var credentials = new { email = "transport@example.com", password = "A-useful-test-password!" };
+        await Assert.That((await client.PostAsJsonAsync("/api/v1/auth/register", credentials)).StatusCode)
+            .IsEqualTo(HttpStatusCode.Created);
+        var login = await client.PostAsJsonAsync("/api/v1/auth/login", credentials);
+        await Assert.That(login.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        var cookie = login.Headers.GetValues("Set-Cookie").Single(x => x.StartsWith("wonder.session=", StringComparison.Ordinal));
+        await Assert.That(cookie.Contains("; secure", StringComparison.OrdinalIgnoreCase)).IsEqualTo(secureCookie);
+        await Assert.That(cookie.Contains("; httponly", StringComparison.OrdinalIgnoreCase)).IsTrue();
+        await Assert.That(cookie.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase)).IsTrue();
+        if (!secureCookie || client.BaseAddress!.Scheme == "https")
+            await Assert.That((await client.GetAsync("/api/v1/me")).StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+
     private static async Task<(HttpClient Client, Guid UserId)> LoginAsync(TestApp app, string email)
     {
         var client = app.CreateClient();

@@ -7,34 +7,22 @@ Image=docker.io/motricseven7/snowluma:v2.0.3
 Network=wonder
 NetworkAlias=snowluma
 Environment=TZ=Asia/Shanghai
-Environment=SNOWLUMA_UID=1000
-Environment=SNOWLUMA_GID=1000
 Environment=SNOWLUMA_ONEBOT_HOST=0.0.0.0
 Environment=SNOWLUMA_WEBUI_HOST=0.0.0.0
-Environment=SNOWLUMA_WEBUI_PORT=5099
-Environment=SNOWLUMA_LOG_LEVEL=info
-Environment=SNOWLUMA_SCREEN=1920x1080x24
-Environment=SNOWLUMA_HOOK_AUTOLOAD=1
-Environment="SNOWLUMA_QQ_FLAGS=--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
-# Empty generates a password on first start; read the container logs.
-Environment=VNC_PASSWD=
 Volume=%h/quadlet.config.d/Wonder/SnowLuma/Data:/app/data:Z
 Volume=%h/quadlet.config.d/Wonder/SnowLuma/Config:/app/.config:Z
 Volume=%h/quadlet.config.d/Wonder/SnowLuma/Share:/app/.local/share:Z
-PublishPort=127.0.0.1:6081:6081
-PublishPort=127.0.0.1:5099:5099
+PublishPort=192.168.1.102:6081:6081
+PublishPort=192.168.1.102:5099:5099
 PublishPort=127.0.0.1:3001:3001
 ShmSize=1g
 Ulimit=nofile=65536:1048576
 AddCapability=SYS_PTRACE
 SeccompProfile=unconfined
-PodmanArgs=--memory=1536m --cpus=2
 StopTimeout=60
 
 [Service]
 Restart=always
-RestartSec=5
-TimeoutStartSec=900
 
 [Install]
 WantedBy=default.target

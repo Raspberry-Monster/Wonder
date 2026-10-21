@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: wonder
           POSTGRES_PASSWORD: ci-password
@@ -15,7 +15,7 @@ jobs:
           --health-cmd "pg_isready -U wonder -d postgres"
           --health-interval 5s --health-timeout 3s --health-retries 20
       redis:
-        image: redis:7.4-alpine
+        image: redis:8-alpine
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping"

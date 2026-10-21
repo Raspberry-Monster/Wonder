@@ -1,67 +1,43 @@
 name: wonder
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg18
     environment:
       TZ: Asia/Shanghai
       POSTGRES_DB: wonder
       POSTGRES_USER: wonder
       # Keep this password identical to app.environment.ConnectionStrings__Postgres.
       POSTGRES_PASSWORD: replace-with-a-long-random-password
-    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "work_mem=4MB", "-c", "max_connections=40"]
-    volumes: ["~/quadlet.config.d/Wonder/PostgreSQL:/var/lib/postgresql/data:Z"]
+    volumes: ["~/quadlet.config.d/Wonder/PostgreSQL:/var/lib/postgresql:Z"]
     ports: ["127.0.0.1:5432:5432"]
-    mem_limit: 1g
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wonder -d wonder"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
     restart: unless-stopped
   redis:
-    image: redis:7.4-alpine
+    image: redis:8-alpine
     environment:
       TZ: Asia/Shanghai
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--appendonly", "yes"]
     volumes: ["~/quadlet.config.d/Wonder/Redis:/data:Z"]
     ports: ["127.0.0.1:6379:6379"]
-    mem_limit: 256m
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
     restart: unless-stopped
   snowluma:
     image: docker.io/motricseven7/snowluma:v2.0.3
     environment:
       TZ: Asia/Shanghai
-      SNOWLUMA_UID: "1000"
-      SNOWLUMA_GID: "1000"
       SNOWLUMA_ONEBOT_HOST: 0.0.0.0
       SNOWLUMA_WEBUI_HOST: 0.0.0.0
-      SNOWLUMA_WEBUI_PORT: "5099"
-      SNOWLUMA_LOG_LEVEL: info
-      SNOWLUMA_SCREEN: 1920x1080x24
-      SNOWLUMA_HOOK_AUTOLOAD: "1"
-      SNOWLUMA_QQ_FLAGS: --disable-gpu --disable-software-rasterizer --disable-gpu-compositing
-      # Empty generates a password on first start; read the container logs.
-      VNC_PASSWD: ""
     volumes:
       - "~/quadlet.config.d/Wonder/SnowLuma/Data:/app/data:Z"
       - "~/quadlet.config.d/Wonder/SnowLuma/Config:/app/.config:Z"
       - "~/quadlet.config.d/Wonder/SnowLuma/Share:/app/.local/share:Z"
     ports:
-      - "127.0.0.1:6081:6081"
-      - "127.0.0.1:5099:5099"
+      - "192.168.1.102:6081:6081"
+      - "192.168.1.102:5099:5099"
       - "127.0.0.1:3001:3001"
     shm_size: 1g
     ulimits:
       nofile: {soft: 65536, hard: 1048576}
     cap_add: [SYS_PTRACE]
     security_opt: [seccomp=unconfined]
-    mem_limit: 1536m
-    cpus: 2
     restart: unless-stopped
   app:
     build:
@@ -69,29 +45,14 @@ services:
       dockerfile: Dockerfile
     environment:
       TZ: Asia/Shanghai
-      ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Postgres: Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password;Maximum Pool Size=20
+      ConnectionStrings__Postgres: Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password
       ConnectionStrings__Redis: redis:6379
-      Authentication__AllowRegistration: "true"
-      Backups__AgeRecipient: ""
-      SystemAdminIds__0: ""
-      Chat__TimeZone: Asia/Shanghai
-      DOTNET_GCHeapHardLimit: "0x40000000"
     volumes:
       - "~/quadlet.config.d/Wonder/Host:/app/data:z"
       - "~/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:z"
     ports: ["127.0.0.1:5080:8080"]
-    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-      snowluma: {condition: service_started}
-    mem_limit: 1536m
-    cpus: 2
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health/ready"]
-      interval: 20s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      - postgres
+      - redis
+      - snowluma
     restart: unless-stopped

@@ -2,7 +2,7 @@
 
 已导出的 [OpenAPI 文件](openapi.v1.json) 可直接查看；运行时 OpenAPI 文档由 Host 在 /openapi/v1.json 提供，需要先登录。请求和响应使用 camelCase；枚举使用名称字符串。
 
-- POST /api/v1/auth/register、/auth/login：email / password；登录写入 HttpOnly、SameSite=Strict Cookie。
+- POST /api/v1/auth/register、/auth/login：email / password；登录写入 HttpOnly、SameSite=Strict Cookie。默认支持 HTTP，Secure 标记随请求协议设置；Authentication:RequireHttps=true 时始终设置 Secure。
 - POST /api/v1/auth/logout；GET /api/v1/me：当前登录身份。
 - GET / POST /api/v1/bots；GET / PATCH /api/v1/bots/{id}：当前 Owner 的实例。
 - GET / PUT /api/v1/bots/{id}/identity：读取历史 / 发布新身份。

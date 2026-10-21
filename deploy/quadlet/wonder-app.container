@@ -10,30 +10,15 @@ ContainerName=wonder-app
 Image=localhost/wonder:0.1
 Network=wonder
 Environment=TZ=Asia/Shanghai
-Environment="ConnectionStrings__Postgres=Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password;Maximum Pool Size=20"
+Environment="ConnectionStrings__Postgres=Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password"
 Environment=ConnectionStrings__Redis=redis:6379
-Environment=ASPNETCORE_ENVIRONMENT=Development
-Environment=Authentication__AllowRegistration=true
-Environment=Backups__AgeRecipient=
-Environment=SystemAdminIds__0=
-Environment=Chat__TimeZone=Asia/Shanghai
-Environment=DOTNET_GCHeapHardLimit=0x40000000
 Volume=%h/quadlet.config.d/Wonder/Host:/app/data:U,z
 Volume=%h/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:U,z
 PublishPort=127.0.0.1:5080:8080
-PodmanArgs=--memory=1536m --cpus=2
-HealthCmd=curl --fail --silent http://localhost:8080/health/ready
-HealthInterval=20s
-HealthTimeout=5s
-HealthRetries=3
-HealthStartPeriod=30s
-Notify=healthy
 StopTimeout=60
 
 [Service]
 Restart=always
-RestartSec=5
-TimeoutStartSec=900
 
 [Install]
 WantedBy=default.target

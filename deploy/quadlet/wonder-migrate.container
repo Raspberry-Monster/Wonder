@@ -9,7 +9,7 @@ Image=localhost/wonder:0.1
 Network=wonder
 Environment=TZ=Asia/Shanghai
 # Keep this password identical to wonder-postgres.container and wonder-app.container.
-Environment="ConnectionStrings__Postgres=Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password;Maximum Pool Size=20"
+Environment="ConnectionStrings__Postgres=Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password"
 Volume=%h/quadlet.config.d/Wonder/Host:/app/data:U,z
 Volume=%h/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:U,z
 Exec=--migrate

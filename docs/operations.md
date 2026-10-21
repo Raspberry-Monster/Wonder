@@ -12,7 +12,7 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
 
 ## 手动备份
 
-应用镜像内包含 PostgreSQL 17 客户端和 age。应用外使用 age-keygen 生成密钥；仅将公开 age1... 收件人填入 Backups__AgeRecipient，私钥放在异机。Compose 直接编辑 deploy/compose.yaml 的 environment；Quadlet 直接编辑 wonder-app.container 的 Environment=，不使用独立 env 文件。
+应用镜像内包含 PostgreSQL 18 客户端和 age，pg_dump / pg_restore 与部署的 PostgreSQL 18 对齐。应用外使用 age-keygen 生成密钥；仅将公开 age1... 收件人填入 Backups__AgeRecipient，私钥放在异机。Compose 直接编辑 deploy/compose.yaml 的 environment；Quadlet 直接编辑 wonder-app.container 的 Environment=，不使用独立 env 文件。
 
 将系统管理员账号 UUID 写入 SystemAdminIds__0。登录后 POST /api/v1/system/backups，携带 X-Wonder: 1。接口执行 pg_dump 并直接流式 age 加密，不写明文数据库转储，同时在独立目录输出加密撤销账本。
 
