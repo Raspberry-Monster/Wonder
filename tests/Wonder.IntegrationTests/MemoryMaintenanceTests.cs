@@ -142,8 +142,8 @@ public sealed class MemoryMaintenanceTests
             ScopeOwnerId = "other-group", Text = "FOREIGN_SCOPE_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active };
         db.Memories.AddRange(foreign, group);
         var profile = await db.EmbeddingProfiles.SingleAsync();
-        db.Embeddings.AddRange(new MemoryEmbedding { MemoryId = foreign.Id, ProfileId = profile.Id, Values = [1, 0, 0] },
-            new MemoryEmbedding { MemoryId = group.Id, ProfileId = profile.Id, Values = [1, 0, 0] });
+        db.Embeddings.AddRange(new MemoryEmbedding { MemoryId = foreign.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) },
+            new MemoryEmbedding { MemoryId = group.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(Decision(MemoryMaintenanceAction.Merge, foreign.Id));
@@ -399,7 +399,7 @@ public sealed class MemoryMaintenanceTests
                 FactKey = "old-home-key", Text = "我住杭州。", Status = MemoryStatus.Active, CreatedAt = DateTimeOffset.UtcNow.AddDays(-2) };
             var profile = new EmbeddingProfile { BotId = bot.Id, Provider = "https://model.example/v1/", Model = "Embedding", Dimensions = 3 };
             db.Memories.Add(memory); db.EmbeddingProfiles.Add(profile);
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = profile.Id, Values = [1, 0, 0] });
+            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
         }
         await db.SaveChangesAsync();
         var proposal = new MemoryCandidate("new-home-key", text, true, false, [message.Id]);

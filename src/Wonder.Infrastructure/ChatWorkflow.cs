@@ -18,10 +18,11 @@ public sealed class ChatWorkflow(
     ConversationClock clock,
     ConversationTools conversationTools)
 {
-    public async Task RunAsync(Guid jobId, CancellationToken ct)
+    public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         if (await db.Inbox.AnyAsync(x => x.EventId == job.Id && x.HandlerName == job.Type, ct)) return;
         var id = Json.Read<IdPayload>(job.Payload).Id;
         var message = await db.Messages.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);

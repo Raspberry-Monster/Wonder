@@ -18,7 +18,6 @@ public sealed class ContextSpacesController(WonderDbContext db) : WonderControll
     public async Task<IActionResult> Create(Guid id, ContextSpaceInput input, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 100) return BadRequest();
         var space = new ContextSpace { BotId = id, Name = input.Name.Trim() };
         Db.ContextSpaces.Add(space);
         await Db.SaveChangesAsync(ct);
@@ -29,7 +28,6 @@ public sealed class ContextSpacesController(WonderDbContext db) : WonderControll
     public async Task<IActionResult> Rename(Guid id, Guid spaceId, ContextSpaceInput input, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 100) return BadRequest();
         var space = await Db.ContextSpaces.SingleOrDefaultAsync(x => x.Id == spaceId && x.BotId == id, ct);
         if (space is null) return NotFound();
         space.Name = input.Name.Trim();

@@ -24,6 +24,25 @@ public sealed class SecretProtector(IDataProtectionProvider provider)
 
 public static class Jobs
 {
+    public static void RequireLease(OutboxMessage job, Guid? expectedLeaseId)
+    {
+        if (expectedLeaseId is { } lease && (job.Status != JobStatus.Running || job.LeaseId != lease))
+            throw new DbUpdateConcurrencyException("The task lease is no longer owned by this worker.");
+    }
+
+    // Sending persists several intermediate states before completing the job. Fence each of those writes too.
+    public static Task<int> SaveAsync(WonderDbContext db, OutboxMessage job, Guid? expectedLeaseId, CancellationToken ct)
+    {
+        if (expectedLeaseId is { } lease)
+        {
+            var token = db.Entry(job).Property(x => x.LeaseId);
+            if (token.OriginalValue != lease)
+                throw new DbUpdateConcurrencyException("The task lease changed during processing.");
+            token.IsModified = true;
+        }
+        return db.SaveChangesAsync(ct);
+    }
+
     public static OutboxMessage Add<T>(WonderDbContext db, Guid botId, string type, T payload,
         Guid? conversationId = null, Guid? cause = null, Guid? correlation = null)
     {
@@ -44,6 +63,7 @@ public static class Jobs
     {
         job.Status = JobStatus.Completed;
         job.LeaseUntil = null;
+        job.LeaseId = null;
         job.ErrorCode = null;
         db.Inbox.Add(new InboxProcessedEvent { EventId = job.Id, HandlerName = job.Type });
     }

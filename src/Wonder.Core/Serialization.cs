@@ -41,15 +41,6 @@ public static class JobTypes
         Maintenance = "maintenance",
         Narrative = "narrative",
         Summary = "summary";
-
-    public static string Stream(string type)
-    {
-        return "bot:stream:" + (type switch
-        {
-            Chat => "chat", Outgoing => "outgoing", Reflection or Emotion or Relationship => "reflection",
-            Memory or Embedding or MemoryMaintenance => "memory", _ => "maintenance"
-        });
-    }
 }
 
 public sealed record IdPayload(Guid Id);

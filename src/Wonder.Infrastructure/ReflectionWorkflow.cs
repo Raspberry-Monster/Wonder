@@ -14,10 +14,11 @@ public sealed class ReflectionWorkflow(
     ModelRouter models,
     EmotionEngine emotion)
 {
-    public async Task GenerateAsync(Guid jobId, CancellationToken ct)
+    public async Task GenerateAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         var input = Json.Read<ReflectionJob>(job.Payload);
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == input.SubjectId, ct);
         if (!user.AllowMemory || user.RevocationEpoch != input.Epoch)
@@ -124,10 +125,11 @@ public sealed class ReflectionWorkflow(
         return p;
     }
 
-    public async Task ApplyAsync(Guid jobId, CancellationToken ct)
+    public async Task ApplyAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         var result = await db.Reflections.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == Json.Read<IdPayload>(job.Payload).Id, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -258,10 +260,11 @@ public sealed class ReflectionWorkflow(
         await tx.CommitAsync(ct);
     }
 
-    public async Task EmbedAsync(Guid jobId, CancellationToken ct)
+    public async Task EmbedAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         var memory =
             await db.Memories.SingleOrDefaultAsync(
                 x => x.Id == Json.Read<IdPayload>(job.Payload).Id && x.Status != MemoryStatus.Revoked && x.ArchivedAt == null, ct);
@@ -305,7 +308,7 @@ public sealed class ReflectionWorkflow(
         }
 
         if (!await db.Embeddings.AnyAsync(x => x.MemoryId == memory.Id && x.ProfileId == space.Id, ct))
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = space.Id, Values = values });
+            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = space.Id, Values = new(values) });
         memory.Status = MemoryStatus.Active;
         Jobs.Complete(db, job);
         await db.SaveChangesAsync(ct);

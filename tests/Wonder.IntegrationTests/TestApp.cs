@@ -13,6 +13,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Wonder.Core;
+using Pgvector;
+using Pgvector.EntityFrameworkCore;
 using Wonder.Infrastructure;
 using Wonder.Platforms;
 
@@ -75,7 +77,7 @@ public sealed class TestApp : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<WonderDbContext>>();
             var optionsBuilder = new DbContextOptionsBuilder<WonderDbContext>();
             if (postgresConnection is null) optionsBuilder.UseSqlite(connection!);
-            else optionsBuilder.UseNpgsql(postgresConnection);
+            else optionsBuilder.UseNpgsql(postgresConnection, pg => pg.UseVector());
             var options = optionsBuilder.ConfigureWarnings(w => w.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)).Options;
             if (postgresConnection is not null)
             {
@@ -163,10 +165,10 @@ public sealed class TestApp : WebApplicationFactory<Program>
             base.OnModelCreating(b);
             b.Entity<ChatMessage>().Property(x => x.Sequence).ValueGeneratedNever();
             b.Entity<OutboxMessage>().Property(x => x.Sequence).ValueGeneratedNever();
-            var array = b.Entity<MemoryEmbedding>().Property(x => x.Values)
-                .HasConversion(v => Json.Write(v), v => Json.Read<float[]>(v)).HasColumnType("text");
-            array.Metadata.SetValueComparer(new ValueComparer<float[]>((a, b) => a!.SequenceEqual(b!),
-                a => a.Aggregate(0, (x, y) => HashCode.Combine(x, y.GetHashCode())), a => a.ToArray()));
+            var vector = b.Entity<MemoryEmbedding>().Property(x => x.Values)
+                .HasConversion(v => Json.Write(v.ToArray()), v => new Vector(Json.Read<float[]>(v))).HasColumnType("text");
+            vector.Metadata.SetValueComparer(new ValueComparer<Vector>((a, b) => a!.ToArray().SequenceEqual(b!.ToArray()),
+                a => a.ToArray().Aggregate(0, (x, y) => HashCode.Combine(x, y.GetHashCode())), a => new Vector(a.ToArray())));
             foreach (var entity in b.Model.GetEntityTypes())
             foreach (var property in entity.GetProperties())
                 if (property.ClrType == typeof(DateTimeOffset) || property.ClrType == typeof(DateTimeOffset?))

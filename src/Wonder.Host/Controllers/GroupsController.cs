@@ -30,10 +30,7 @@ public sealed class GroupsController(WonderDbContext db) : WonderControllerBase(
     public async Task<IActionResult> PutPolicy(Guid id, string groupId, GroupPolicyInput input, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        if (!long.TryParse(groupId, out var group) || group <= 0 || input.ProactiveEnabled ||
-            input.CommandPrefix is null || input.CommandPrefix.Length > 50)
-            return BadRequest(new
-                { error = "Invalid group policy. Proactive sending is not available in this version." });
+        if (!long.TryParse(groupId, out var group) || group <= 0) return BadRequest();
         if (input.ContextSpaceId is { } spaceId && !await Db.ContextSpaces.AnyAsync(x => x.Id == spaceId && x.BotId == id, ct))
             return BadRequest(new { error = "Shared space must belong to this Bot." });
         await using var tx = await Db.Database.BeginTransactionAsync(ct);

@@ -116,13 +116,9 @@ public sealed record ReflectionProposal(
 public sealed record MemoryAccess(Guid BotId, Guid UserId, string? GroupId,
     Guid? ContextSpaceId = null, bool AllowUserShared = false, bool AllowPersonal = true);
 
-public abstract class Entity
+public sealed class BotInstance
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-}
-
-public sealed class BotInstance : Entity
-{
     public Guid OwnerId { get; set; }
     public string Name { get; set; } = "Wonder";
     public bool Enabled { get; set; } = true;
@@ -135,8 +131,9 @@ public sealed class BotInstance : Entity
     public long MonthlyTokenLimit { get; set; } = 50_000_000;
 }
 
-public sealed class LogicalUser : Entity
+public sealed class LogicalUser
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public bool AllowMemory { get; set; }
     public bool AllowCrossGroupMemory { get; set; }
     public bool AllowMemoryMerge { get; set; } = true;
@@ -147,15 +144,17 @@ public sealed class LogicalUser : Entity
     public long RevocationEpoch { get; set; }
 }
 
-public sealed class PlatformIdentity : Entity
+public sealed class PlatformIdentity
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserId { get; set; }
     public string Platform { get; set; } = "qq";
     public string ExternalId { get; set; } = "";
 }
 
-public sealed class PlatformBinding : Entity
+public sealed class PlatformBinding
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public string AdapterType { get; set; } = "onebot11";
     public string PlatformAccountId { get; set; } = "";
@@ -164,21 +163,24 @@ public sealed class PlatformBinding : Entity
     public bool Enabled { get; set; } = true;
 }
 
-public sealed class BindingChallenge : Entity
+public sealed class BindingChallenge
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ApplicationUserId { get; set; }
     public string CodeHash { get; set; } = "";
     public DateTimeOffset ExpiresAt { get; set; }
 }
 
-public sealed class ContextSpace : Entity
+public sealed class ContextSpace
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public string Name { get; set; } = "";
 }
 
-public sealed class GroupPolicy : Entity
+public sealed class GroupPolicy
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public string GroupId { get; set; } = "";
     public Guid? ContextSpaceId { get; set; }
@@ -193,24 +195,27 @@ public sealed class GroupPolicy : Entity
     public bool ProactiveEnabled { get; set; }
 }
 
-public sealed class PersonaIdentityRevision : Entity
+public sealed class PersonaIdentityRevision
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public long Revision { get; set; }
     public string Content { get; set; } = "";
     public DateTimeOffset PublishedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class Conversation : Entity
+public sealed class Conversation
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public string Platform { get; set; } = "qq";
     public string ExternalId { get; set; } = "";
     public ConversationKind Kind { get; set; }
 }
 
-public sealed class ConversationSession : Entity
+public sealed class ConversationSession
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid ConversationId { get; set; }
     public SessionStatus Status { get; set; }
@@ -221,8 +226,9 @@ public sealed class ConversationSession : Entity
     public long? ClosingBoundary { get; set; }
 }
 
-public sealed class ChatMessage : Entity
+public sealed class ChatMessage
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public long Sequence { get; set; }
     public Guid BotId { get; set; }
     public Guid ConversationId { get; set; }
@@ -242,8 +248,9 @@ public sealed class ChatMessage : Entity
     public DateTimeOffset ExpiresAt { get; set; }
 }
 
-public sealed class ConversationSummary : Entity
+public sealed class ConversationSummary
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid SessionId { get; set; }
     public long ThroughSequence { get; set; }
@@ -265,8 +272,9 @@ public sealed class GlobalEmotionState
     public DateTimeOffset LastEvolvedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class EmotionEvent : Entity
+public sealed class EmotionEvent
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public long Sequence { get; set; }
     public Guid SourceReflectionId { get; set; }
@@ -275,8 +283,9 @@ public sealed class EmotionEvent : Entity
     public DateTimeOffset AppliedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class DailyNarrative : Entity
+public sealed class DailyNarrative
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public DateOnly Date { get; set; }
     public long StateRevision { get; set; }
@@ -284,8 +293,9 @@ public sealed class DailyNarrative : Entity
     public DateTimeOffset GeneratedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class RelationshipState : Entity
+public sealed class RelationshipState
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
     public string? GroupId { get; set; }
@@ -294,8 +304,9 @@ public sealed class RelationshipState : Entity
     public long Revision { get; set; } = 1;
 }
 
-public sealed class RelationshipObservation : Entity
+public sealed class RelationshipObservation
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
     public string? GroupId { get; set; }
@@ -305,8 +316,9 @@ public sealed class RelationshipObservation : Entity
     public bool Accepted { get; set; }
 }
 
-public sealed class Memory : Entity
+public sealed class Memory
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public string FactKeyHash { get; set; } = "";
     public Guid? SupersedesMemoryId { get; set; }
     public DateTimeOffset? ArchivedAt { get; set; }
@@ -332,8 +344,9 @@ public sealed record MemoryMaintenanceDecision(MemoryMaintenanceAction Action, G
     string? Text, string Reason);
 
 // Candidates are never retrieved as conversational memories. Completed rows also provide an audit trail.
-public sealed class MemoryMaintenanceCandidate : Entity
+public sealed class MemoryMaintenanceCandidate
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid SubjectId { get; set; }
     public MemoryScope Scope { get; set; }
@@ -353,8 +366,9 @@ public sealed class MemoryMaintenanceCandidate : Entity
     public DateTimeOffset? CompletedAt { get; set; }
 }
 
-public sealed class MemoryRevocation : Entity
+public sealed class MemoryRevocation
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
     public MemoryScope Scope { get; set; }
@@ -364,8 +378,9 @@ public sealed class MemoryRevocation : Entity
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class EmbeddingProfile : Entity
+public sealed class EmbeddingProfile
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public string Provider { get; set; } = "";
     public string Model { get; set; } = "";
@@ -374,8 +389,9 @@ public sealed class EmbeddingProfile : Entity
     public int Version { get; set; } = 1;
 }
 
-public sealed class ReflectionResult : Entity
+public sealed class ReflectionResult
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid SessionId { get; set; }
     public Guid SubjectId { get; set; }
@@ -388,8 +404,9 @@ public sealed class ReflectionResult : Entity
     public string Payload { get; set; } = "{}";
 }
 
-public sealed class OutboxMessage : Entity
+public sealed class OutboxMessage
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public long Sequence { get; set; }
     public Guid BotId { get; set; }
     public Guid? ConversationId { get; set; }
@@ -401,7 +418,7 @@ public sealed class OutboxMessage : Entity
     public JobStatus Status { get; set; }
     public int Attempts { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset? PublishedAt { get; set; }
+    public Guid? LeaseId { get; set; }
     public DateTimeOffset? LeaseUntil { get; set; }
     public DateTimeOffset NextAttemptAt { get; set; } = DateTimeOffset.UtcNow;
     public string? ErrorCode { get; set; }
@@ -414,16 +431,18 @@ public sealed class InboxProcessedEvent
     public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class OutgoingMessageBatch : Entity
+public sealed class OutgoingMessageBatch
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid ConversationId { get; set; }
     public Guid SessionId { get; set; }
     public Guid SourceJobId { get; set; }
 }
 
-public sealed class OutgoingMessagePart : Entity
+public sealed class OutgoingMessagePart
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BatchId { get; set; }
     public int Sequence { get; set; }
     public string Text { get; set; } = "";
@@ -431,8 +450,9 @@ public sealed class OutgoingMessagePart : Entity
     public string? ExternalId { get; set; }
 }
 
-public sealed class ModelProfile : Entity
+public sealed class ModelProfile
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public TaskKind TaskKind { get; set; }
     public string Provider { get; set; } = "openai-compatible";
@@ -451,8 +471,9 @@ public sealed class ModelProfile : Entity
     public decimal OutputCostPerMillion { get; set; }
 }
 
-public sealed class UsageRecord : Entity
+public sealed class UsageRecord
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid ModelProfileId { get; set; }
     public TaskKind TaskKind { get; set; }
@@ -462,8 +483,9 @@ public sealed class UsageRecord : Entity
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class MediaAsset : Entity
+public sealed class MediaAsset
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid MessageId { get; set; }
     public string Path { get; set; } = "";

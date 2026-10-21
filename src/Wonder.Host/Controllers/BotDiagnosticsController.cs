@@ -56,7 +56,8 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
         if (job is null) return NotFound();
         job.Status = JobStatus.Pending;
         job.Attempts = 0;
-        job.PublishedAt = null;
+        job.ErrorCode = null;
+        job.LeaseId = null;
         job.LeaseUntil = null;
         job.NextAttemptAt = DateTimeOffset.UtcNow;
         await Db.SaveChangesAsync(ct);

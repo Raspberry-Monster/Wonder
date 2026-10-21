@@ -121,7 +121,6 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [HttpPatch("memories/{id:guid}")]
     public async Task<IActionResult> Correct(Guid id, CorrectMemory input, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(input.Text) || input.Text.Length > 1000) return BadRequest();
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
         await service.RevokeAsync(subject.Value, id, input.Text, ct);

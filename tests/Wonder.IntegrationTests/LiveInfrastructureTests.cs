@@ -1,8 +1,14 @@
+using System.Net;
+using System.Net.Http.Json;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using StackExchange.Redis;
+using Pgvector.EntityFrameworkCore;
 using Wonder.Core;
+using Wonder.Host;
 using Wonder.Infrastructure;
 
 namespace Wonder.IntegrationTests;
@@ -10,13 +16,12 @@ namespace Wonder.IntegrationTests;
 public sealed class LiveInfrastructureTests
 {
     [Test]
-    public async Task PostgreSqlMigrationsVectorAndRedisConsumerGroupWorkTogether()
+    public async Task PostgreSqlMigrationsVectorAndTaskQueueWorkTogether()
     {
         var pg = Environment.GetEnvironmentVariable("WONDER_TEST_POSTGRES");
-        var redis = Environment.GetEnvironmentVariable("WONDER_TEST_REDIS");
-        if (string.IsNullOrEmpty(pg) || string.IsNullOrEmpty(redis))
+        if (string.IsNullOrEmpty(pg))
         {
-            Skip.Test("Set WONDER_TEST_POSTGRES and WONDER_TEST_REDIS for the disposable infrastructure test.");
+            Skip.Test("Set WONDER_TEST_POSTGRES for the disposable infrastructure test.");
             return;
         }
 
@@ -29,12 +34,11 @@ public sealed class LiveInfrastructureTests
         }
 
         var cs = new NpgsqlConnectionStringBuilder(pg) { Database = databaseName, Pooling = false };
-        using var queue = await ConnectionMultiplexer.ConnectAsync(redis);
-        var key = "wonder:test:" + Guid.NewGuid().ToString("N");
         try
         {
-            var options = new DbContextOptionsBuilder<WonderDbContext>().UseNpgsql(cs.ConnectionString).Options;
+            var options = new DbContextOptionsBuilder<WonderDbContext>().UseNpgsql(cs.ConnectionString, pg => pg.UseVector()).Options;
             await using var db = new WonderDbContext(options);
+            await VerifyUpgradeAsync(db, cs.ConnectionString);
             await db.Database.MigrateAsync();
             await Assert.That(db.Database.HasPendingModelChanges()).IsFalse();
             var user = new ApplicationUser { Id = Guid.NewGuid() };
@@ -65,9 +69,9 @@ public sealed class LiveInfrastructureTests
             db.Memories.AddRange(groupFact, otherUserFact);
             foreach (var memory in privateFacts.Append(otherUserFact))
                 db.Embeddings.Add(new MemoryEmbedding
-                    { MemoryId = memory.Id, ProfileId = profile.Id, Values = [1, 0, 0] });
+                    { MemoryId = memory.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
             db.Embeddings.Add(new MemoryEmbedding
-                { MemoryId = groupFact.Id, ProfileId = profile.Id, Values = [0, 1, 0] });
+                { MemoryId = groupFact.Id, ProfileId = profile.Id, Values = new(new float[] { 0, 1, 0 }) });
             await db.SaveChangesAsync();
             var authorized = await MemoryQueries
                 .Nearest(db, new MemoryAccess(bot.Id, alice.Id, "123"), profile.Id, [1, 0, 0]).ToListAsync();
@@ -85,7 +89,7 @@ public sealed class LiveInfrastructureTests
             var sharedFact = new Core.Memory { BotId = bot.Id, SubjectId = bob.Id, Scope = MemoryScope.SpaceShared,
                 ScopeOwnerId = sharedSpace.Id.ToString(), Text = "shared project", SharedFromMemoryId = sourceFact.Id };
             db.Memories.AddRange(sourceFact, sharedFact);
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = sharedFact.Id, ProfileId = profile.Id, Values = [1, 0, 0] });
+            db.Embeddings.Add(new MemoryEmbedding { MemoryId = sharedFact.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
             await db.SaveChangesAsync();
             var sharedAccess = new MemoryAccess(bot.Id, alice.Id, "123", sharedSpace.Id);
             var sharedMatches = await MemoryQueries.Nearest(db, sharedAccess, profile.Id, [1, 0, 0]).ToListAsync();
@@ -144,11 +148,6 @@ public sealed class LiveInfrastructureTests
                 await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.BotId == fixture.Bot && x.Text != "")).IsFalse();
             }
 
-            var stream = queue.GetDatabase();
-            await stream.StreamCreateConsumerGroupAsync(key, "test", "0-0");
-            await stream.StreamAddAsync(key, [new NameValueEntry("eventId", job.Id.ToString())]);
-            var entries = await stream.StreamReadGroupAsync(key, "test", "consumer", ">", 1);
-            await Assert.That(entries).HasSingleItem();
             await using (var tx = await db.Database.BeginTransactionAsync())
             {
                 Jobs.Complete(db, job);
@@ -156,16 +155,156 @@ public sealed class LiveInfrastructureTests
                 await tx.CommitAsync();
             }
 
-            await stream.StreamAcknowledgeAsync(key, "test", entries[0].Id);
-            await Assert.That((await stream.StreamPendingAsync(key, "test")).PendingMessageCount).IsEqualTo(0);
             await Assert.That(await db.Inbox.Where(x => x.EventId == job.Id).ToListAsync()).HasSingleItem();
             await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Completed);
+            await VerifyQueueAsync(options, bot.Id);
+            await VerifyRetriesAsync(options, cs.ConnectionString, bot.Id);
         }
         finally
         {
-            await queue.GetDatabase().KeyDeleteAsync(key);
             await using var drop = new NpgsqlCommand($"DROP DATABASE \"{databaseName}\" WITH (FORCE)", admin);
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task VerifyUpgradeAsync(WonderDbContext db, string connection)
+    {
+        await db.GetService<IMigrator>().MigrateAsync("20261021093316_AutonomousMemoryMaintenance");
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid(), Email = "legacy@example.com", NormalizedEmail = "LEGACY@EXAMPLE.COM",
+            UserName = "legacy@example.com", NormalizedUserName = "LEGACY@EXAMPLE.COM", LockoutEnabled = false
+        };
+        const string password = "Legacy-password-that-still-works!";
+        user.PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(user, password);
+        db.Users.Add(user);
+        var bot = new BotInstance { OwnerId = user.Id };
+        db.Bots.Add(bot);
+        var profile = new EmbeddingProfile { BotId = bot.Id, Model = "legacy", Dimensions = 3 };
+        var memory = new Core.Memory { BotId = bot.Id, SubjectId = Guid.NewGuid(), Text = "legacy vector" };
+        db.EmbeddingProfiles.Add(profile);
+        db.Memories.Add(memory);
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
+            """);
+        await db.Database.MigrateAsync();
+        await db.Entry(user).ReloadAsync();
+        await Assert.That(user.LockoutEnabled).IsTrue();
+        await Assert.That((await db.Embeddings.SingleAsync(x => x.MemoryId == memory.Id)).Values.ToArray())
+            .IsEquivalentTo(new float[] { 1, 0, 0 });
+        using var app = new TestApp(postgresConnection: connection);
+        using var client = app.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Wonder", "1");
+        var login = await client.PostAsJsonAsync("/api/v1/auth/login",
+            new { email = user.Email, password });
+        await Assert.That(login.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+
+    private static async Task VerifyQueueAsync(DbContextOptions<WonderDbContext> options, Guid botId)
+    {
+        var queue = new JobQueue(new QueueFactory(options));
+        await using var db = new WonderDbContext(options);
+        var job = Jobs.Add(db, botId, "queue-probe", new IdPayload(botId));
+        var delayed = Jobs.Add(db, botId, "queue-probe", new IdPayload(botId));
+        delayed.NextAttemptAt = DateTimeOffset.UtcNow.AddHours(1);
+        await db.SaveChangesAsync();
+        var claims = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => queue.TryClaimAsync(["queue-probe"], default)));
+        await Assert.That(claims.OfType<OutboxMessage>().ToArray()).HasSingleItem();
+        var first = claims.OfType<OutboxMessage>().Single();
+        await Assert.That(first.Id).IsEqualTo(job.Id);
+        await Assert.That(first.Attempts).IsEqualTo(1);
+        await Assert.That(await queue.TryClaimAsync(["queue-probe"], default)).IsNull();
+        await Assert.That(await queue.RenewAsync(first.Id, first.LeaseId!.Value, default)).IsTrue();
+        await db.Entry(job).ReloadAsync();
+        // Keep an old tracked copy, expire the lease, and verify both reclaim and stale-write fencing.
+        await db.Outbox.Where(x => x.Id == job.Id).ExecuteUpdateAsync(s =>
+            s.SetProperty(x => x.LeaseUntil, DateTimeOffset.UtcNow.AddSeconds(-1)));
+        var replacement = (await queue.TryClaimAsync(["queue-probe"], default))!;
+        await Assert.That(replacement.LeaseId == first.LeaseId).IsFalse();
+        await Assert.That(replacement.Attempts).IsEqualTo(2);
+        await Assert.That(await queue.RenewAsync(first.Id, first.LeaseId.Value, default)).IsFalse();
+        await queue.ReleaseAsync(first.Id, first.LeaseId.Value, default);
+        var bot = await db.Bots.SingleAsync(x => x.Id == botId);
+        var originalName = bot.Name;
+        bot.Name = "Stale worker must not persist this";
+        await Assert.That(async () => { await Jobs.SaveAsync(db, job, first.LeaseId, default); })
+            .ThrowsExactly<DbUpdateConcurrencyException>();
+        job.Status = JobStatus.Completed;
+        await Assert.That(async () => { await db.SaveChangesAsync(); }).ThrowsExactly<DbUpdateConcurrencyException>();
+        db.ChangeTracker.Clear();
+        await Assert.That((await db.Bots.SingleAsync(x => x.Id == botId)).Name).IsEqualTo(originalName);
+        await Assert.That(() => Jobs.RequireLease(replacement, first.LeaseId)).ThrowsExactly<DbUpdateConcurrencyException>();
+        await CompleteAsync(options, job.Id);
+        await Assert.That(await queue.TryClaimAsync(["queue-probe"], default)).IsNull();
+
+        var conversation = new Conversation { BotId = botId, ExternalId = "queue-order" };
+        db.Conversations.Add(conversation);
+        var earlier = Jobs.Add(db, botId, JobTypes.Chat, new IdPayload(botId), conversation.Id);
+        var later = Jobs.Add(db, botId, JobTypes.Chat, new IdPayload(botId), conversation.Id);
+        await db.SaveChangesAsync();
+        // EF does not promise INSERT order; use the database sequence as the authoritative order.
+        var ordered = new[] { earlier, later }.OrderBy(x => x.Sequence).ToArray();
+        var chats = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => queue.TryClaimAsync([JobTypes.Chat], default)));
+        await Assert.That(chats.OfType<OutboxMessage>().ToArray()).HasSingleItem();
+        await Assert.That(chats.OfType<OutboxMessage>().Single().Id).IsEqualTo(ordered[0].Id);
+        await CompleteAsync(options, ordered[0].Id);
+        var outgoing = Jobs.Add(db, botId, JobTypes.Outgoing, new IdPayload(botId), conversation.Id);
+        await db.SaveChangesAsync();
+        await Assert.That(await queue.TryClaimAsync([JobTypes.Chat], default)).IsNull();
+        await Assert.That((await queue.TryClaimAsync([JobTypes.Outgoing], default))!.Id).IsEqualTo(outgoing.Id);
+        await CompleteAsync(options, outgoing.Id);
+        await Assert.That((await queue.TryClaimAsync([JobTypes.Chat], default))!.Id).IsEqualTo(ordered[1].Id);
+        await CompleteAsync(options, ordered[1].Id);
+    }
+
+    private static async Task CompleteAsync(DbContextOptions<WonderDbContext> options, Guid id)
+    {
+        await using var db = new WonderDbContext(options);
+        Jobs.Complete(db, await db.Outbox.SingleAsync(x => x.Id == id));
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task VerifyRetriesAsync(DbContextOptions<WonderDbContext> options, string connection, Guid botId)
+    {
+        using var app = new TestApp(postgresConnection: connection);
+        var queue = app.Services.GetRequiredService<JobQueue>();
+        var processor = app.Services.GetRequiredService<JobProcessor>();
+        await using var db = new WonderDbContext(options);
+        // A missing summary session is a retryable failure; no model or platform request is made.
+        var job = Jobs.Add(db, botId, JobTypes.Summary, new SummaryJob(Guid.NewGuid(), 1));
+        await db.SaveChangesAsync();
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            await db.Outbox.Where(x => x.Id == job.Id).ExecuteUpdateAsync(s =>
+                s.SetProperty(x => x.NextAttemptAt, DateTimeOffset.UtcNow.AddSeconds(-1)));
+            var claim = (await queue.TryClaimAsync([JobTypes.Summary], default))!;
+            await Assert.That(claim.Id).IsEqualTo(job.Id);
+            await processor.ProcessAsync(claim, default);
+            await db.Entry(job).ReloadAsync();
+            await Assert.That(job.Attempts).IsEqualTo(attempt);
+            await Assert.That(job.LeaseId).IsNull();
+            await Assert.That(job.ErrorCode).IsEqualTo(nameof(InvalidOperationException));
+            await Assert.That(job.Status).IsEqualTo(attempt == 5 ? JobStatus.DeadLetter : JobStatus.Pending);
+            if (attempt < 5)
+            {
+                await Assert.That(job.NextAttemptAt > DateTimeOffset.UtcNow).IsTrue();
+                await Assert.That(await queue.TryClaimAsync([JobTypes.Summary], default)).IsNull();
+            }
+        }
+        await Assert.That(await queue.TryClaimAsync([JobTypes.Summary], default)).IsNull();
+        // The existing owner retry API can return this durable dead-letter row to Pending.
+        job.Status = JobStatus.Pending;
+        job.Attempts = 0;
+        job.ErrorCode = null;
+        job.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await db.SaveChangesAsync();
+        await Assert.That((await queue.TryClaimAsync([JobTypes.Summary], default))!.Attempts).IsEqualTo(1);
+    }
+
+    private sealed class QueueFactory(DbContextOptions<WonderDbContext> options) : IDbContextFactory<WonderDbContext>
+    {
+        public WonderDbContext CreateDbContext() => new(options);
     }
 }

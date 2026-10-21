@@ -14,10 +14,11 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             m.Scope == c.Scope && m.ScopeOwnerId == c.ScopeOwnerId && m.SharedFromMemoryId == null &&
             m.Status != MemoryStatus.Revoked && m.ArchivedAt == null);
 
-    public async Task RunAsync(Guid jobId, CancellationToken ct)
+    public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         if (job.Status == JobStatus.Completed) return;
         var candidate = await db.MemoryCandidates.SingleAsync(x => x.Id == Json.Read<IdPayload>(job.Payload).Id, ct);
         if (candidate.BotId != job.BotId) throw new InvalidOperationException("Candidate does not belong to this job's bot.");
@@ -63,7 +64,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                 }
                 job.Status = JobStatus.Pending;
                 job.LeaseUntil = null;
-                job.PublishedAt = null;
+                job.LeaseId = null;
                 job.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(30);
                 await db.SaveChangesAsync(ct);
                 return;
@@ -81,7 +82,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                     // SQLite integration tests use the same scoped candidates and exact cosine metric.
                     var vectors = await db.Embeddings.Where(x => x.ProfileId == space.Id &&
                         Scope(db, candidate).Any(m => m.Id == x.MemoryId)).ToListAsync(ct);
-                    nearest = vectors.OrderByDescending(x => Cosine(values, x.Values)).ThenBy(x => x.MemoryId)
+                    nearest = vectors.OrderByDescending(x => Cosine(values, x.Values.ToArray())).ThenBy(x => x.MemoryId)
                         .Take(10).Select(x => x.MemoryId).ToArray();
                 }
             }
@@ -157,6 +158,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             await db.Entry(candidate).ReloadAsync(ct);
             if (candidate.Status == MemoryMaintenanceStatus.Pending) Cancel(candidate);
             await db.Entry(job).ReloadAsync(ct);
+            Jobs.RequireLease(job, expectedLeaseId);
             if (job.Status != JobStatus.Completed) Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -164,6 +166,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
         }
         await db.Entry(candidate).ReloadAsync(ct);
         await db.Entry(job).ReloadAsync(ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         if (job.Status == JobStatus.Completed || candidate.Status != MemoryMaintenanceStatus.Pending) return;
         user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == candidate.SubjectId, ct);
         if (!await ValidAsync(db, candidate, user, ct))
@@ -222,7 +225,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                         Model = embedding.Model, Dimensions = values!.Length };
                     db.EmbeddingProfiles.Add(profile);
                 }
-                db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = profile.Id, Values = values! });
+                db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = profile.Id, Values = new(values!) });
                 candidate.ResultMemoryId = memory.Id;
             }
         }

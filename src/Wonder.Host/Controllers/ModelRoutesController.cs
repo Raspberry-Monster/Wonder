@@ -27,21 +27,8 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
     public async Task<IActionResult> Update(Guid id, ModelRouteInput[] inputs, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        if (inputs.Length > 7 || inputs.Select(x => x.TaskKind).Distinct().Count() != inputs.Length)
-            return BadRequest();
         foreach (var input in inputs)
         {
-            if (input.SupportsTools == true && input.TaskKind != TaskKind.Chat) return BadRequest();
-            if (!Enum.IsDefined(input.TaskKind) || !Uri.TryCreate(input.Endpoint, UriKind.Absolute, out var uri) ||
-                uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo) ||
-                string.IsNullOrWhiteSpace(input.Model) || input.ContextWindow is < 2048 or > 2_000_000 ||
-                input.MaxOutputTokens is < 16 or > 32768 || input.MaxOutputTokens + 1024 >= input.ContextWindow ||
-                input.EmbeddingDimensions is < 1 or > 8192 || input.InputCostPerMillion < 0 ||
-                input.OutputCostPerMillion < 0 ||
-                input.ReasoningEffort is not (null or "low" or "high" or "max") ||
-                input.ReasoningEffort is not null && input.ThinkingEnabled != true ||
-                input.TaskKind == TaskKind.Embedding &&
-                (input.ThinkingEnabled is not null || input.ReasoningEffort is not null)) return BadRequest();
             var profile = await Db.Models.SingleOrDefaultAsync(x => x.BotId == id && x.TaskKind == input.TaskKind, ct);
             if (profile is null)
             {

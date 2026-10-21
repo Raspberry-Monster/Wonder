@@ -23,7 +23,6 @@ public sealed class PersonaController(WonderDbContext db) : WonderControllerBase
     {
         var bot = await FindOwnedBotAsync(id, ct);
         if (bot is null) return NotFound();
-        if (string.IsNullOrWhiteSpace(input.Content) || input.Content.Length > 4000) return BadRequest();
         var revision = await Db.Identities.Where(x => x.BotId == id).MaxAsync(x => x.Revision, ct) + 1;
         var identity = new PersonaIdentityRevision { BotId = id, Content = input.Content, Revision = revision };
         Db.Identities.Add(identity);

@@ -98,10 +98,11 @@ public sealed class MaintenanceWorkflow(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task RunAsync(Guid jobId, CancellationToken ct)
+    public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         if (job.Type == JobTypes.Ledger)
         {
             await backups.ExportLedgerAsync(ct);

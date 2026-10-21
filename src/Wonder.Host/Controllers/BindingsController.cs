@@ -22,9 +22,6 @@ public sealed class BindingsController(WonderDbContext db, SecretProtector secre
     public async Task<IActionResult> Update(Guid id, BindingInput input, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        if (!long.TryParse(input.PlatformAccountId, out var account) || account <= 0 ||
-            !Uri.TryCreate(input.WebSocketUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("ws" or "wss") ||
-            !string.IsNullOrEmpty(uri.UserInfo)) return BadRequest();
         var binding = await Db.Bindings.SingleOrDefaultAsync(x => x.BotId == id, ct);
         if (binding is null)
         {

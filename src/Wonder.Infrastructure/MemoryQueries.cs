@@ -1,5 +1,6 @@
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
+using Pgvector.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Memory;
 
@@ -33,13 +34,10 @@ public static class MemoryQueries
     public static IQueryable<VectorDistance> Ranked(WonderDbContext db, IQueryable<Core.Memory> scope,
         Guid profileId, float[] vector)
     {
-        var values = "[" + string.Join(",", vector.Select(x => x.ToString("R", CultureInfo.InvariantCulture))) + "]";
-        // Only the pgvector cast/operator needs SQL with the current real[] storage mapping.
-        // No Top-K is applied here: EF composes scope authorization before ordering and Take.
-        var distances = db.Database.SqlQuery<VectorDistance>($"""
-                                                              SELECT e."MemoryId", e."Values"::vector <=> {values}::vector AS "Distance"
-                                                              FROM "Embeddings" e WHERE e."ProfileId" = {profileId}
-                                                              """);
+        var query = new Vector(vector);
+        // Scope authorization stays in SQL before ordering and applying Top-K.
+        var distances = db.Embeddings.Where(e => e.ProfileId == profileId)
+            .Select(e => new VectorDistance { MemoryId = e.MemoryId, Distance = e.Values.CosineDistance(query) });
         return from memory in scope
             join distance in distances on memory.Id equals distance.MemoryId
             orderby distance.Distance, memory.Id

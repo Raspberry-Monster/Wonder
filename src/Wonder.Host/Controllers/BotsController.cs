@@ -19,8 +19,6 @@ public sealed class BotsController(WonderDbContext db) : WonderControllerBase(db
     [HttpPost]
     public async Task<IActionResult> Create(CreateBot input, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 100 ||
-            string.IsNullOrWhiteSpace(input.Identity) || input.Identity.Length > 4000) return BadRequest();
         var bot = new BotInstance { OwnerId = CurrentUserId, Name = input.Name.Trim() };
         Db.Bots.Add(bot);
         Db.Emotions.Add(new GlobalEmotionState { BotId = bot.Id });
@@ -40,9 +38,6 @@ public sealed class BotsController(WonderDbContext db) : WonderControllerBase(db
     {
         var bot = await FindOwnedBotAsync(id, ct);
         if (bot is null) return NotFound();
-        if (input.Name is { Length: > 100 or 0 } || input.MessageRetentionDays is < 1 or > 3650 ||
-            input.PrivateIdleMinutes is < 1 or > 1440 || input.GroupIdleMinutes is < 1 or > 1440 ||
-            input.DailyTokenLimit is < 1 || input.MonthlyTokenLimit is < 1) return BadRequest();
         bot.Name = input.Name ?? bot.Name;
         bot.Enabled = input.Enabled ?? bot.Enabled;
         bot.PersistMessages = input.PersistMessages ?? bot.PersistMessages;

@@ -1,11 +1,11 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Authentication.Cookies;
+using FluentValidation;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using StackExchange.Redis;
+using Pgvector.EntityFrameworkCore;
 using Wonder.Chat;
 using Wonder.Emotion;
 using Wonder.Host;
@@ -18,15 +18,30 @@ builder.Logging.ClearProviders().AddConsole();
 builder.Configuration.AddJsonFile("appsettings.Local.json", true).AddEnvironmentVariables();
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1024 * 1024);
 builder.Services.AddProblemDetails();
-builder.Services.AddControllers()
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+builder.Services.AddControllers(o => o.Filters.Add<RequestValidationFilter>())
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
 builder.Services.AddDbContextFactory<WonderDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("Postgres") ??
-                throw new InvalidOperationException("Postgres connection string required.")));
+                throw new InvalidOperationException("Postgres connection string required."), pg => pg.UseVector()));
 builder.Services.AddDataProtection().SetApplicationName("Wonder")
     .PersistKeysToFileSystem(new DirectoryInfo(builder.Configuration["Storage:KeysPath"] ?? "data/keys"));
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
+builder.Services.AddIdentityCore<ApplicationUser>(o =>
+{
+    o.User.RequireUniqueEmail = true;
+    o.User.AllowedUserNameCharacters = "";
+    o.Password.RequiredLength = 12;
+    o.Password.RequireDigit = false;
+    o.Password.RequireLowercase = false;
+    o.Password.RequireUppercase = false;
+    o.Password.RequireNonAlphanumeric = false;
+    o.Lockout.AllowedForNewUsers = true;
+    o.Lockout.MaxFailedAccessAttempts = 5;
+    o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+}).AddEntityFrameworkStores<WonderDbContext>().AddSignInManager().AddDefaultTokenProviders();
+builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme).AddIdentityCookies();
+builder.Services.ConfigureApplicationCookie(o =>
 {
     o.Cookie.Name = "wonder.session";
     o.Cookie.HttpOnly = true;
@@ -56,17 +71,10 @@ builder.Services.AddRateLimiter(o =>
             _ => new FixedWindowRateLimiterOptions
                 { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
-builder.Services.AddSingleton<IPasswordHasher<ApplicationUser>, PasswordHasher<ApplicationUser>>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddHttpClient("models");
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(new ConfigurationOptions
-{
-    EndPoints = { builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379" },
-    AbortOnConnectFail = false,
-    ConnectTimeout = 3000,
-    AsyncTimeout = 3000,
-    Password = builder.Configuration["Redis:Password"]
-}));
+builder.Services.AddSingleton<JobQueue>();
+builder.Services.AddSingleton<JobProcessor>();
 builder.Services.AddSingleton<PromptComposer>();
 builder.Services.AddSingleton<ContextBuilder>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -143,12 +151,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
-app.MapGet("/health/ready", async (WonderDbContext db, IConnectionMultiplexer redis, CancellationToken ct) =>
+app.MapGet("/health/ready", async (WonderDbContext db, CancellationToken ct) =>
 {
     try
     {
         if (!await db.Database.CanConnectAsync(ct)) return Results.StatusCode(503);
-        await redis.GetDatabase().PingAsync();
         return Results.Ok(new { status = "ready" });
     }
     catch (Exception)

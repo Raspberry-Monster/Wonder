@@ -7,10 +7,11 @@ namespace Wonder.Infrastructure;
 
 public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory, IPlatformConnection platform)
 {
-    public async Task RunAsync(Guid jobId, CancellationToken ct)
+    public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
+        Jobs.RequireLease(job, expectedLeaseId);
         if (job.Status == JobStatus.Completed) return;
         var batchId = Json.Read<IdPayload>(job.Payload).Id;
         var batch = await db.Batches.SingleAsync(x => x.Id == batchId, ct);
@@ -26,11 +27,11 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true), ct);
             if (parts.Any(x => x.Status is DeliveryStatus.Sending or DeliveryStatus.DeliveryUnknown))
             {
-                await db.SaveChangesAsync(ct);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 throw new DeliveryUnknownException("Unconfirmed delivery contains tool markup and requires review.");
             }
             Jobs.Complete(db, job);
-            await db.SaveChangesAsync(ct);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
         foreach (var part in parts)
@@ -40,40 +41,40 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
             if (part.Status is DeliveryStatus.Sending or DeliveryStatus.DeliveryUnknown)
             {
                 part.Status = DeliveryStatus.DeliveryUnknown;
-                await db.SaveChangesAsync(ct);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 throw new DeliveryUnknownException("Unconfirmed OneBot delivery requires review.");
             }
 
             part.Status = DeliveryStatus.Sending;
-            await db.SaveChangesAsync(ct);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             try
             {
                 part.ExternalId = await platform.SendAsync(binding.Id, conversation.Kind, conversation.ExternalId,
                     part.Text, ct);
                 part.Status = DeliveryStatus.Sent;
-                await db.SaveChangesAsync(ct);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             }
             catch (DeliveryUnknownException)
             {
                 part.Status = DeliveryStatus.DeliveryUnknown;
-                await db.SaveChangesAsync(CancellationToken.None);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, CancellationToken.None);
                 throw;
             }
             catch (OperationCanceledException)
             {
                 part.Status = DeliveryStatus.DeliveryUnknown;
-                await db.SaveChangesAsync(CancellationToken.None);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, CancellationToken.None);
                 throw;
             }
             catch
             {
                 part.Status = DeliveryStatus.Pending;
-                await db.SaveChangesAsync(CancellationToken.None);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, CancellationToken.None);
                 throw;
             }
         }
 
         Jobs.Complete(db, job);
-        await db.SaveChangesAsync(ct);
+        await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
     }
 }
