@@ -4,9 +4,9 @@
 
 按 README 执行 Compose 构建和 --migrate，再启动 Host。迁移不会在普通启动时自动执行。PostgreSQL 实例必须能够安装 vector 扩展；首次迁移的数据库账号需要相应权限。
 
-初始先在控制台配置 Chat 路由，再配置其余后台任务模型；未配置的模型任务会进入失败列表。补齐配置后可以在“状态与任务”重试。消息生成和发送均有持久状态；Redis 丢失时待处理 Outbox 在一分钟内重新发布，运行中的任务会等租约到期后恢复。
+初始先在控制台配置 Chat 路由，再配置其余后台任务模型；未配置的模型任务会进入失败列表。补齐配置后可以在“状态与任务”重试。消息生成和发送均有持久状态；消费者每秒轮询 PostgreSQL Outbox，通过 FOR UPDATE SKIP LOCKED 原子领取任务。租约为十分钟，每三十秒续租；进程退出后过期租约会自动恢复。
 
-仅同一个 Host 进程负责此数据库的消费。不要同时启动两份应用来共享当前任务库。同一 QQ 账号只允许绑定一个逻辑 Bot。
+数据库领取支持并发消费者；完整应用仍按单 Host 部署，OneBot 连接与维护扫描尚未提供多 Host 协调。同一 QQ 账号只允许绑定一个逻辑 Bot。
 
 Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/README.md)。两种部署方式选择其一。
 
@@ -16,7 +16,7 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
 
 将系统管理员账号 UUID 写入 SystemAdminIds__0。登录后 POST /api/v1/system/backups，携带 X-Wonder: 1。接口执行 pg_dump 并直接流式 age 加密，不写明文数据库转储，同时在独立目录输出加密撤销账本。
 
-容器数据统一映射到 ~/quadlet.config.d/Wonder/ 下的 PostgreSQL、Redis、Host、DeletionLedger 和 SnowLuma 子目录。删除账本在容器内仍位于 data/deletion-ledger，宿主对应 DeletionLedger；默认仍在同一物理主机，请将它挂到独立磁盘或同步到异机。启用收件人后，每次删除会排入账本导出任务；可以 POST /api/v1/system/deletion-ledger 手动再导出。关注导出任务失败和积压。
+容器数据统一映射到 ~/quadlet.config.d/Wonder/ 下的 PostgreSQL、Host、DeletionLedger 和 SnowLuma 子目录。删除账本在容器内仍位于 data/deletion-ledger，宿主对应 DeletionLedger；默认仍在同一物理主机，请将它挂到独立磁盘或同步到异机。启用收件人后，每次删除会排入账本导出任务；可以 POST /api/v1/system/deletion-ledger 手动再导出。关注导出任务失败和积压。
 
 数据库备份之外还需要独立加密保存 data/keys。丢失 Data Protection 密钥会导致现有模型 Key、QQ 令牌和登录 Cookie 无法解密。恢复后可以重新输入模型 Key / QQ 令牌，但不能从密文反推出它们。
 
@@ -32,7 +32,7 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
    ~~~
 
 5. 验证已撤销记忆、向量与派生内容不可检索。账本重放可重复执行；临时解密文件不应放进静态目录或版本库。
-6. 使用专属、空的 Redis 实例 / 逻辑数据库，启动 Host。未完成的 Outbox 会重新发布；过期运行租约会恢复。外部发送为 Sending 的分段会转 DeliveryUnknown，先到 QQ 核对再人工确认或允许重发。
+6. 启动 Host。到期的 Pending 任务会被直接领取，过期的 Running 租约会恢复；Completed 和 DeadLetter 不会自动执行。外部发送为 Sending 的分段会转 DeliveryUnknown，先到 QQ 核对再人工确认或允许重发。
 7. 检查 /health/ready、任务列表和本人记忆接口，再恢复外部流量。
 
 不要重放旧账本来代替最新删除记录。恢复点之后新增的删除，只有在独立账本成功保存且仍可取得时才能重放；数据库和账本一起丢失时没有相应保证。RPO 取决于最近一次成功备份。
@@ -47,7 +47,7 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
 
 ## 查看任务详细日志
 
-任务失败、Outbox 发布、Redis 消费和维护扫描的 Warning 日志包含异常消息与堆栈，默认 Information 级别即可看到。数据库任务列表仍只记录错误类型。
+任务失败、数据库任务领取、租约续租和维护扫描的 Warning 日志包含异常消息与堆栈，默认 Information 级别即可看到。数据库任务列表仍只记录错误类型。
 
 - dotnet run / IDE：查看运行终端或调试输出。
 - Podman Quadlet：journalctl --user -u wonder-app.service -n 200 -f。
@@ -55,7 +55,7 @@ Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/REA
 
 按任务 UUID 查找对应失败记录。ModelConfigurationException 的消息可区分缺少模型路由、Token 预算耗尽和供应商拒绝请求的 HTTP 状态码；供应商错误响应正文目前没有写入异常。修正配置后，在控制台“状态与任务”重试。
 
-Redis 消费遇到 NOGROUP 时会重新初始化 Consumer Group；并发创建产生的 BUSYGROUP 可正常处理。
+普通任务最多尝试五次，聊天最多两次；配置错误与不确定发送直接进入 DeadLetter。重试遵循供应商 Retry-After，否则使用指数退避（最高五分钟）。死信保留在 Outbox，控制台手动重试会清除错误、重置尝试次数和租约。
 
 反思生成遇到空最终回答或截断的结构化回答时，记录 ModelResponseException 并沿用任务重试，不把空内容当成有效提案。日志包含 Task、Model、FinishReason、MaxOutputTokens、OutputTokens 和 ThinkingEnabled；失败生成也记录用量。FinishReason=length 时应增加输出上限或减少输入 / 思考消耗，再到任务列表重试。请按模型能力为反思路由开启 JSON 输出格式。
 
@@ -66,3 +66,5 @@ Redis 消费遇到 NOGROUP 时会重新初始化 Consumer Group；并发创建�
 用户称呼、共享空间与记忆授权的操作见 [跨群记忆与用户称呼](shared-context.md)。核心状态、权限和派生上下文处理见 [核心架构](Wonder-Architecture-v0.1.md)。
 
 跨 Session 对话延续与工具功能需要执行 ConversationContinuityAndTools 迁移。默认使用 Asia/Shanghai 时区；可设置 Chat__TimeZone。历史查询工具需在聊天路由中单独开启，当前时间每轮自动注入。使用范围和验证说明见 [对话延续与时间](conversation-continuity.md)。
+
+本次重构需执行 IdentityPgvectorAndPostgresQueue 迁移：原地转换 Embeddings.Values 为 vector，保留账号 ID、密码哈希和任务状态，启用旧账号的 Identity 锁定支持。登录 Cookie 名称及传输策略保持一致，旧版本 Cookie 因认证方案变更需要重新登录。可删除旧 Redis 连接配置及容器；已有 Redis 数据不再被读取。

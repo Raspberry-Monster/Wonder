@@ -11,14 +11,6 @@ services:
     volumes: ["~/quadlet.config.d/Wonder/PostgreSQL:/var/lib/postgresql:Z"]
     ports: ["127.0.0.1:5432:5432"]
     restart: unless-stopped
-  redis:
-    image: redis:8-alpine
-    environment:
-      TZ: Asia/Shanghai
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes: ["~/quadlet.config.d/Wonder/Redis:/data:Z"]
-    ports: ["127.0.0.1:6379:6379"]
-    restart: unless-stopped
   snowluma:
     image: docker.io/motricseven7/snowluma:v2.0.3
     environment:
@@ -46,13 +38,11 @@ services:
     environment:
       TZ: Asia/Shanghai
       ConnectionStrings__Postgres: Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password
-      ConnectionStrings__Redis: redis:6379
     volumes:
       - "~/quadlet.config.d/Wonder/Host:/app/data:z"
       - "~/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:z"
     ports: ["127.0.0.1:5080:8080"]
     depends_on:
       - postgres
-      - redis
       - snowluma
     restart: unless-stopped

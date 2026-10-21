@@ -5,7 +5,7 @@ Wonder 是一个基于 QQ 的、多实例 AI 聊天机器人平台。每个逻�
 ## 设计原则
 
 1. 身份稳定，心境有惯性，关系变化有证据；不让一次互动任意改写角色。
-2. PostgreSQL 是业务权威存储，Redis 负责队列与缓存；Redis 丢失后可恢复未完成任务。
+2. PostgreSQL 是业务权威存储，并保存持久任务队列；任务领取、租约、重试和死信不依赖外部消息服务。
 3. LLM 生成 Proposal，由服务端验证授权、证据、版本与变化幅度后提交。
 4. 记忆在服务端按 Bot、用户、会话范围和授权过滤；Owner 管理权不等于读取用户私人记忆的权限。
 5. 用户可以查看、更正、删除记忆；撤销必须阻止旧任务回写，并处理派生上下文。
@@ -13,7 +13,7 @@ Wonder 是一个基于 QQ 的、多实例 AI 聊天机器人平台。每个逻�
 
 ## 系统结构
 
-.NET 10 / ASP.NET Core 模块化单体，一个 Host、一个 DbContext、一套 EF Core Migrations。PostgreSQL + pgvector 与 Redis 作为独立服务运行，当前任务消费仅支持单 Host。
+.NET 10 / ASP.NET Core 模块化单体，一个 Host、一个 DbContext、一套 EF Core Migrations。PostgreSQL + pgvector 作为独立服务运行。任务领取支持并发消费者；完整应用仍按单 Host 部署。
 
 ```mermaid
 flowchart TB
@@ -21,8 +21,7 @@ flowchart TB
   UI[Web Dashboard] --> API[MVC API · Cookie 认证与资源授权]
   GW --> DB[(PostgreSQL + pgvector · 消息 / 状态 / Outbox / Inbox)]
   API --> DB
-  DB --> PUB[Outbox Publisher]
-  PUB --> QUEUE[(Redis Streams)]
+  DB --> QUEUE[PostgreSQL Outbox · 原子领取与租约续期]
   QUEUE --> CHAT[Chat / Outgoing]
   QUEUE --> REFLECT[Reflection / Memory / Maintenance]
   CHAT --> CTX[Context Builder / Prompt Composer]
@@ -44,9 +43,9 @@ flowchart TB
 | `Wonder.Emotion` | 心境演化、关系证据聚合、独立叙事 |
 | `Wonder.Memory` | 记忆准入、作用域规则、检索与撤销 |
 | `Wonder.AI` | 模型适配、任务路由、能力与用量 |
-| `Wonder.Infrastructure` | EF Core、Redis、持久化工作流、媒体与备份 |
+| `Wonder.Infrastructure` | EF Core、Pgvector、数据库任务队列、持久化工作流、媒体与备份 |
 
-模块规则通过 C# 接口协作，可靠异步工作通过 Outbox 和 Streams 交接。业务读写以 EF Core 为主，工作流集中在 Infrastructure。
+模块规则通过 C# 接口协作，可靠异步工作通过 事务内 Outbox 和数据库任务领取 交接。业务读写以 EF Core 为主，工作流集中在 Infrastructure。
 
 ## 身份、提示与上下文
 
@@ -114,12 +113,12 @@ M(t + Δt) = Clamp(B + λ^Δt · (M(t) - B) + α · ΔE)
 ## 可靠聊天链路
 
 1. SnowLuma 正向 WebSocket 接收入站消息，标准化文本、图片、@ 和引用；按群策略决定触发。保存、回复与反思分别判断，未触发群消息不默认提取长期记忆。
-2. 消息与 Outbox 在同一 PostgreSQL 事务提交，以平台消息标识去重；Redis 只传 EventId 等元信息。
+2. 消息与 Outbox 在同一 PostgreSQL 事务提交，以平台消息标识去重；消费者直接从数据库领取任务。
 3. Publisher 允许重复发布；Consumer Group 领取任务，业务效果与 Inbox 同事务提交后确认消费，失败有限重试并进入持久失败记录 / DLQ。
 4. 同一对话检查前序聊天及未完成发送，再固定上下文并调用模型；模型调用期间不持有长数据库事务。
 5. 完整回复先持久化，再按自然段和长度限制分段发送，每段分别记录状态及平台回执。
 
-Outbox 同时保存持久任务状态，数据库短租约防止重复领取；Redis 丢失后可重新发布未完成工作。聊天有两个消费者，其余任务流各一个；当前不保证多 Host 共同消费。
+Outbox 保存 Pending、Running、Completed、DeadLetter 状态及 Attempts、NextAttemptAt、LeaseUntil、LeaseId。FOR UPDATE SKIP LOCKED 原子领取到期任务，租约十分钟、每三十秒续期，LeaseId 并发令牌防止旧租约完成任务；过期 Running 任务可重新领取。聊天有两个消费者，其余任务类别各一个。同会话聊天按 Sequence 等待前序聊天及待发送任务，发送按 Sequence 执行。
 
 外部 QQ 发送无法保证严格 exactly-once。连接中断或崩溃后无法判断是否已送达的分段标为 `DeliveryUnknown`，由人工核对后确认已发送或允许重试，后者可能产生重复。
 
@@ -140,11 +139,13 @@ Outbox 同时保存持久任务状态，数据库短租约防止重复领取；R
 - 手动备份通过 `pg_dump` 流式 age 加密；Data Protection 密钥另行保存。配置 age 收件人后，删除事务排入独立账本导出任务。
 - 恢复时先停止应用，恢复数据库与密钥、执行迁移，再重放最新独立删除账本，验证撤销与授权后启动。数据库与账本一起丢失时，无法保证恢复后仍包含最新删除记录。
 
-部署文件沿用镜像默认资源管理与数据库参数；Redis 开启 AOF 持久化。实际容量需包含 SnowLuma / QQ 客户端，并在目标主机按工作负载压测。实际命令与排错见 [运行指南](operations.md)。
+部署文件沿用镜像默认资源管理与数据库参数。实际容量需包含 SnowLuma / QQ 客户端，并在目标主机按工作负载压测。实际命令与排错见 [运行指南](operations.md)。
 
 ## 当前边界与待验证项
 
 - 账号暂未提供邮箱验证、密码找回和完整账号管理。
 - 主动发言调度、音视频与任意文件的完整处理、长期任务 / 用量 / 情绪事件分级归档及更丰富告警尚未实现。
-- 自动化测试使用模拟模型与 QQ 发送适配器；提供真实 PostgreSQL / pgvector / Redis 集成测试。测试范围与执行方式见 [测试指南](../tests/README.md)。
+- 自动化测试使用模拟模型与 QQ 发送适配器；提供真实 PostgreSQL / pgvector 集成测试。测试范围与执行方式见 [测试指南](../tests/README.md)。
 - 真实 NapCat / 模型供应商兼容性、容器与 Quadlet 运行、目标机器负载及备份恢复演练仍需实测；模拟测试不能代替这些验收。
+
+实体映射位于 Infrastructure/Configurations，各类实现 IEntityTypeConfiguration<T>，由程序集扫描装配；ApplicationUser、MemoryEmbedding 使用 EntityTypeConfiguration 特性。Core 保持独立，不引用 Infrastructure。实体直接声明 Id，不继承通用 Entity 基类。向量使用 Pgvector.Vector 映射 PostgreSQL vector，通过 CosineDistance LINQ 翻译距离查询，先保留授权及 Profile 过滤再取 Top-K。HTTP 请求使用 FluentValidation 异步过滤器返回字段级 ValidationProblemDetails；注册、密码验证、重哈希和账号锁定交给 ASP.NET Core Identity 的 UserManager / SignInManager。

@@ -1,7 +1,7 @@
 [Unit]
 Description=Wonder Application Podman Container
-Requires=wonder-postgres.service wonder-redis.service
-After=wonder-postgres.service wonder-redis.service
+Requires=wonder-postgres.service
+After=wonder-postgres.service
 Wants=wonder-snowluma.service
 After=wonder-snowluma.service
 
@@ -11,7 +11,6 @@ Image=localhost/wonder:0.1
 Network=wonder
 Environment=TZ=Asia/Shanghai
 Environment="ConnectionStrings__Postgres=Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password"
-Environment=ConnectionStrings__Redis=redis:6379
 Volume=%h/quadlet.config.d/Wonder/Host:/app/data:U,z
 Volume=%h/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:U,z
 PublishPort=127.0.0.1:5080:8080

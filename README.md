@@ -10,7 +10,7 @@
 
 Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「我家的 Miku」。希望她有稳定的个性，能记住相处中的点滴，让心境与关系随着日常交流慢慢延续。这个念头是 Wonder 的起点，名字则取自 r-906 的《Wonder》。
 
-目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，通过 OneBot 11 / SnowLuma 接入 QQ；PostgreSQL 保存权威状态，Redis Streams 分发异步任务。
+目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，通过 OneBot 11 / SnowLuma 接入 QQ；PostgreSQL 保存业务状态，并通过 Outbox 持久任务表完成异步调度、租约、重试和死信处理。
 
 ## 核心设计
 
@@ -24,13 +24,12 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 ## 本地启动
 
-需要 .NET 10 SDK、PostgreSQL 18 + pgvector、Redis 8（容器使用 redis:8-alpine）。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
+需要 .NET 10 SDK、PostgreSQL 18 + pgvector。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
 
 ~~~powershell
-# 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL / Redis / SnowLuma。
+# 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL / SnowLuma。
 
 $env:ConnectionStrings__Postgres = 'Host=localhost;Database=wonder;Username=wonder;Password=你的密码;Maximum Pool Size=20'
-$env:ConnectionStrings__Redis = 'localhost:6379'
 dotnet restore Wonder.slnx
 dotnet run --project src/Wonder.Host -- --migrate
 dotnet run --project src/Wonder.Host
@@ -71,7 +70,7 @@ podman build -t localhost/wonder:0.1 -f Dockerfile .
 docker compose -f deploy/compose.yaml build app
 ~~~
 
-Compose 从仓库根目录的 Dockerfile 构建应用镜像；PostgreSQL、Redis 和 SnowLuma 使用部署配置中指定的现成镜像。
+Compose 从仓库根目录的 Dockerfile 构建应用镜像；PostgreSQL 和 SnowLuma 使用部署配置中指定的现成镜像。
 
 ### 更新已有部署
 
@@ -95,20 +94,21 @@ docker compose -f deploy/compose.yaml run --rm --no-deps app --migrate
 docker compose -f deploy/compose.yaml up -d --no-deps app
 ~~~
 
-更新时数据库和 Redis 保持运行，迁移成功后再启动新版应用。首次部署仍需按下节或 [Quadlet 指南](deploy/quadlet/README.md) 准备目录、网络、数据库密码与数据目录权限。
+更新时数据库保持运行，迁移成功后再启动新版应用。首次部署仍需按下节或 [Quadlet 指南](deploy/quadlet/README.md) 准备目录、网络、数据库密码与数据目录权限。
+
+本次更新包含 `IdentityPgvectorAndPostgresQueue` 迁移，旧账号密码、向量和任务状态均保留，登录会话需重新登录。已有 Compose 部署可在迁移后使用 `up -d --remove-orphans app` 清理旧 Redis 容器；Quadlet 清理方式见对应指南。
 
 ## 容器运行
 
 Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值，再运行：
 
 ~~~bash
-mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Redis,Host,DeletionLedger}
+mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Host,DeletionLedger}
 mkdir -p ~/quadlet.config.d/Wonder/SnowLuma/{Data,Config,Share}
 docker compose -f deploy/compose.yaml build app
-docker compose -f deploy/compose.yaml up -d postgres redis snowluma
-# 等 PostgreSQL 报告 accepting connections、Redis 返回 PONG 后继续；未就绪时稍后重试。
+docker compose -f deploy/compose.yaml up -d postgres snowluma
+# 等 PostgreSQL 报告 accepting connections 后继续；未就绪时稍后重试。
 docker compose -f deploy/compose.yaml exec postgres pg_isready -U wonder -d wonder
-docker compose -f deploy/compose.yaml exec redis redis-cli ping
 # 首次初始化应用挂载目录的所有者；之后迁移和服务均使用镜像内 app 用户。
 docker compose -f deploy/compose.yaml run --rm --no-deps --user root --entrypoint sh app -c 'chown -R app:app /app/data'
 docker compose -f deploy/compose.yaml run --rm --no-deps app --migrate
@@ -117,11 +117,11 @@ docker compose -f deploy/compose.yaml up -d app
 
 Compose 内置 motricseven7/snowluma:v2.0.3。运行 `docker compose -f deploy/compose.yaml logs snowluma` 查看首次生成的远程桌面密码和 WebUI 登录信息。打开 `http://192.168.1.102:6081/` 扫码登录 QQ，再在 `http://192.168.1.102:5099/` 配置账号的 OneBot 11 正向 WebSocket（0.0.0.0:3001、数组消息段），复制该服务的 Access Token。在 Wonder 的 QQ 连接中填写 QQ 账号、ws://snowluma:3001/ 和相同 Token；宿主运行 .NET 时用 ws://127.0.0.1:3001/。三种密码 / Token 分别管理。
 
-所有数据使用宿主目录映射，统一放在 ~/quadlet.config.d/Wonder/ 下：PostgreSQL、Redis、Host、DeletionLedger，以及 SnowLuma/Data、SnowLuma/Config、SnowLuma/Share。后者分别保存协议端数据、QQ 配置及客户端数据。PostgreSQL 18 使用 pgvector/pgvector:pg18，挂载到容器的 /var/lib/postgresql，实际数据库文件位于宿主 PostgreSQL/18/docker。Compose 与 Quadlet 共用目录布局，不能同时访问同一份数据。
+所有数据使用宿主目录映射，统一放在 ~/quadlet.config.d/Wonder/ 下：PostgreSQL、Host、DeletionLedger，以及 SnowLuma/Data、SnowLuma/Config、SnowLuma/Share。后者分别保存协议端数据、QQ 配置及客户端数据。PostgreSQL 18 使用 pgvector/pgvector:pg18，挂载到容器的 /var/lib/postgresql，实际数据库文件位于宿主 PostgreSQL/18/docker。Compose 与 Quadlet 共用目录布局，不能同时访问同一份数据。
 
 SnowLuma 管理端口 5099 和 6081 绑定宿主局域网地址 `192.168.1.102`，防火墙按需允许管理电脑访问这两个 TCP 端口；其他已发布端口绑定本机回环地址。应用默认使用 Production，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问 http://127.0.0.1:5080 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 Authentication__RequireHttps=true。创建所需账号后可按需添加 Authentication__AllowRegistration=false；备份收件人与管理员 UUID 可通过 Backups__AgeRecipient、SystemAdminIds__0 配置。
 
-各容器采用默认资源管理，数据库使用默认参数，Redis 开启 AOF 持久化。实际资源需求仍需在目标机器上按工作负载验证。
+各容器采用默认资源管理，数据库使用默认参数。实际资源需求仍需在目标机器上按工作负载验证。
 
 使用 Podman / systemd 部署见 [Quadlet 指南](deploy/quadlet/README.md)。环境变量直接写在各自的 .container 中，宿主目录映射使用 %h/quadlet.config.d/Wonder/模块名；迁移由手动 wonder-migrate.service 执行。
 
@@ -139,9 +139,9 @@ dotnet test --solution Wonder.slnx
 
 日常测试使用 SQLite 测试适配器和模拟供应商，覆盖真实 HTTP 登录、Owner 资源隔离、个人记忆隔离、入站去重、完整聊天流程、排队消息上下文、删除防回写、DeliveryUnknown，以及协议和领域规则。
 
-真实 PostgreSQL / Redis 测试需要显式设置 WONDER_TEST_POSTGRES 和 WONDER_TEST_REDIS；未设置时只跳过此项。该测试会创建 / 删除一个随机命名的临时数据库，连接账号需要 CREATEDB 权限。CI 已配置相应服务。
+真实 PostgreSQL 测试需要显式设置 WONDER_TEST_POSTGRES；未设置时只跳过此项。该测试会创建 / 删除一个随机命名的临时数据库，连接账号需要 CREATEDB 权限。CI 已配置相应服务。
 
-健康端点：/health/live（进程）、/health/ready（数据库与 Redis）。登录后可访问 /openapi/v1.json。所有有副作用的 API 请求都需要 X-Wonder: 1 请求头。控制台已自动携带。
+健康端点：/health/live（进程）、/health/ready（数据库）。登录后可访问 /openapi/v1.json。所有有副作用的 API 请求都需要 X-Wonder: 1 请求头。控制台已自动携带。
 
 ## 文档
 

@@ -14,15 +14,8 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U wonder -d postgres"
           --health-interval 5s --health-timeout 3s --health-retries 20
-      redis:
-        image: redis:8-alpine
-        ports: ["6379:6379"]
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       WONDER_TEST_POSTGRES: Host=localhost;Database=postgres;Username=wonder;Password=ci-password
-      WONDER_TEST_REDIS: localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
