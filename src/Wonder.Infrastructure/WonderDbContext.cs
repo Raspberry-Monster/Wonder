@@ -38,6 +38,7 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options) : DbCont
     public DbSet<RelationshipState> Relationships => Set<RelationshipState>();
     public DbSet<RelationshipObservation> Observations => Set<RelationshipObservation>();
     public DbSet<Core.Memory> Memories => Set<Core.Memory>();
+    public DbSet<MemoryMaintenanceCandidate> MemoryCandidates => Set<MemoryMaintenanceCandidate>();
     public DbSet<MemoryRevocation> Revocations => Set<MemoryRevocation>();
     public DbSet<EmbeddingProfile> EmbeddingProfiles => Set<EmbeddingProfile>();
     public DbSet<MemoryEmbedding> Embeddings => Set<MemoryEmbedding>();
@@ -106,6 +107,10 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options) : DbCont
         b.Entity<RelationshipObservation>().HasIndex(x => new { x.ReflectionId, x.Candidate }).IsUnique();
         b.Entity<Core.Memory>().HasIndex(x => new { x.BotId, x.Scope, x.ScopeOwnerId, x.Status });
         b.Entity<Core.Memory>().HasIndex(x => new { x.SubjectId, x.FactKey });
+        b.Entity<Core.Memory>().Property(x => x.Revision).IsConcurrencyToken();
+        b.Entity<Core.Memory>().HasIndex(x => x.SupersedesMemoryId);
+        b.Entity<MemoryMaintenanceCandidate>().HasIndex(x => new { x.SourceReflectionId, x.CandidateHash }).IsUnique();
+        b.Entity<MemoryMaintenanceCandidate>().HasIndex(x => new { x.SubjectId, x.Status });
         b.Entity<Core.Memory>().HasOne<Core.Memory>().WithMany().HasForeignKey(x => x.SharedFromMemoryId)
             .OnDelete(DeleteBehavior.Restrict);
         b.Entity<Core.Memory>().HasIndex(x => new { x.SharedFromMemoryId, x.Scope, x.ScopeOwnerId })

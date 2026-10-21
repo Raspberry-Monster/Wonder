@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using StackExchange.Redis;
 using Wonder.Core;
@@ -123,6 +124,26 @@ public sealed class LiveInfrastructureTests
             await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).MessageIdsJson).IsEqualTo("[]");
             await Assert.That((await db.Models.AsNoTracking().SingleAsync()).SupportsTools).IsTrue();
 
+            // Exercise the complete autonomous workflow against real pgvector and the migrated schema.
+            using (var app = new TestApp(postgresConnection: cs.ConnectionString))
+            {
+                var fixture = await MemoryMaintenanceTests.SeedAsync(app);
+                app.ModelResponses.Enqueue(MemoryMaintenanceTests.Vector());
+                app.ModelResponses.Enqueue(MemoryMaintenanceTests.Decision(MemoryMaintenanceAction.Update, fixture.Old, "我现在住上海。"));
+                await MemoryMaintenanceTests.RunAsync(app, fixture.Job);
+                var active = await db.Memories.AsNoTracking().SingleAsync(x => x.BotId == fixture.Bot && x.ArchivedAt == null);
+                await Assert.That(active.SupersedesMemoryId).IsEqualTo(fixture.Old);
+                await Assert.That((await db.Memories.AsNoTracking().SingleAsync(x => x.Id == fixture.Old)).ArchivedAt).IsNotNull();
+                var matches = await MemoryQueries.Nearest(db, new(fixture.Bot, fixture.User, null),
+                    (await db.EmbeddingProfiles.AsNoTracking().SingleAsync(x => x.BotId == fixture.Bot)).Id, [1, 0, 0]).ToListAsync();
+                await Assert.That(matches).HasSingleItem();
+                await Assert.That(matches[0].Id).IsEqualTo(active.Id);
+                using var scope = app.Services.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(fixture.User, active.Id, null, default);
+                await Assert.That(await db.Memories.AnyAsync(x => x.BotId == fixture.Bot && x.Text != "")).IsFalse();
+                await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.BotId == fixture.Bot && x.Text != "")).IsFalse();
+            }
+
             var stream = queue.GetDatabase();
             await stream.StreamCreateConsumerGroupAsync(key, "test", "0-0");
             await stream.StreamAddAsync(key, [new NameValueEntry("eventId", job.Id.ToString())]);
@@ -137,8 +158,8 @@ public sealed class LiveInfrastructureTests
 
             await stream.StreamAcknowledgeAsync(key, "test", entries[0].Id);
             await Assert.That((await stream.StreamPendingAsync(key, "test")).PendingMessageCount).IsEqualTo(0);
-            await Assert.That(await db.Inbox.ToListAsync()).HasSingleItem();
-            await Assert.That((await db.Outbox.AsNoTracking().SingleAsync()).Status).IsEqualTo(JobStatus.Completed);
+            await Assert.That(await db.Inbox.Where(x => x.EventId == job.Id).ToListAsync()).HasSingleItem();
+            await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Completed);
         }
         finally
         {

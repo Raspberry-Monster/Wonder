@@ -15,7 +15,8 @@
 - POST /api/v1/bots/{id}/deliveries/{partId}/resolve：action 为 confirm-sent 或 retry。后者允许再次发送，可能产生外部重复。
 - POST /api/v1/me/qq-binding-challenge：生成 QQ 私聊绑定口令。
 - GET / PUT /api/v1/me/memory-settings：allowMemory、allowCrossGroupMemory、preferredName；后两项省略时保留原值，preferredName 传空字符串可清空。
-- GET /api/v1/me/memories；GET / PATCH / DELETE /api/v1/me/memories/{id}：本人本地记忆及 sharing 状态，PATCH 接收 text；更正和删除会撤回关联共享。
+- GET /api/v1/me/memories：本人本地记忆及 sharing 状态，includeArchived=true 包含保留的归档历史；返回 archivedAt、supersedesMemoryId、lastConfirmedAt、revision。GET / PATCH / DELETE /api/v1/me/memories/{id}：本人记忆，PATCH 接收 text；更正和删除处理完整版本链并撤回关联共享。
+- GET /api/v1/me/memory-maintenance：本人候选和维护记录，支持 skip 分页；用户记忆设置新增 allowMemoryMerge、allowMemoryUpdate、allowMemoryArchive、retainMemoryHistory。详见 [自主维护记忆](../memory-maintenance.md)。
 - GET /api/v1/me/memories/{id}/sharing-options：查询来源群当前共享空间。
 - POST /api/v1/me/memories/{id}/sharing：接收 scope（UserShared / SpaceShared）；SpaceShared 还须传当前 contextSpaceId，成功返回共享副本 id。
 - DELETE /api/v1/me/memories/{id}/sharing/{sharedId}：本人撤回指定共享，保留原始记忆。

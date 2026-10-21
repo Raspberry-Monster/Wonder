@@ -139,6 +139,10 @@ public sealed class LogicalUser : Entity
 {
     public bool AllowMemory { get; set; }
     public bool AllowCrossGroupMemory { get; set; }
+    public bool AllowMemoryMerge { get; set; } = true;
+    public bool AllowMemoryUpdate { get; set; } = true;
+    public bool AllowMemoryArchive { get; set; } = true;
+    public bool RetainMemoryHistory { get; set; } = true;
     public string PreferredName { get; set; } = "";
     public long RevocationEpoch { get; set; }
 }
@@ -303,6 +307,11 @@ public sealed class RelationshipObservation : Entity
 
 public sealed class Memory : Entity
 {
+    public string FactKeyHash { get; set; } = "";
+    public Guid? SupersedesMemoryId { get; set; }
+    public DateTimeOffset? ArchivedAt { get; set; }
+    public DateTimeOffset? LastConfirmedAt { get; set; }
+    public long Revision { get; set; } = 1;
     public Guid? SharedFromMemoryId { get; set; }
     public Guid BotId { get; set; }
     public Guid SubjectId { get; set; }
@@ -314,6 +323,34 @@ public sealed class Memory : Entity
     public Guid SourceReflectionId { get; set; }
     public string EvidenceJson { get; set; } = "[]";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public enum MemoryMaintenanceStatus { Pending, Applied, Deferred, Cancelled }
+public enum MemoryMaintenanceAction { Add, Merge, Supplement, Update, Archive, Defer }
+
+public sealed record MemoryMaintenanceDecision(MemoryMaintenanceAction Action, Guid? TargetId,
+    string? Text, string Reason);
+
+// Candidates are never retrieved as conversational memories. Completed rows also provide an audit trail.
+public sealed class MemoryMaintenanceCandidate : Entity
+{
+    public Guid BotId { get; set; }
+    public Guid SubjectId { get; set; }
+    public MemoryScope Scope { get; set; }
+    public string ScopeOwnerId { get; set; } = "";
+    public string FactKey { get; set; } = "";
+    public string Text { get; set; } = "";
+    public string EvidenceJson { get; set; } = "[]";
+    public Guid SourceReflectionId { get; set; }
+    public long RevocationEpoch { get; set; }
+    public string CandidateHash { get; set; } = "";
+    public MemoryMaintenanceStatus Status { get; set; }
+    public MemoryMaintenanceAction? Action { get; set; }
+    public Guid? TargetMemoryId { get; set; }
+    public Guid? ResultMemoryId { get; set; }
+    public string Reason { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? CompletedAt { get; set; }
 }
 
 public sealed class MemoryRevocation : Entity

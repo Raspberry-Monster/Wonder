@@ -159,6 +159,7 @@ public sealed class JobWorkers(
                 case JobTypes.Emotion or JobTypes.Relationship or JobTypes.Memory:
                     await sp.GetRequiredService<ReflectionWorkflow>().ApplyAsync(id, ct); break;
                 case JobTypes.Embedding: await sp.GetRequiredService<ReflectionWorkflow>().EmbedAsync(id, ct); break;
+                case JobTypes.MemoryMaintenance: await sp.GetRequiredService<MemoryMaintenanceWorkflow>().RunAsync(id, ct); break;
                 default: await sp.GetRequiredService<MaintenanceWorkflow>().RunAsync(id, ct); break;
             }
         }

@@ -131,6 +131,7 @@ public sealed class ReflectionWorkflow(
         var result = await db.Reflections.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == Json.Read<IdPayload>(job.Payload).Id, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (job.Status == JobStatus.Completed) return;
         if (result is null || result.Payload == "{}" ||
             !await UserFence.CheckAsync(db, result.SubjectId, result.RevocationEpoch, ct))
         {
@@ -231,12 +232,10 @@ public sealed class ReflectionWorkflow(
                 if (await db.Revocations.AnyAsync(
                         x => x.BotId == job.BotId && x.UserId == user.Id && x.Scope == scope &&
                              x.ScopeOwnerId == owner && x.FactKeyHash == keyHash, ct)) continue;
-                // Conflicts are held back; a model does not silently overwrite an existing fact.
-                if (await db.Memories.AnyAsync(
-                        x => x.BotId == job.BotId && x.SubjectId == user.Id && x.Scope == scope &&
-                             x.ScopeOwnerId == owner && x.FactKey == candidate.FactKey &&
-                             x.Status != MemoryStatus.Revoked, ct)) continue;
-                var memory = new Core.Memory
+                var hash = Json.Hash(Json.Write(candidate));
+                if (db.MemoryCandidates.Local.Any(x => x.SourceReflectionId == result.Id && x.CandidateHash == hash) ||
+                    await db.MemoryCandidates.AnyAsync(x => x.SourceReflectionId == result.Id && x.CandidateHash == hash, ct)) continue;
+                var pending = new MemoryMaintenanceCandidate
                 {
                     BotId = job.BotId,
                     SubjectId = user.Id,
@@ -245,10 +244,12 @@ public sealed class ReflectionWorkflow(
                     FactKey = candidate.FactKey,
                     Text = candidate.Text,
                     SourceReflectionId = result.Id,
-                    EvidenceJson = Json.Write(candidate.EvidenceMessageIds)
+                    EvidenceJson = Json.Write(candidate.EvidenceMessageIds.Distinct().ToArray()),
+                    RevocationEpoch = result.RevocationEpoch,
+                    CandidateHash = hash
                 };
-                db.Memories.Add(memory);
-                Jobs.Add(db, job.BotId, JobTypes.Embedding, new IdPayload(memory.Id), cause: job.Id);
+                db.MemoryCandidates.Add(pending);
+                Jobs.Add(db, job.BotId, JobTypes.MemoryMaintenance, new IdPayload(pending.Id), cause: job.Id);
             }
         }
 
@@ -263,7 +264,8 @@ public sealed class ReflectionWorkflow(
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         var memory =
             await db.Memories.SingleOrDefaultAsync(
-                x => x.Id == Json.Read<IdPayload>(job.Payload).Id && x.Status != MemoryStatus.Revoked, ct);
+                x => x.Id == Json.Read<IdPayload>(job.Payload).Id && x.Status != MemoryStatus.Revoked && x.ArchivedAt == null, ct);
+        if (job.Status == JobStatus.Completed) return;
         if (memory is null)
         {
             Jobs.Complete(db, job);
@@ -284,7 +286,7 @@ public sealed class ReflectionWorkflow(
         }
 
         await db.Entry(memory).ReloadAsync(ct);
-        if (memory.Status == MemoryStatus.Revoked)
+        if (memory.Status == MemoryStatus.Revoked || memory.ArchivedAt != null)
         {
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
@@ -294,7 +296,7 @@ public sealed class ReflectionWorkflow(
 
         var space = await db.EmbeddingProfiles.SingleOrDefaultAsync(
             x => x.BotId == job.BotId && x.Provider == profile.Endpoint && x.Model == profile.Model &&
-                 x.Dimensions == values.Length, ct);
+                 x.Dimensions == values.Length && x.Version == 1, ct);
         if (space is null)
         {
             space = new EmbeddingProfile

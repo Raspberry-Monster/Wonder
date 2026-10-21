@@ -81,6 +81,7 @@ builder.Services.AddSingleton<MediaStore>();
 builder.Services.AddScoped<ChatWorkflow>();
 builder.Services.AddScoped<OutgoingWorkflow>();
 builder.Services.AddScoped<ReflectionWorkflow>();
+builder.Services.AddScoped<MemoryMaintenanceWorkflow>();
 builder.Services.AddScoped<MaintenanceWorkflow>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddSingleton<OneBotConnectionManager>();

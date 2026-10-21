@@ -376,18 +376,25 @@ async function renderMemories() {
         }));
         return;
     }
-    const [settings, memories] = await Promise.all([api('/me/memory-settings'), api('/me/memories')]);
+    const [settings, memories, maintenance] = await Promise.all([api('/me/memory-settings'), api('/me/memories?includeArchived=true'), api('/me/memory-maintenance')]);
     const labels = {Private: '仅私聊', GroupUser: '指定群内', GroupShared: '群公共', GlobalPublic: '公开', UserShared: '我的跨群记忆', SpaceShared: '共享空间'};
     $('#content').innerHTML = '<form class="card" id="memory-settings"><h3>我的称呼与记忆偏好</h3>' +
         field('希望 Bot 如何称呼我', 'preferredName', settings.preferredName || '', 'text', 'maxlength="100"') +
         '<p class="muted">你主动设置的称呼会随当前发送者身份提供给模型，在各群和私聊中使用。留空时使用自然称呼，不把 Bot 的名字当成你的名字。</p>' +
         checkbox('允许保存非敏感的长期事实与交流偏好', 'allowMemory', settings.allowMemory) +
         checkbox('允许逐条共享我的记忆到其他群', 'allowCrossGroupMemory', settings.allowCrossGroupMemory) +
+        '<h3>Bot 自主维护的边界</h3>' +
+        checkbox('允许自动合并重复事实与证据', 'allowMemoryMerge', settings.allowMemoryMerge) +
+        checkbox('允许自动补充和更新事实', 'allowMemoryUpdate', settings.allowMemoryUpdate) +
+        checkbox('允许自动归档已明确失效的事实', 'allowMemoryArchive', settings.allowMemoryArchive) +
+        checkbox('保留归档历史，供我查看', 'retainMemoryHistory', settings.retainMemoryHistory) +
+        '<p class="muted">Bot 只维护已授权范围内、有明确依据的非敏感事实。不确定的候选暂缓保存。更新会归档旧版并撤回旧共享，新版需要重新选择共享。关闭保留历史会清除已有和后续归档正文，重新开启不能恢复。</p>' +
         '<p class="muted">开启开关不会自动共享任何内容。关闭记忆或跨群开关会撤回已有共享；再次开启后需要重新选择共享。</p><button>保存称呼与偏好</button></form>' +
         '<div class="toolbar memory"><h3>我的记忆</h3><span class="muted">最近 ' + memories.length + ' 条</span></div>' +
-        (memories.length ? memories.map(m => '<article class="card memory"><span class="badge">' + esc(labels[m.scope] || m.scope) + '</span><p class="memory-body">' + esc(m.text) + '</p><p class="muted">' + esc(m.factKey) + ' · ' + esc(m.status) + '</p>' +
+        (memories.length ? memories.map(m => '<article class="card memory"><span class="badge">' + esc(labels[m.scope] || m.scope) + (m.archivedAt ? ' · 已归档' : '') + '</span><p class="memory-body">' + esc(m.text) + '</p><p class="muted">' + esc(m.factKey) + ' · ' + esc(m.status) + (m.lastConfirmedAt ? ' · 最近确认 ' + esc(new Date(m.lastConfirmedAt).toLocaleString()) : '') + '</p>' +
             (m.sharing || []).map(s => '<p class="muted">' + (s.available === false ? '暂不可用（群/空间已变化）：' : '已共享：') + esc(labels[s.scope]) + ' <button class="secondary" data-unshare="' + s.id + '" data-memory="' + m.id + '">撤回共享</button></p>').join('') +
-            '<button class="secondary" data-share="' + m.id + '">共享此条</button> <button class="secondary" data-edit="' + m.id + '">更正</button> <button class="danger" data-delete="' + m.id + '">删除（含共享）</button><div id="sharing-' + m.id + '"></div></article>').join('') : empty('还没有保存的记忆。'));
+            (m.archivedAt ? '' : '<button class="secondary" data-share="' + m.id + '">共享此条</button> <button class="secondary" data-edit="' + m.id + '">更正</button> ') + '<button class="danger" data-delete="' + m.id + '">删除（含历史与共享）</button><div id="sharing-' + m.id + '"></div></article>').join('') : empty('还没有保存的记忆。')) +
+        '<details class="card memory"><summary>最近的自主维护记录</summary>' + table(['候选事实', '状态', '操作', '依据'], maintenance.map(m => [esc(m.text || '内容已清除'), esc(({Pending: '待处理', Applied: '已完成', Deferred: '待更多依据'})[m.status] || m.status), esc(({Add: '新增', Merge: '合并', Supplement: '补充', Update: '更新', Archive: '归档', Defer: '暂缓'})[m.action] || '—'), esc(m.reason || (m.status === 'Pending' ? '等待处理' : '记录内容已清除'))])) + '</details>';
     const settingsForm = $('#memory-settings');
     const updateCrossGroup = () => {
         settingsForm.elements.allowCrossGroupMemory.disabled = !settingsForm.elements.allowMemory.checked;
@@ -398,6 +405,8 @@ async function renderMemories() {
     settingsForm.onsubmit = e => {
         e.preventDefault();
         safe(api('/me/memory-settings', 'PUT', {preferredName: formData(settingsForm).preferredName,
+            allowMemoryMerge: check(settingsForm, 'allowMemoryMerge'), allowMemoryUpdate: check(settingsForm, 'allowMemoryUpdate'),
+            allowMemoryArchive: check(settingsForm, 'allowMemoryArchive'), retainMemoryHistory: check(settingsForm, 'retainMemoryHistory'),
             allowMemory: check(settingsForm, 'allowMemory'), allowCrossGroupMemory: check(settingsForm, 'allowCrossGroupMemory')}).then(() => {
             toast('称呼与偏好已保存。');
             return render();

@@ -9,7 +9,7 @@ public static class MemoryRules
     {
         var space = access.ContextSpaceId?.ToString();
         var user = access.UserId.ToString();
-        return memory => memory.BotId == access.BotId && memory.Status != MemoryStatus.Revoked &&
+        return memory => memory.BotId == access.BotId && memory.Status != MemoryStatus.Revoked && memory.ArchivedAt == null &&
             ((access.GroupId == null
                 ? access.AllowPersonal && memory.SubjectId == access.UserId && memory.Scope == MemoryScope.Private
                 : (access.AllowPersonal && memory.Scope == MemoryScope.GroupUser && memory.SubjectId == access.UserId && memory.ScopeOwnerId == access.GroupId)
@@ -24,6 +24,7 @@ public static class MemoryRules
         IReadOnlySet<Guid> allowedEvidence)
     {
         return consent && sourceEpoch == currentEpoch && candidate.Explicit && !candidate.Sensitive &&
+               !string.IsNullOrWhiteSpace(candidate.Text) && !string.IsNullOrWhiteSpace(candidate.FactKey) &&
                candidate.Text.Length is > 0 and <= 1000 && candidate.FactKey.Length is > 0 and <= 150 &&
                candidate.EvidenceMessageIds.Length > 0 && candidate.EvidenceMessageIds.All(allowedEvidence.Contains);
     }

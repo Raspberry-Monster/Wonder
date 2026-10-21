@@ -520,10 +520,22 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<bool>("AllowMemory")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("AllowMemoryArchive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AllowMemoryMerge")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AllowMemoryUpdate")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("PreferredName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("RetainMemoryHistory")
+                        .HasColumnType("boolean");
 
                     b.Property<long>("RevocationEpoch")
                         .IsConcurrencyToken()
@@ -579,6 +591,9 @@ namespace Wonder.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
 
@@ -592,6 +607,17 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<string>("FactKey")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("FactKeyHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("LastConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
 
                     b.Property<int>("Scope")
                         .HasColumnType("integer");
@@ -612,11 +638,16 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<Guid>("SubjectId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("SupersedesMemoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SupersedesMemoryId");
 
                     b.HasIndex("SubjectId", "FactKey");
 
@@ -630,6 +661,81 @@ namespace Wonder.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Memory_Enums", "\"Scope\" BETWEEN 0 AND 5 AND \"Status\" BETWEEN 0 AND 2");
                         });
+                });
+
+            modelBuilder.Entity("Wonder.Core.MemoryMaintenanceCandidate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("Action")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CandidateHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FactKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ResultMemoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RevocationEpoch")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ScopeOwnerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SourceReflectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TargetMemoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BotId");
+
+                    b.HasIndex("SourceReflectionId", "CandidateHash")
+                        .IsUnique();
+
+                    b.HasIndex("SubjectId", "Status");
+
+                    b.ToTable("MemoryCandidates");
                 });
 
             modelBuilder.Entity("Wonder.Core.MemoryRevocation", b =>
@@ -1333,6 +1439,15 @@ namespace Wonder.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("SharedFromMemoryId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Wonder.Core.MemoryMaintenanceCandidate", b =>
+                {
+                    b.HasOne("Wonder.Core.BotInstance", null)
+                        .WithMany()
+                        .HasForeignKey("BotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Wonder.Core.MemoryRevocation", b =>

@@ -129,6 +129,8 @@ PostgreSQL 在两种部署方式下都映射到宿主 `127.0.0.1:5432`；另一�
 
 ## 测试与诊断
 
+记忆可由 Bot 在用户设定的边界内自动合并、补充、更新和归档，设置及部署说明见 [自主维护记忆](docs/memory-maintenance.md)。
+
 ~~~bash
 dotnet test --solution Wonder.slnx
 ~~~

@@ -19,24 +19,30 @@ namespace Wonder.IntegrationTests;
 
 public sealed class TestApp : WebApplicationFactory<Program>
 {
-    private readonly SqliteConnection connection;
+    private readonly SqliteConnection? connection;
     private readonly TimeProvider? time;
     private readonly string environment;
     private readonly bool? requireHttps;
+    private readonly string? postgresConnection;
 
     public TestApp(TimeProvider? time = null, string? databaseFile = null,
-        string environment = "Development", bool? requireHttps = null)
+        string environment = "Development", bool? requireHttps = null, string? postgresConnection = null)
     {
         this.time = time;
         this.environment = environment;
         this.requireHttps = requireHttps;
-        connection = new SqliteConnection(new SqliteConnectionStringBuilder
-            { DataSource = databaseFile ?? ":memory:", Pooling = false }.ToString());
-        connection.Open();
+        this.postgresConnection = postgresConnection;
+        if (postgresConnection is null)
+        {
+            connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                { DataSource = databaseFile ?? ":memory:", Pooling = false }.ToString());
+            connection.Open();
+        }
     }
 
     public List<string> ModelRequests { get; } = [];
     public Queue<string> ModelResponses { get; } = [];
+    public Func<string, Task>? BeforeModelResponse { get; set; }
     public FakeSender Sender { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -60,13 +66,22 @@ public sealed class TestApp : WebApplicationFactory<Program>
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton(time);
             }
-            services.AddSingleton<IHttpClientFactory>(new FakeHttpFactory(ModelRequests, ModelResponses));
+            services.AddSingleton<IHttpClientFactory>(new FakeHttpFactory(ModelRequests, ModelResponses,
+                request => BeforeModelResponse?.Invoke(request) ?? Task.CompletedTask));
             services.AddSingleton<IPlatformConnection>(Sender);
             services.RemoveAll<IDbContextFactory<WonderDbContext>>();
             services.RemoveAll<WonderDbContext>();
             services.RemoveAll<DbContextOptions<WonderDbContext>>();
-            var options = new DbContextOptionsBuilder<WonderDbContext>().UseSqlite(connection)
-                .ConfigureWarnings(w => w.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)).Options;
+            var optionsBuilder = new DbContextOptionsBuilder<WonderDbContext>();
+            if (postgresConnection is null) optionsBuilder.UseSqlite(connection!);
+            else optionsBuilder.UseNpgsql(postgresConnection);
+            var options = optionsBuilder.ConfigureWarnings(w => w.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)).Options;
+            if (postgresConnection is not null)
+            {
+                services.AddSingleton<IDbContextFactory<WonderDbContext>>(new PostgresFactory(options));
+                services.AddScoped<WonderDbContext>(_ => new WonderDbContext(options));
+                return;
+            }
             services.AddSingleton<IDbContextFactory<WonderDbContext>>(new TestFactory(options));
             services.AddScoped<WonderDbContext>(_ => new TestDb(options));
             using var db = new TestDb(options);
@@ -77,7 +92,7 @@ public sealed class TestApp : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing) connection.Dispose();
+        if (disposing) connection?.Dispose();
     }
 
     public sealed class FakeSender : IPlatformConnection
@@ -94,19 +109,21 @@ public sealed class TestApp : WebApplicationFactory<Program>
         }
     }
 
-    private sealed class FakeHttpFactory(List<string> requests, Queue<string> responses) : IHttpClientFactory
+    private sealed class FakeHttpFactory(List<string> requests, Queue<string> responses, Func<string, Task> beforeResponse) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name)
         {
-            return new HttpClient(new FakeHandler(requests, responses));
+            return new HttpClient(new FakeHandler(requests, responses, beforeResponse));
         }
     }
 
-    private sealed class FakeHandler(List<string> requests, Queue<string> responses) : HttpMessageHandler
+    private sealed class FakeHandler(List<string> requests, Queue<string> responses, Func<string, Task> beforeResponse) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            requests.Add(await request.Content!.ReadAsStringAsync(ct));
+            var body = await request.Content!.ReadAsStringAsync(ct);
+            requests.Add(body);
+            await beforeResponse(body);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(responses.Count > 0 ? responses.Dequeue() :
@@ -122,6 +139,11 @@ public sealed class TestApp : WebApplicationFactory<Program>
         {
             return new TestDb(options);
         }
+    }
+
+    private sealed class PostgresFactory(DbContextOptions<WonderDbContext> options) : IDbContextFactory<WonderDbContext>
+    {
+        public WonderDbContext CreateDbContext() => new(options);
     }
 
     private sealed class TestDb(DbContextOptions<WonderDbContext> options) : WonderDbContext(options)

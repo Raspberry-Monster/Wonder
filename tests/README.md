@@ -28,6 +28,7 @@ dotnet test --project tests/Wonder.IntegrationTests/Wonder.IntegrationTests.cspr
 - 发言者归属、用户称呼、历史与引用及滚动摘要。
 - 逐条共享、跨 Bot 隔离、空间成员资格、撤回后派生历史 / 摘要失效和待发送回复取消。
 - 删除防回写、损坏来源缓存的保守失效、删除账本幂等重放。
+- 记忆候选隔离、向量召回与作用域、自动合并 / 补充 / 更新 / 归档、用户维护边界、版本链删除、并发重判与 Profile 回填。
 - 模型路由批量与单任务更新、独立 Embedding 路由、空回答与截断反思的拒绝。
 - 查询的稳定排序，以及维护清理对待处理发送与反思的保留。
 
@@ -35,7 +36,7 @@ dotnet test --project tests/Wonder.IntegrationTests/Wonder.IntegrationTests.cspr
 
 同时设置 WONDER_TEST_POSTGRES 和 WONDER_TEST_REDIS 后运行集成测试；未设置时仅跳过该基础设施用例。测试创建 / 删除随机临时数据库并使用独立 Stream，PostgreSQL 账号需要 CREATEDB 权限，实例须支持 pgvector。使用专用测试服务。
 
-该用例覆盖完整迁移、共享空间授权下的向量查询与距离排序、作者关闭共享后的检索和 Redis 消费组。CI 配置对应基础设施服务。
+该用例覆盖完整迁移、共享空间授权下的向量查询与距离排序、作者关闭共享后的检索、真实 pgvector 上的自主维护更新与版本链删除，以及 Redis 消费组。CI 配置对应基础设施服务。
 
 ## 契约与验收边界
 

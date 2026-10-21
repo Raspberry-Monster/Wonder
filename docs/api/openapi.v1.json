@@ -800,6 +800,14 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
           }
         ],
         "responses": {
@@ -953,6 +961,32 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/me/memory-maintenance": {
+      "get": {
+        "tags": [
+          "Memories"
+        ],
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -1310,6 +1344,30 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "allowMemoryMerge": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "allowMemoryUpdate": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "allowMemoryArchive": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "retainMemoryHistory": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }

@@ -36,6 +36,7 @@ public static class JobTypes
         Emotion = "emotion",
         Relationship = "relationship",
         Memory = "memory",
+        MemoryMaintenance = "memory-maintenance",
         Embedding = "embedding",
         Maintenance = "maintenance",
         Narrative = "narrative",
@@ -46,7 +47,7 @@ public static class JobTypes
         return "bot:stream:" + (type switch
         {
             Chat => "chat", Outgoing => "outgoing", Reflection or Emotion or Relationship => "reflection",
-            Memory or Embedding => "memory", _ => "maintenance"
+            Memory or Embedding or MemoryMaintenance => "memory", _ => "maintenance"
         });
     }
 }

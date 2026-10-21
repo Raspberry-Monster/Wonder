@@ -12,7 +12,7 @@ public static class MemoryQueries
         return db.Memories.AsNoTracking().Where(MemoryRules.Authorized(access)).Where(m =>
             (m.Scope != MemoryScope.UserShared && m.Scope != MemoryScope.SpaceShared) ||
             (db.LogicalUsers.Any(u => u.Id == m.SubjectId && u.AllowMemory && u.AllowCrossGroupMemory) &&
-             db.Memories.Any(source => source.Id == m.SharedFromMemoryId && source.Status != MemoryStatus.Revoked &&
+             db.Memories.Any(source => source.Id == m.SharedFromMemoryId && source.Status != MemoryStatus.Revoked && source.ArchivedAt == null &&
                  source.SubjectId == m.SubjectId && source.BotId == m.BotId &&
                  (m.Scope != MemoryScope.SpaceShared || (source.Scope == MemoryScope.GroupUser &&
                      db.GroupPolicies.Any(g => g.BotId == m.BotId && g.GroupId == source.ScopeOwnerId &&
@@ -22,6 +22,17 @@ public static class MemoryQueries
     public static IQueryable<Core.Memory> Nearest(WonderDbContext db, MemoryAccess access, Guid profileId,
         float[] vector)
     {
+        var authorized = Authorized(db, access);
+        var ranked = Ranked(db, authorized, profileId, vector);
+        return (from memory in authorized
+            join distance in ranked on memory.Id equals distance.MemoryId
+            orderby distance.Distance, memory.Id
+            select memory).Take(5);
+    }
+
+    public static IQueryable<VectorDistance> Ranked(WonderDbContext db, IQueryable<Core.Memory> scope,
+        Guid profileId, float[] vector)
+    {
         var values = "[" + string.Join(",", vector.Select(x => x.ToString("R", CultureInfo.InvariantCulture))) + "]";
         // Only the pgvector cast/operator needs SQL with the current real[] storage mapping.
         // No Top-K is applied here: EF composes scope authorization before ordering and Take.
@@ -29,14 +40,13 @@ public static class MemoryQueries
                                                               SELECT e."MemoryId", e."Values"::vector <=> {values}::vector AS "Distance"
                                                               FROM "Embeddings" e WHERE e."ProfileId" = {profileId}
                                                               """);
-        var authorized = Authorized(db, access);
-        return (from memory in authorized
+        return from memory in scope
             join distance in distances on memory.Id equals distance.MemoryId
             orderby distance.Distance, memory.Id
-            select memory).Take(5);
+            select distance;
     }
 
-    private sealed class VectorDistance
+    public sealed class VectorDistance
     {
         public Guid MemoryId { get; set; }
         public double Distance { get; set; }
