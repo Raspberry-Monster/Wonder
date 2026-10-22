@@ -369,7 +369,33 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BotResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BotResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BotResponse"
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -398,8 +424,25 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK"
+          "201": {
+            "description": "Created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -422,7 +465,24 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -463,7 +523,24 @@
         },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -724,7 +801,24 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1044,7 +1138,33 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelRouteResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelRouteResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelRouteResponse"
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -1190,6 +1310,33 @@
   },
   "components": {
     "schemas": {
+      "AccountResponse": {
+        "required": [
+          "id",
+          "email",
+          "logicalUserId"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "logicalUserId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "BindingInput": {
         "required": [
           "platformAccountId",
@@ -1213,6 +1360,84 @@
           "enabled": {
             "type": "boolean",
             "default": true
+          }
+        }
+      },
+      "BotResponse": {
+        "required": [
+          "id",
+          "name",
+          "enabled",
+          "settingsRevision",
+          "messageRetentionDays",
+          "privateIdleMinutes",
+          "groupIdleMinutes",
+          "persistMessages",
+          "dailyTokenLimit",
+          "monthlyTokenLimit"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "settingsRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "messageRetentionDays": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "privateIdleMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "groupIdleMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "persistMessages": {
+            "type": "boolean"
+          },
+          "dailyTokenLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "monthlyTokenLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -1466,6 +1691,149 @@
               "null",
               "boolean"
             ]
+          },
+          "tokenizerId": {
+            "type": "string",
+            "default": "estimate"
+          },
+          "messageTokenOverhead": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 16
+          },
+          "imageTokenBudget": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 4096
+          }
+        }
+      },
+      "ModelRouteResponse": {
+        "required": [
+          "id",
+          "taskKind",
+          "endpoint",
+          "model",
+          "contextWindow",
+          "maxOutputTokens",
+          "supportsImages",
+          "supportsJson",
+          "supportsTools",
+          "thinkingEnabled",
+          "reasoningEffort",
+          "embeddingDimensions",
+          "inputCostPerMillion",
+          "outputCostPerMillion",
+          "tokenizerId",
+          "messageTokenOverhead",
+          "imageTokenBudget",
+          "hasApiKey"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "taskKind": {
+            "$ref": "#/components/schemas/TaskKind"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "contextWindow": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxOutputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "supportsImages": {
+            "type": "boolean"
+          },
+          "supportsJson": {
+            "type": "boolean"
+          },
+          "supportsTools": {
+            "type": "boolean"
+          },
+          "thinkingEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "reasoningEffort": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "embeddingDimensions": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inputCostPerMillion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "outputCostPerMillion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "tokenizerId": {
+            "type": "string"
+          },
+          "messageTokenOverhead": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "imageTokenBudget": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hasApiKey": {
+            "type": "boolean"
           }
         }
       },

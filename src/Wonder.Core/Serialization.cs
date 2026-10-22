@@ -48,3 +48,5 @@ public sealed record IdPayload(Guid Id);
 public sealed record ReflectionJob(Guid SessionId, Guid SubjectId, long Boundary, long Epoch, string Kind);
 
 public sealed record SummaryJob(Guid SessionId, long ThroughSequence);
+
+public sealed record DailyJob(DateOnly Date);

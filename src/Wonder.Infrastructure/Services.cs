@@ -46,6 +46,8 @@ public static class Jobs
     public static OutboxMessage Add<T>(WonderDbContext db, Guid botId, string type, T payload,
         Guid? conversationId = null, Guid? cause = null, Guid? correlation = null)
     {
+        if (!EventContracts.PayloadTypes.TryGetValue(type, out var payloadType) || payloadType != typeof(T))
+            throw new ArgumentException("Event payload does not match its registered contract.", nameof(payload));
         var job = new OutboxMessage
         {
             BotId = botId,

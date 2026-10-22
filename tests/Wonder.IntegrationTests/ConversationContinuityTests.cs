@@ -105,7 +105,9 @@ public sealed class ConversationContinuityTests
             await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
             await db.Sessions.Where(x => x.Id == first.Message.SessionId)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.DeadlineAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
-            await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().SweepAsync(default);
+            await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().SweepSessionsAsync(default);
+        await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().ScheduleDailyAsync(default);
+        await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().CleanupAsync(default);
             await Assert.That((await db.Sessions.AsNoTracking().SingleAsync(x => x.Id == first.Message.SessionId)).Status).IsEqualTo(SessionStatus.Closed);
         }
         clock.Now = DateTimeOffset.Parse("2026-10-20T01:00:00Z");

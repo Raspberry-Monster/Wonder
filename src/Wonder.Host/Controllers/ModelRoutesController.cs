@@ -10,17 +10,17 @@ namespace Wonder.Host.Controllers;
 public sealed class ModelRoutesController(WonderDbContext db, SecretProtector secrets) : WonderControllerBase(db)
 {
     [HttpGet]
+    [ProducesResponseType<ModelRouteResponse[]>(200)]
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
         return Ok(await Db.Models.AsNoTracking().Where(x => x.BotId == id).OrderBy(x => x.TaskKind).Select(x =>
-            new
-            {
+            new ModelRouteResponse(
                 x.Id, x.TaskKind, x.Endpoint, x.Model, x.ContextWindow, x.MaxOutputTokens, x.SupportsImages,
                 x.SupportsJson, x.SupportsTools, x.ThinkingEnabled, x.ReasoningEffort, x.EmbeddingDimensions,
-                x.InputCostPerMillion, x.OutputCostPerMillion,
-                hasApiKey = x.ProtectedApiKey != ""
-            }).ToListAsync(ct));
+                x.InputCostPerMillion, x.OutputCostPerMillion, x.TokenizerId, x.MessageTokenOverhead, x.ImageTokenBudget,
+                x.ProtectedApiKey != ""
+            )).ToListAsync(ct));
     }
 
     [HttpPut]
@@ -43,6 +43,9 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
                                                                               input.EmbeddingDimensions);
             profile.Endpoint = input.Endpoint;
             profile.Model = input.Model;
+            profile.TokenizerId = input.TokenizerId;
+            profile.MessageTokenOverhead = input.MessageTokenOverhead;
+            profile.ImageTokenBudget = input.ImageTokenBudget;
             profile.ContextWindow = input.ContextWindow;
             profile.MaxOutputTokens = input.MaxOutputTokens;
             profile.SupportsImages = input.SupportsImages;

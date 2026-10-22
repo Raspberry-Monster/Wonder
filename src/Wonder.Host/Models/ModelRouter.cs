@@ -1,5 +1,4 @@
 using Wonder.Infrastructure;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Wonder.Infrastructure.Models;
@@ -11,7 +10,9 @@ namespace Wonder.Host;
 public sealed class ModelRouter(
     IDbContextFactory<WonderDbContext> factory,
     IHttpClientFactory http,
-    SecretProtector secrets)
+    SecretProtector secrets,
+    TokenCounter tokens,
+    TokenBudget budget)
 {
     public async Task<ModelProfile> ProfileAsync(Guid botId, TaskKind kind, CancellationToken ct)
     {
@@ -45,10 +46,14 @@ public sealed class ModelRouter(
         CancellationToken ct, IList<AITool>? tools, bool disableTools)
     {
         var input = messages.ToArray();
-        if (tools is { Count: > 0 } && EstimateInput(input, tools) + profile.MaxOutputTokens + 512 > profile.ContextWindow)
-            throw new ModelResponseException("Tool conversation exceeds the configured context window.");
-        await CheckBudgetAsync(profile, EstimateInput(input, tools) + profile.MaxOutputTokens, ct);
-        var result = await client.GetResponseAsync(input,
+        var inputTokens = CountInput(profile, input, tools);
+        if (inputTokens + profile.MaxOutputTokens + 512 > profile.ContextWindow)
+            throw new ModelResponseException("Conversation exceeds the configured context window.");
+        var reservation = await budget.ReserveAsync(profile, inputTokens + profile.MaxOutputTokens, ct);
+        ChatResponse result;
+        try
+        {
+        result = await client.GetResponseAsync(input,
             new ChatOptions
             {
                 MaxOutputTokens = profile.MaxOutputTokens,
@@ -56,19 +61,11 @@ public sealed class ModelRouter(
                 Tools = tools,
                 ToolMode = disableTools ? ChatToolMode.None : ChatToolMode.Auto
             }, ct);
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var i = result.Usage?.InputTokenCount ?? EstimateInput(input, tools);
-        var o = result.Usage?.OutputTokenCount ?? EstimateInput(result.Messages, null);
-        db.Usage.Add(new UsageRecord
-        {
-            BotId = profile.BotId,
-            ModelProfileId = profile.Id,
-            TaskKind = profile.TaskKind,
-            InputTokens = i,
-            OutputTokens = o,
-            Cost = (i * profile.InputCostPerMillion + o * profile.OutputCostPerMillion) / 1_000_000m
-        });
-        await db.SaveChangesAsync(ct);
+        }
+        catch { await budget.ReleaseAsync(reservation); throw; }
+        var i = result.Usage?.InputTokenCount ?? inputTokens;
+        var o = result.Usage?.OutputTokenCount ?? CountInput(profile, result.Messages, null);
+        await budget.SettleAsync(reservation, profile, i, o, CancellationToken.None);
         // Failed generations still consume tokens; record usage before rejecting the response.
         var details = $"Task={profile.TaskKind}; Model={profile.Model}; " +
                       $"FinishReason={result.FinishReason?.Value ?? "unknown"}; " +
@@ -87,15 +84,8 @@ public sealed class ModelRouter(
         return result;
     }
 
-    public static int EstimateInput(IEnumerable<ChatMessage> messages, IList<AITool>? tools) =>
-        messages.Sum(x => x.Text.Length + 16 + (x.AdditionalProperties?.TryGetValue("reasoning_content", out var reasoning) == true ? reasoning?.ToString()?.Length ?? 0 : 0) +
-            x.Contents.Sum(c => c switch
-            {
-                FunctionCallContent call => Json.Write(call.Arguments).Length + call.Name.Length + 32,
-                FunctionResultContent result => (result.Result is string text ? text.Length : Json.Write(result.Result).Length) + 32,
-                TextReasoningContent reasoningContent => reasoningContent.Text?.Length ?? 0,
-                _ => 0
-            })) + (tools?.OfType<AIFunctionDeclaration>().Sum(t => t.JsonSchema.GetRawText().Length + t.Description.Length + t.Name.Length + 32) ?? 0);
+    public int CountText(ModelProfile profile, string text) => tokens.Text(profile, text);
+    public int CountInput(ModelProfile profile, IEnumerable<ChatMessage> messages, IList<AITool>? tools) => tokens.Messages(profile, messages, tools);
 
     // Accounting and limits are application policy; function dispatch and looping belong to M.E.AI.
     private sealed class AccountedChatClient(IChatClient inner, ModelRouter router, ModelProfile profile) : DelegatingChatClient(inner)
@@ -116,36 +106,15 @@ public sealed class ModelRouter(
 
     public async Task<float[]> EmbedAsync(ModelProfile profile, string text, CancellationToken ct)
     {
-        await CheckBudgetAsync(profile, text.Length, ct);
+        var reservation = await budget.ReserveAsync(profile, CountText(profile, text), ct);
         using var client = CompatibleHttp.Configure(http.CreateClient("models"), profile.Endpoint,
             secrets.Unprotect(profile.ProtectedApiKey));
         using IEmbeddingGenerator<string, Embedding<float>> generator =
             new CompatibleEmbeddingGenerator(client, profile.Model, profile.EmbeddingDimensions);
-        var result = await generator.GenerateAsync([text], cancellationToken: ct);
-        await using var db = await factory.CreateDbContextAsync(ct);
-        db.Usage.Add(new UsageRecord
-        {
-            BotId = profile.BotId,
-            ModelProfileId = profile.Id,
-            TaskKind = TaskKind.Embedding,
-            InputTokens = text.Length,
-            Cost = text.Length * profile.InputCostPerMillion / 1_000_000m
-        });
-        await db.SaveChangesAsync(ct);
+        GeneratedEmbeddings<Embedding<float>> result;
+        try { result = await generator.GenerateAsync([text], cancellationToken: ct); }
+        catch { await budget.ReleaseAsync(reservation); throw; }
+        await budget.SettleAsync(reservation, profile, result.Usage?.InputTokenCount ?? CountText(profile, text), 0, CancellationToken.None);
         return result[0].Vector.ToArray();
-    }
-
-    private async Task CheckBudgetAsync(ModelProfile profile, long reservation, CancellationToken ct)
-    {
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var bot = await db.Bots.AsNoTracking().SingleAsync(x => x.Id == profile.BotId, ct);
-        var today = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
-        var month = new DateTimeOffset(today.Year, today.Month, 1, 0, 0, 0, TimeSpan.Zero);
-        var monthly = await db.Usage.Where(x => x.BotId == bot.Id && x.CreatedAt >= month)
-            .SumAsync(x => x.InputTokens + x.OutputTokens, ct);
-        var daily = await db.Usage.Where(x => x.BotId == bot.Id && x.CreatedAt >= today)
-            .SumAsync(x => x.InputTokens + x.OutputTokens, ct);
-        if (daily + reservation > bot.DailyTokenLimit || monthly + reservation > bot.MonthlyTokenLimit)
-            throw new ModelConfigurationException("Bot token budget exhausted.");
     }
 }

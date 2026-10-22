@@ -412,7 +412,8 @@ public sealed class OutboxMessage
     public Guid? ConversationId { get; set; }
     public Guid CorrelationId { get; set; }
     public Guid? CausationId { get; set; }
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
+    public DateOnly? ScheduledDate { get; set; }
     public string Type { get; set; } = "";
     public string Payload { get; set; } = "{}";
     public JobStatus Status { get; set; }
@@ -456,6 +457,9 @@ public sealed class ModelProfile
     public Guid BotId { get; set; }
     public TaskKind TaskKind { get; set; }
     public string Provider { get; set; } = "openai-compatible";
+    public string TokenizerId { get; set; } = "estimate";
+    public int MessageTokenOverhead { get; set; } = 16;
+    public int ImageTokenBudget { get; set; } = 4096;
     public string Endpoint { get; set; } = "";
     public string Model { get; set; } = "";
     public string ProtectedApiKey { get; set; } = "";
@@ -480,6 +484,7 @@ public sealed class UsageRecord
     public long InputTokens { get; set; }
     public long OutputTokens { get; set; }
     public decimal Cost { get; set; }
+    public DateTimeOffset? ReservationExpiresAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 

@@ -6,7 +6,6 @@ namespace Wonder.Host;
 public sealed class JobWorkers(
     JobQueue queue,
     JobProcessor processor,
-    IServiceScopeFactory scopes,
     ILogger<JobWorkers> logger) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken ct) => Task.WhenAll(
@@ -14,7 +13,7 @@ public sealed class JobWorkers(
         ConsumeAsync([JobTypes.Outgoing], ct),
         ConsumeAsync([JobTypes.Reflection, JobTypes.Emotion, JobTypes.Relationship], ct),
         ConsumeAsync([JobTypes.Memory, JobTypes.Embedding, JobTypes.MemoryMaintenance], ct),
-        ConsumeAsync([JobTypes.Maintenance, JobTypes.Narrative, JobTypes.Summary, JobTypes.Ledger], ct), SweepAsync(ct));
+        ConsumeAsync([JobTypes.Maintenance, JobTypes.Narrative, JobTypes.Summary, JobTypes.Ledger], ct));
 
     private async Task ConsumeAsync(string[] types, CancellationToken ct)
     {
@@ -35,21 +34,4 @@ public sealed class JobWorkers(
         }
     }
 
-    private async Task SweepAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                using var scope = scopes.CreateScope();
-                await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().SweepAsync(ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Maintenance sweep deferred: {ErrorType}", ex.GetType().Name);
-            }
-            await Task.Delay(TimeSpan.FromSeconds(15), ct);
-        }
-    }
 }

@@ -122,7 +122,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                             evidenceIds = Json.Read<Guid[]>(x.EvidenceJson) }), evidence
                     }))
                 ];
-                if (ModelRouter.EstimateInput(request, null) + profile.MaxOutputTokens + 512 > profile.ContextWindow)
+                if (models.CountInput(profile, request, null) + profile.MaxOutputTokens + 512 > profile.ContextWindow)
                     throw new ModelResponseException("Memory maintenance evidence exceeds the StrongReflection context window.");
                 var response = await models.GenerateAsync(profile, request, true, ct);
                 decision = Json.Read<MemoryMaintenanceDecision>(response.Text);

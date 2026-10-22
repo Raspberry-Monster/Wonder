@@ -22,14 +22,18 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 模块边界、状态流转和实现限制见 [核心架构](docs/Wonder-Architecture-v0.1.md)。
 
+升级已有部署请先阅读 [迁移指南](docs/migration-2026-10.md)。
+
 ## 本地启动
 
-需要 .NET 10 SDK、PostgreSQL 18 + pgvector。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
+需要 .NET 10 SDK、Node.js 24、PostgreSQL 18 + pgvector。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
 
 ~~~powershell
 # 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL / SnowLuma。
 
 $env:ConnectionStrings__Postgres = 'Host=localhost;Database=wonder;Username=wonder;Password=你的密码;Maximum Pool Size=20'
+npm --prefix src/Wonder.Web ci
+npm --prefix src/Wonder.Web run build
 dotnet restore Wonder.slnx
 dotnet run --project src/Wonder.Host -- --migrate
 dotnet run --project src/Wonder.Host

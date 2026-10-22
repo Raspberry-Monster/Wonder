@@ -4,6 +4,8 @@
 
 ## 控制台配置
 
+Tokenizer 可选择 `deepseek-v4.1-flash-1017`，内置官方固定版本词表。也可独立选择 `estimate` 或服务器配置的其他词表，不限制模型供应商。计数范围与预算结算见 [迁移指南](migration-2026-10.md#模型与-tokenizer)。
+
 1. 更新已有部署时，先运行数据库迁移：
 
 ~~~powershell
@@ -37,7 +39,7 @@ dotnet run --project src/Wonder.Host -- --migrate
 - thinkingEnabled 为 null 或省略：不发送 thinking，使用供应商默认值；DeepSeek 官方当前默认开启思考。
 - thinkingEnabled 为 false：发送 thinking.type = disabled。
 - thinkingEnabled 为 true：发送 thinking.type = enabled。
-- reasoningEffort 允许 null、low、high、max；非空时必须明确开启思考，发送到请求顶层的 reasoning_effort。
+- reasoningEffort 按供应商支持的值填写，非空时必须明确开启思考，发送到请求顶层的 reasoning_effort；服务端不限定 DeepSeek 专用枚举。
 - Embedding 不接受思考参数。单任务 PUT 不影响其他任务；同一任务更新时省略思考参数会清空原有值，恢复供应商默认。API Key 留空或 null 保留该任务的旧密钥，新任务需要提供密钥。
 
 纯文本消息使用字符串 content，带图片的用户消息使用内容块数组。只把最终 content 作为回复，不把 reasoning_content 发到 QQ；输出用量仍按供应商返回的 completion_tokens 记录。当前费用采用手填输入 / 输出单价估算，尚未细分缓存命中和分时价格，实际账单以供应商为准。

@@ -11,37 +11,28 @@ public sealed class JobQueue(IDbContextFactory<WonderDbContext> factory)
     public async Task<OutboxMessage?> TryClaimAsync(string[] types, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
         var now = DateTimeOffset.UtcNow;
-        // Row locking makes claiming atomic across workers and hosts. An expired Running job is reclaimable.
-        // Predecessors remain blockers even while delayed for a retry, preserving conversation ordering.
-        var candidates = await db.Outbox.FromSqlInterpolated($"""
-            SELECT j.* FROM "Outbox" j
-            WHERE j."Type" = ANY ({types})
-              AND j."Status" IN ({(int)JobStatus.Pending}, {(int)JobStatus.Running})
-              AND j."NextAttemptAt" <= {now}
-              AND (j."LeaseUntil" IS NULL OR j."LeaseUntil" <= {now})
-              AND NOT EXISTS (
-                  SELECT 1 FROM "Outbox" p
-                  WHERE p."ConversationId" = j."ConversationId" AND p."Id" <> j."Id"
-                    AND p."Status" IN ({(int)JobStatus.Pending}, {(int)JobStatus.Running})
-                    AND ((j."Type" = {JobTypes.Chat} AND
-                          ((p."Type" = {JobTypes.Chat} AND p."Sequence" < j."Sequence") OR p."Type" = {JobTypes.Outgoing}))
-                      OR (j."Type" = {JobTypes.Outgoing} AND p."Type" = {JobTypes.Outgoing} AND p."Sequence" < j."Sequence")))
-            ORDER BY j."Sequence"
-            LIMIT 1 FOR UPDATE OF j SKIP LOCKED
-            """).ToListAsync(ct);
-        var job = candidates.SingleOrDefault();
-        if (job is not null)
+        // The same eligibility predicate is used for selection and the atomic update.
+        // No process lock or transaction is held while a job executes.
+        var eligible = db.Outbox.Where(j => types.Contains(j.Type) &&
+            (j.Status == JobStatus.Pending || j.Status == JobStatus.Running) && j.NextAttemptAt <= now &&
+            (j.LeaseUntil == null || j.LeaseUntil <= now) &&
+            !db.Outbox.Any(p => j.ConversationId != null && p.ConversationId == j.ConversationId && p.Id != j.Id &&
+                (p.Status == JobStatus.Pending || p.Status == JobStatus.Running) &&
+                ((j.Type == JobTypes.Chat && ((p.Type == JobTypes.Chat && p.Sequence < j.Sequence) || p.Type == JobTypes.Outgoing)) ||
+                 (j.Type == JobTypes.Outgoing && p.Type == JobTypes.Outgoing && p.Sequence < j.Sequence))));
+        var candidates = await eligible.AsNoTracking().OrderBy(x => x.Sequence).Take(8)
+            .Select(x => new { x.Id, x.LeaseId }).ToListAsync(ct);
+        foreach (var candidate in candidates)
         {
-            job.Status = JobStatus.Running;
-            job.LeaseId = Guid.NewGuid();
-            job.LeaseUntil = now.Add(LeaseDuration);
-            job.Attempts++;
-            await db.SaveChangesAsync(ct);
+            var lease = Guid.NewGuid();
+            var updated = await eligible.Where(x => x.Id == candidate.Id && x.LeaseId == candidate.LeaseId)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, JobStatus.Running)
+                    .SetProperty(x => x.LeaseId, lease).SetProperty(x => x.LeaseUntil, now.Add(LeaseDuration))
+                    .SetProperty(x => x.Attempts, x => x.Attempts + 1), ct);
+            if (updated == 1) return await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == candidate.Id, ct);
         }
-        await tx.CommitAsync(ct);
-        return job;
+        return null;
     }
 
     public async Task<bool> RenewAsync(Guid id, Guid leaseId, CancellationToken ct)

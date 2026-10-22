@@ -1,0 +1,1539 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wonder durable events v2",
+  "oneOf": [
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "chat"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "outgoing"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "reflection"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "subjectId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "boundary": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              },
+              "epoch": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              },
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId",
+              "subjectId",
+              "boundary",
+              "epoch",
+              "kind"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "emotion"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "relationship"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "memory"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "memory-maintenance"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "embedding"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "maintenance"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "narrative"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "summary"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "throughSequence": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "pattern": "^-?(?:0|[1-9]\\d*)$"
+              }
+            },
+            "required": [
+              "sessionId",
+              "throughSequence"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "deletion-ledger"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    }
+  ]
+}

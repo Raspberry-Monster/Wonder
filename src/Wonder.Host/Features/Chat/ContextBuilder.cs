@@ -24,7 +24,7 @@ public sealed record ContextInput(
     int OutputTokens,
     Guid? ConversationId = null,
     IReadOnlyDictionary<Guid, string>? AuthorNames = null,
-    IReadOnlyList<Guid>? SummaryMemoryIds = null, string? TimeContext = null, IReadOnlyList<Guid>? SummaryMessageIds = null, int ReservedForTools = 0);
+    IReadOnlyList<Guid>? SummaryMemoryIds = null, string? TimeContext = null, IReadOnlyList<Guid>? SummaryMessageIds = null, int ReservedForTools = 0, Func<string, int>? CountTokens = null, int ImageTokenBudget = 4096);
 
 public sealed record BuiltContext(
     string System,
@@ -35,25 +35,26 @@ public sealed record BuiltContext(
 
 public sealed class ContextBuilder(PromptComposer composer)
 {
-    // Conservative multilingual estimate: at most two UTF-16 characters per token, plus message overhead.
+    // Explicit fallback for callers without a model profile.
     public static int Estimate(string text)
     {
-        return text.Length + 12;
+        return Wonder.Infrastructure.Models.TokenCounter.Estimate(text) + 16;
     }
 
     public BuiltContext Build(ContextInput input)
     {
+        int Count(string text) => input.CountTokens is { } count ? count(text) + 16 : Estimate(text);
         var system = composer.Compile(input.Identity, input.Mood);
         if (input.TimeContext is { } time) system += "\n\n[Application time context]\n" + time;
         var budget = input.ContextWindow - input.OutputTokens - 512;
-        var used = Estimate(system) + Estimate(input.Current.ModelText) + ImageCost(input.Current);
+        var used = Count(system) + Count(input.Current.ModelText) + ImageCost(input.Current, input.ImageTokenBudget);
         if (used > budget)
             throw new InvalidOperationException("Current message and identity exceed the configured context budget.");
         budget -= Math.Min(input.ReservedForTools, budget - used);
         var history = new List<ContextTurn>();
         foreach (var turn in input.History.Reverse())
         {
-            var cost = Estimate(turn.ModelText) + ImageCost(turn);
+            var cost = Count(turn.ModelText) + ImageCost(turn, input.ImageTokenBudget);
             if (used + cost > budget) break;
             history.Insert(0, turn);
             used += cost;
@@ -65,10 +66,10 @@ public sealed class ContextBuilder(PromptComposer composer)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             var block = $"[{label}: untrusted reference]\n{text}";
-            if (used + Estimate(block) <= budget)
+            if (used + Count(block) <= budget)
             {
                 references.Add(block);
-                used += Estimate(block);
+                used += Count(block);
             }
         }
 
@@ -96,8 +97,8 @@ public sealed class ContextBuilder(PromptComposer composer)
             messageIds.Concat(history.SelectMany(x => x.MessageIds ?? [])).Concat(input.Current.MessageIds ?? []).Distinct().ToArray());
     }
 
-    private static int ImageCost(ContextTurn turn)
+    private static int ImageCost(ContextTurn turn, int budget)
     {
-        return turn.Segments?.Count(x => x.Kind == SegmentKind.Image) * 1600 ?? 0;
+        return turn.Segments?.Count(x => x.Kind == SegmentKind.Image) * budget ?? 0;
     }
 }

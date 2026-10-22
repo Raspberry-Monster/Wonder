@@ -19,6 +19,7 @@ public sealed class JobProcessor(
         var heartbeat = RenewAsync(job, execution, heartbeatStop.Token);
         try
         {
+            EventContracts.ValidateVersion(job);
             if (job.Attempts > MaxAttempts(job.Type))
                 throw new InvalidOperationException("Task exhausted its attempts after lease expiration.");
             using var scope = scopes.CreateScope();

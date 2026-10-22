@@ -86,6 +86,11 @@ BenchmarkDotNet.Artifacts/
 project.lock.json
 project.fragment.lock.json
 artifacts/
+src/Wonder.Web/node_modules/
+src/Wonder.Web/dist/
+src/Wonder.Web/public/antd.css
+src/Wonder.Web/playwright-report/
+src/Wonder.Web/test-results/
 .artifacts/
 
 # ASP.NET Scaffolding

@@ -34,6 +34,8 @@ public sealed class LiveInfrastructureTests
         }
 
         var cs = new NpgsqlConnectionStringBuilder(pg) { Database = databaseName, Pooling = false };
+        if (!cs.Database.StartsWith("wonder_test_", StringComparison.Ordinal) || cs.Database != databaseName)
+            throw new InvalidOperationException("Migrations may only run against the newly created disposable test database.");
         try
         {
             var options = new DbContextOptionsBuilder<WonderDbContext>().UseNpgsql(cs.ConnectionString, pg => pg.UseVector()).Options;
@@ -45,7 +47,7 @@ public sealed class LiveInfrastructureTests
             db.Users.Add(user);
             var bot = new BotInstance { OwnerId = user.Id };
             db.Bots.Add(bot);
-            var job = Jobs.Add(db, bot.Id, JobTypes.Maintenance, new IdPayload(bot.Id));
+            var job = Jobs.Add(db, bot.Id, JobTypes.Maintenance, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
             await db.SaveChangesAsync();
             await Assert.That(job.Sequence > 0).IsTrue();
             var alice = new LogicalUser();
@@ -159,12 +161,33 @@ public sealed class LiveInfrastructureTests
             await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Completed);
             await VerifyQueueAsync(options, bot.Id);
             await VerifyRetriesAsync(options, cs.ConnectionString, bot.Id);
+            await VerifyBudgetAsync(options, bot.Id);
         }
         finally
         {
             await using var drop = new NpgsqlCommand($"DROP DATABASE \"{databaseName}\" WITH (FORCE)", admin);
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task VerifyBudgetAsync(DbContextOptions<WonderDbContext> options, Guid botId)
+    {
+        await using var db = new WonderDbContext(options);
+        await db.Bots.Where(x => x.Id == botId).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
+        var budget = new TokenBudget(new QueueFactory(options));
+        var profile = new ModelProfile { BotId = botId };
+        async Task<Guid?> Reserve()
+        {
+            try { return await budget.ReserveAsync(profile, 700, default); }
+            catch (Wonder.Infrastructure.Models.ModelConfigurationException) { return null; }
+        }
+        var results = await Task.WhenAll(Reserve(), Reserve());
+        await Assert.That(results.Count(x => x.HasValue)).IsEqualTo(1);
+        await budget.SettleAsync(results.Single(x => x.HasValue)!.Value, profile, 100, 100, default);
+        var next = await budget.ReserveAsync(profile, 700, default);
+        await budget.ReleaseAsync(next);
+        await Assert.That(await db.Usage.Where(x => x.BotId == botId && x.ReservationExpiresAt == null)
+            .SumAsync(x => x.InputTokens + x.OutputTokens)).IsEqualTo(200);
     }
 
     private static async Task VerifyUpgradeAsync(WonderDbContext db, string connection)
@@ -188,7 +211,16 @@ public sealed class LiveInfrastructureTests
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
             """);
+        var oldJob = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Outbox" ("Id", "BotId", "CorrelationId", "SchemaVersion", "Type", "Payload", "Status", "Attempts", "CreatedAt", "NextAttemptAt")
+            VALUES ({oldJob}, {bot.Id}, {Guid.NewGuid()}, 1, 'maintenance', {Json.Write(new IdPayload(bot.Id))}, 0, 0, {DateTimeOffset.UtcNow}, {DateTimeOffset.UtcNow})
+            """);
         await db.Database.MigrateAsync();
+        var upgradedJob = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == oldJob);
+        await Assert.That(upgradedJob.SchemaVersion).IsEqualTo(2);
+        await Assert.That(Json.Read<DailyJob>(upgradedJob.Payload).Date).IsEqualTo(DateOnly.FromDateTime(upgradedJob.CreatedAt.UtcDateTime));
+        await Assert.That(upgradedJob.Status).IsEqualTo(JobStatus.Pending);
         await db.Entry(user).ReloadAsync();
         await Assert.That(user.LockoutEnabled).IsTrue();
         await Assert.That((await db.Embeddings.SingleAsync(x => x.MemoryId == memory.Id)).Values.ToArray())
@@ -205,8 +237,9 @@ public sealed class LiveInfrastructureTests
     {
         var queue = new JobQueue(new QueueFactory(options));
         await using var db = new WonderDbContext(options);
-        var job = Jobs.Add(db, botId, "queue-probe", new IdPayload(botId));
-        var delayed = Jobs.Add(db, botId, "queue-probe", new IdPayload(botId));
+        var job = new OutboxMessage { BotId = botId, Type = "queue-probe", Payload = Json.Write(new IdPayload(botId)) };
+        var delayed = new OutboxMessage { BotId = botId, Type = "queue-probe", Payload = Json.Write(new IdPayload(botId)) };
+        db.Outbox.AddRange(job, delayed);
         delayed.NextAttemptAt = DateTimeOffset.UtcNow.AddHours(1);
         await db.SaveChangesAsync();
         var claims = await Task.WhenAll(Enumerable.Range(0, 8)

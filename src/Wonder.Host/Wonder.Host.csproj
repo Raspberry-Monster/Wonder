@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
     <ItemGroup>
+        <PackageReference Include="Quartz.Extensions.Hosting" Version="3.21.0" />
+        <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.21.0" />
         <ProjectReference Include="../Wonder.Platforms/Wonder.Platforms.csproj" />
         <ProjectReference Include="../Wonder.Infrastructure/Wonder.Infrastructure.csproj" />
         <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
@@ -11,4 +13,16 @@
         <Content Remove="data/**" />
         <None Remove="data/**" />
     </ItemGroup>
+    <Target Name="BuildFrontend" BeforeTargets="ComputeFilesToPublish">
+        <Exec WorkingDirectory="../Wonder.Web" Command="npm ci --no-fund --no-audit" Condition="'$(SkipFrontendBuild)' != 'true'" />
+        <Exec WorkingDirectory="../Wonder.Web" Command="npm run build" Condition="'$(SkipFrontendBuild)' != 'true'" />
+        <Error Condition="!Exists('../Wonder.Web/dist/index.html')" Text="Build Wonder.Web before publishing with SkipFrontendBuild=true." />
+        <ItemGroup>
+            <FrontendFiles Include="../Wonder.Web/dist/**/*" />
+            <ResolvedFileToPublish Include="@(FrontendFiles)">
+                <RelativePath>wwwroot/%(FrontendFiles.RecursiveDir)%(FrontendFiles.Filename)%(FrontendFiles.Extension)</RelativePath>
+                <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+            </ResolvedFileToPublish>
+        </ItemGroup>
+    </Target>
 </Project>

@@ -9,3 +9,7 @@ artifacts
 TestResults
 **/data
 **/.local
+**/node_modules
+**/dist
+**/playwright-report
+**/test-results

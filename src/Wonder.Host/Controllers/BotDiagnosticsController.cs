@@ -26,7 +26,7 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
         var since = DateTimeOffset.UtcNow.AddDays(-30);
-        return Ok(await Db.Usage.AsNoTracking().Where(x => x.BotId == id && x.CreatedAt >= since)
+        return Ok(await Db.Usage.AsNoTracking().Where(x => x.BotId == id && x.CreatedAt >= since && x.ReservationExpiresAt == null)
             .GroupBy(x => x.TaskKind)
             .Select(g => new
             {

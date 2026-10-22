@@ -85,7 +85,7 @@ public sealed class ChatWorkflow(
             clock.Context(message.CreatedAt, history.LastOrDefault()?.CreatedAt,
                 history.Any(x => x.SessionId != null && x.SessionId != message.SessionId) || summary is not null && summary.SessionId != message.SessionId),
             summary is null ? null : Json.Read<Guid[]>(summary.MessageIdsJson),
-            ReservedForTools: profile.SupportsTools ? Math.Min(4096, (profile.ContextWindow - profile.MaxOutputTokens) / 2) : 0));
+            ReservedForTools: profile.SupportsTools ? Math.Min(4096, (profile.ContextWindow - profile.MaxOutputTokens) / 2) : 0, CountTokens: text => models.CountText(profile, text), ImageTokenBudget: profile.ImageTokenBudget));
         var request = new List<AiMessage> { new(ChatRole.System, context.System) };
         request.AddRange(context.Turns.Select(x =>
             // Historical replies are references in tool mode; reasoning stays inside this request's tool loop.
@@ -124,9 +124,9 @@ public sealed class ChatWorkflow(
                 AllowConcurrentInvocation = false,
                 FunctionInvoker = async (invocation, token) =>
                 {
-                    var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - ModelRouter.EstimateInput(invocation.Messages, toolDefinitions);
+                    var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - models.CountInput(profile, invocation.Messages, toolDefinitions);
                     var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id, message.Sequence, token, Math.Max(256, available - 64));
-                    if (result.Json.Length + 64 > available)
+                    if (models.CountText(profile, result.Json) + 64 > available)
                         result = new(Json.Write(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
                     retrievedIds.UnionWith(result.MemoryIds);
                     sourceMessageIds.UnionWith(result.MessageIds ?? []);

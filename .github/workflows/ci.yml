@@ -21,6 +21,16 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: src/Wonder.Web/package-lock.json
+      - run: npm ci && npm run build && npm test
+        working-directory: src/Wonder.Web
       - run: dotnet restore Wonder.slnx
       - run: dotnet test --solution Wonder.slnx --configuration Release --no-restore
-      - run: dotnet publish src/Wonder.Host -c Release --no-restore -o artifacts/host
+      - run: dotnet build src/Wonder.Host --no-restore
+      - run: npx playwright install --with-deps chromium && npm run test:e2e
+        working-directory: src/Wonder.Web
+      - run: dotnet publish src/Wonder.Host -c Release --no-restore -p:SkipFrontendBuild=true -o artifacts/host

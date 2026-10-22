@@ -1,7 +1,15 @@
+FROM node:24-bookworm-slim AS frontend
+WORKDIR /web
+COPY src/Wonder.Web/package*.json ./
+RUN npm ci --no-fund --no-audit
+COPY src/Wonder.Web/ ./
+RUN npm run build
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 COPY . .
-RUN dotnet publish src/Wonder.Host/Wonder.Host.csproj -c Release -o /out
+COPY --from=frontend /web/dist ./src/Wonder.Web/dist
+RUN dotnet publish src/Wonder.Host/Wonder.Host.csproj -c Release -o /out -p:SkipFrontendBuild=true
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 USER root

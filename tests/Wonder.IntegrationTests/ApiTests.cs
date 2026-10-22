@@ -436,7 +436,7 @@ public sealed class ApiTests
     [Test]
     [Arguments(false, "high", "Chat")]
     [Arguments(null, "high", "Chat")]
-    [Arguments(true, "medium", "Chat")]
+    [Arguments(true, "this-effort-name-exceeds-thirty-two-characters", "Chat")]
     [Arguments(true, "high", "Embedding")]
     [Arguments(false, null, "Embedding")]
     public async Task InvalidThinkingOptionsAreRejected(bool? enabled, string? effort, string task)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Infrastructure;
+using Wonder.Host.Contracts;
 
 namespace Wonder.Host.Controllers;
 
@@ -10,10 +11,11 @@ namespace Wonder.Host.Controllers;
 public sealed class MeController(WonderDbContext db) : WonderControllerBase(db)
 {
     [HttpGet]
+    [ProducesResponseType<AccountResponse>(200)]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
         var user = await Db.Users.AsNoTracking().SingleAsync(x => x.Id == CurrentUserId, ct);
-        return Ok(new { user.Id, user.Email, user.LogicalUserId });
+        return Ok(new AccountResponse(user.Id, user.Email, user.LogicalUserId));
     }
 
     [HttpPost("qq-binding-challenge")]

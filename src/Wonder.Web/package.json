@@ -1,0 +1,32 @@
+{
+  "name": "wonder-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/extract-styles.cjs",
+    "dev": "vite --host 127.0.0.1",
+    "prebuild": "node scripts/extract-styles.cjs",
+    "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run src",
+    "test:e2e": "playwright test",
+    "generate:api": "openapi-typescript ../../docs/api/openapi.v1.json -o src/api.generated.ts"
+  },
+  "dependencies": {
+    "ant-design-vue": "4.2.6",
+    "pinia": "^3.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "openapi-typescript": "^7.0.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^5.0.5",
+    "vue-tsc": "^3.0.0"
+  }
+}

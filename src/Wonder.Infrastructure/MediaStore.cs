@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Caching.Hybrid;
+using SkiaSharp;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +10,7 @@ namespace Wonder.Infrastructure;
 
 public sealed record LoadedImage(byte[] Bytes, string ContentType);
 
-public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConfiguration configuration)
+public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConfiguration configuration, IHttpClientFactory clients, HybridCache cache)
 {
     private const int MaximumBytes = 5 * 1024 * 1024;
     public string Root { get; } = Path.GetFullPath(configuration["Storage:MediaPath"] ?? "data/media");
@@ -40,28 +42,11 @@ public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConf
             .FirstOrDefaultAsync(x => x.MessageId == message.Id && x.Hash == key && x.ExpiresAt > DateTimeOffset.UtcNow,
                 ct);
         if (existing is not null && File.Exists(existing.Path))
-            return new LoadedImage(await File.ReadAllBytesAsync(existing.Path, ct), existing.ContentType);
-        using var handler = new SocketsHttpHandler
-        {
-            AllowAutoRedirect = false,
-            UseProxy = false,
-            ConnectCallback = async (context, token) =>
-            {
-                var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token);
-                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
-                try
-                {
-                    await socket.ConnectAsync(new IPEndPoint(addresses[0], context.DnsEndPoint.Port), token);
-                    return new NetworkStream(socket, true);
-                }
-                catch
-                {
-                    socket.Dispose();
-                    throw;
-                }
-            }
-        };
-        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+            return new LoadedImage(await cache.GetOrCreateAsync("media:" + existing.Path,
+                async token => await File.ReadAllBytesAsync(existing.Path, token),
+                new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(1), LocalCacheExpiration = TimeSpan.FromMinutes(1) },
+                cancellationToken: ct), existing.ContentType);
+        using var client = clients.CreateClient("media");
         using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaximumBytes) return null;
         await using var source = await response.Content.ReadAsStreamAsync(ct);
@@ -90,19 +75,43 @@ public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConf
             Size = bytes.Length,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
         });
-        await db.SaveChangesAsync(ct);
+        try { await db.SaveChangesAsync(ct); }
+        catch { File.Delete(file); throw; }
         return new LoadedImage(bytes, type);
     }
 
     public static string? ImageType(byte[] bytes)
     {
-        return bytes switch
+        using var data = SKData.CreateCopy(bytes);
+        using var codec = SKCodec.Create(data);
+        if (codec is null || codec.Info.Width <= 0 || codec.Info.Height <= 0 ||
+            (long)codec.Info.Width * codec.Info.Height > 40_000_000) return null;
+        return codec.EncodedFormat switch
         {
-            [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ..] => "image/png",
-            [0xff, 0xd8, 0xff, ..] => "image/jpeg",
-            [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => "image/gif",
-            [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => "image/webp",
+            SKEncodedImageFormat.Png => "image/png",
+            SKEncodedImageFormat.Jpeg => "image/jpeg",
+            SKEncodedImageFormat.Gif => "image/gif",
+            SKEncodedImageFormat.Webp => "image/webp",
             _ => null
         };
     }
+
+    public static SocketsHttpHandler CreateHandler() => new()
+    {
+        AllowAutoRedirect = false,
+        UseProxy = false,
+        ConnectCallback = async (context, ct) =>
+        {
+            var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
+            if (addresses.Length == 0 || addresses.Any(address => !IsPublic(address)))
+                throw new HttpRequestException("Image host must resolve to public addresses.");
+            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(addresses, context.DnsEndPoint.Port, ct);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch { socket.Dispose(); throw; }
+        }
+    };
 }

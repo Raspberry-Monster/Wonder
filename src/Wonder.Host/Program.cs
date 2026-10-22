@@ -10,10 +10,17 @@ using Wonder.Host.Features.Chat;
 using Wonder.Host.Features.Emotion;
 using Wonder.Host;
 using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 using Wonder.Host.Features.Persona;
 using Wonder.Platforms;
 
 var builder = WebApplication.CreateBuilder(args);
+var frontendRoot = Path.GetFullPath("../Wonder.Web/dist", builder.Environment.ContentRootPath);
+if (Directory.Exists(frontendRoot))
+{
+    builder.Environment.WebRootPath = frontendRoot;
+    builder.Environment.WebRootFileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(frontendRoot);
+}
 builder.Logging.ClearProviders().AddConsole();
 builder.Configuration.AddJsonFile("appsettings.Local.json", true).AddEnvironmentVariables();
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1024 * 1024);
@@ -73,6 +80,15 @@ builder.Services.AddRateLimiter(o =>
 });
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddHttpClient("models");
+builder.Services.AddHybridCache(o => o.MaximumPayloadBytes = 5 * 1024 * 1024);
+builder.Services.AddHttpClient("media", c => c.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(MediaStore.CreateHandler)
+    .AddStandardResilienceHandler(o =>
+    {
+        o.Retry.MaxRetryAttempts = 1;
+        o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(10);
+        o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(25);
+    });
 builder.Services.AddSingleton<JobQueue>();
 builder.Services.AddSingleton<JobProcessor>();
 builder.Services.AddSingleton<PromptComposer>();
@@ -84,6 +100,8 @@ builder.Services.AddSingleton<ConversationTools>();
 builder.Services.AddSingleton<EmotionEngine>();
 builder.Services.AddSingleton<MessageIngestor>();
 builder.Services.AddSingleton<ModelRouter>();
+builder.Services.AddSingleton<TokenCounter>();
+builder.Services.AddSingleton<TokenBudget>();
 builder.Services.AddSingleton<MemoryService>();
 builder.Services.AddSingleton<MediaStore>();
 builder.Services.AddScoped<ChatWorkflow>();
@@ -98,9 +116,15 @@ if (builder.Configuration.GetValue("Workers:Enabled", true))
 {
     builder.Services.AddHostedService(sp => sp.GetRequiredService<OneBotConnectionManager>());
     builder.Services.AddHostedService<JobWorkers>();
+    builder.Services.AddWonderScheduling(builder.Configuration);
 }
 
 var app = builder.Build();
+if (Array.IndexOf(args, "--export-event-schema") is var schemaIndex && schemaIndex >= 0)
+{
+    await File.WriteAllTextAsync(args[schemaIndex + 1], Wonder.Core.EventContracts.Schema().ToJsonString(new() { WriteIndented = true }));
+    return;
+}
 if (args.Contains("--migrate"))
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -133,9 +157,11 @@ app.UseExceptionHandler(error => error.Run(async c =>
 }));
 app.Use(async (context, next) =>
 {
+    var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+    context.Items["StyleNonce"] = nonce;
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Content-Security-Policy"] =
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        $"default-src 'self'; script-src 'self'; style-src 'self' 'nonce-{nonce}'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     if (context.Request.Path.StartsWithSegments("/api") &&
         context.Request.Method is not ("GET" or "HEAD" or "OPTIONS") && context.Request.Headers["X-Wonder"] != "1")
     {
@@ -145,7 +171,12 @@ app.Use(async (context, next) =>
 
     await next();
 });
-app.UseDefaultFiles();
+// Index responses receive a fresh nonce; hashed JS/CSS assets remain static files.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path == "/" || context.Request.Path == "/index.html") await ServeFrontend(context);
+    else await next();
+});
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -165,6 +196,25 @@ app.MapGet("/health/ready", async (WonderDbContext db, CancellationToken ct) =>
 });
 app.MapOpenApi().RequireAuthorization();
 app.MapControllers();
+app.MapFallback(ServeFrontend);
 await app.RunAsync();
+
+async Task ServeFrontend(HttpContext context)
+{
+    var path = context.Request.Path;
+    if (path.StartsWithSegments("/api") || path.StartsWithSegments("/health") || path.StartsWithSegments("/openapi") ||
+        (Path.HasExtension(path.Value) && path != "/index.html") || context.Request.Method is not ("GET" or "HEAD"))
+    {
+        context.Response.StatusCode = 404;
+        return;
+    }
+    var index = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
+    if (!File.Exists(index)) { context.Response.StatusCode = 404; return; }
+    context.Response.ContentType = "text/html; charset=utf-8";
+    context.Response.Headers.CacheControl = "no-store";
+    if (context.Request.Method == "HEAD") return;
+    var html = await File.ReadAllTextAsync(index, context.RequestAborted);
+    await context.Response.WriteAsync(html.Replace("__WONDER_NONCE__", (string)context.Items["StyleNonce"]!), context.RequestAborted);
+}
 
 public partial class Program;

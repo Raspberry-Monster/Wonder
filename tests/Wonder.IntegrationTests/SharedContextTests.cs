@@ -265,7 +265,9 @@ public sealed class SharedContextTests
         var recentBatch = Batch(DeliveryStatus.Sent, 1);
         await db.SaveChangesAsync();
 
-        await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().SweepAsync(default);
+        await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().SweepSessionsAsync(default);
+        await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().ScheduleDailyAsync(default);
+        await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().CleanupAsync(default);
         db.ChangeTracker.Clear();
         await Assert.That(await db.Messages.AnyAsync(x => x.Id == expired.Id)).IsFalse();
         await Assert.That(await db.Messages.AnyAsync(x => x.Id == retained.Id)).IsTrue();

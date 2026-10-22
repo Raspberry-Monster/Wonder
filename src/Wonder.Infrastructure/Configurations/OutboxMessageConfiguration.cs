@@ -12,6 +12,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.Property(x => x.LeaseId).IsConcurrencyToken();
         builder.HasIndex(x => new { x.Status, x.NextAttemptAt, x.LeaseUntil });
         builder.HasIndex(x => new { x.ConversationId, x.Sequence });
+        builder.HasIndex(x => new { x.BotId, x.Type, x.ScheduledDate }).IsUnique();
         builder.HasOne<BotInstance>().WithMany().HasForeignKey(x => x.BotId).OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -14,7 +14,7 @@ public sealed class MaintenanceWorkflow(
     BackupService backups,
     ConversationClock clock)
 {
-    public async Task SweepAsync(CancellationToken ct)
+    public async Task SweepSessionsAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = DateTimeOffset.UtcNow;
@@ -68,17 +68,32 @@ public sealed class MaintenanceWorkflow(
             }
         }
 
-        var midnight = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task ScheduleDailyAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var today = DateOnly.FromDateTime(clock.Local(clock.UtcNow).DateTime);
         var bots = await db.Bots.Where(x => x.Enabled).Select(x => x.Id).ToListAsync(ct);
         foreach (var bot in bots)
-            if (!await db.Outbox.AnyAsync(
-                    x => x.BotId == bot && x.Type == JobTypes.Maintenance && x.CreatedAt >= midnight, ct))
-                Jobs.Add(db, bot, JobTypes.Maintenance, new IdPayload(bot));
+        {
+            // Catch up the latest missed day, not an unbounded backlog of stale AI generations.
+            if (await db.Outbox.AnyAsync(x => x.BotId == bot && x.Type == JobTypes.Maintenance && x.ScheduledDate == today, ct)) continue;
+            var job = Jobs.Add(db, bot, JobTypes.Maintenance, new DailyJob(today));
+            job.ScheduledDate = today;
+        }
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task CleanupAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var now = clock.UtcNow;
         var expiredIds = await db.Messages.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id).Select(x => x.Id)
             .Take(250).ToListAsync(ct);
         await db.Messages.Where(x => expiredIds.Contains(x.Id)).ExecuteDeleteAsync(ct);
-        var assets = await db.Media.Where(x => x.ExpiresAt <= now || expiredIds.Contains(x.MessageId))
+        var assets = await db.Media.Where(x => x.ExpiresAt <= now || !db.Messages.Any(m => m.Id == x.MessageId))
             .OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id).Take(100)
             .ToListAsync(ct);
         foreach (var asset in assets)
@@ -88,6 +103,8 @@ public sealed class MaintenanceWorkflow(
         }
 
         await db.BindingChallenges.Where(x => x.ExpiresAt <= now).ExecuteDeleteAsync(ct);
+        var staleReservation = now.AddDays(-1);
+        await db.Usage.Where(x => x.ReservationExpiresAt <= staleReservation).ExecuteDeleteAsync(ct);
         var cutoff = now.AddDays(-30);
         var done = await db.Batches.Where(x =>
                 db.Outbox.Any(j => j.Id == x.SourceJobId && j.CreatedAt < cutoff) && !db.Parts.Any(p =>
@@ -117,7 +134,8 @@ public sealed class MaintenanceWorkflow(
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var mood = await db.Emotions.SingleAsync(x => x.BotId == job.BotId, ct);
             engine.Evolve(mood, DateTimeOffset.UtcNow);
-            Jobs.Add(db, job.BotId, JobTypes.Narrative, new IdPayload(job.BotId), cause: job.Id);
+            var daily = Json.Read<DailyJob>(job.Payload);
+            Jobs.Add(db, job.BotId, JobTypes.Narrative, daily, cause: job.Id).ScheduledDate = daily.Date;
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -126,7 +144,7 @@ public sealed class MaintenanceWorkflow(
 
         if (job.Type == JobTypes.Narrative)
         {
-            var date = DateOnly.FromDateTime(job.CreatedAt.UtcDateTime);
+            var date = Json.Read<DailyJob>(job.Payload).Date;
             if (!await db.Narratives.AnyAsync(x => x.BotId == job.BotId && x.Date == date, ct))
             {
                 var mood = await db.Emotions.AsNoTracking().SingleAsync(x => x.BotId == job.BotId, ct);

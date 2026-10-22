@@ -858,10 +858,16 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("ImageTokenBudget")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("InputCostPerMillion")
                         .HasColumnType("numeric");
 
                     b.Property<int>("MaxOutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MessageTokenOverhead")
                         .HasColumnType("integer");
 
                     b.Property<string>("Model")
@@ -896,6 +902,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<bool?>("ThinkingEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("TokenizerId")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -946,6 +956,9 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateOnly?>("ScheduledDate")
+                        .HasColumnType("date");
+
                     b.Property<int>("SchemaVersion")
                         .HasColumnType("integer");
 
@@ -964,9 +977,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BotId");
-
                     b.HasIndex("ConversationId", "Sequence");
+
+                    b.HasIndex("BotId", "Type", "ScheduledDate")
+                        .IsUnique();
 
                     b.HasIndex("Status", "NextAttemptAt", "LeaseUntil");
 
@@ -1271,6 +1285,9 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<long>("OutputTokens")
                         .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("TaskKind")
                         .HasColumnType("integer");
