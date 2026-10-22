@@ -38,7 +38,7 @@ h2 {
 }
 .topbar {
   height: 80px;
-  padding: 0 5%;
+  padding: 0 max(40px, calc((100% - 1200px) / 2));
   display: flex;
   align-items: center;
   gap: 48px;
@@ -90,7 +90,8 @@ h2 {
 .page {
   max-width: 1280px;
   width: 100%;
-  margin: auto;
+  margin: 0 auto;
+  min-width: 0;
   padding: 44px 40px 70px;
   flex: 1;
 }
@@ -153,7 +154,9 @@ h2 {
   font-size: 12px;
 }
 .editor-form {
+  width: 100%;
   max-width: 670px;
+  margin-inline: auto;
   padding-top: 8px;
 }
 .full-width {
@@ -164,6 +167,8 @@ h2 {
 }
 .stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 24px;
 }
 .preserve {
@@ -194,10 +199,12 @@ h2 {
 .login-layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 450px);
+  max-width: 1200px;
+  margin-inline: auto;
   background: var(--color-fill-1);
-  padding: 9vh 10%;
-  gap: 8vw;
+  padding: 9vh 40px;
+  gap: clamp(32px, 8vw, 120px);
   align-items: center;
 }
 .login-intro h1 {
@@ -222,6 +229,7 @@ h2 {
 .login-card {
   max-width: 450px;
   width: 100%;
+  justify-self: center;
   padding: 18px;
 }
 .login-card .brand {

@@ -96,7 +96,7 @@ const modelFields: Field[] = [
   {
     key: "tokenizerId",
     label: "Tokenizer",
-    help: "estimate 为保守估算；deepseek-v4.1-flash-1017 为内置词表；也可填写服务器配置的自定义 ID",
+    help: "填写与所选模型匹配的 Tokenizer ID；estimate 使用估算。",
     required: true,
   },
   {
