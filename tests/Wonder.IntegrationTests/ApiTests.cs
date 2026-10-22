@@ -62,7 +62,7 @@ public sealed class ApiTests
         await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.Created);
         var bot = await created.Content.ReadFromJsonAsync<JsonElement>();
         var id = bot.GetProperty("id").GetGuid();
-        foreach (var suffix in new[] { "", "/identity", "/binding", "/model-routes", "/emotion", "/jobs", "/usage" })
+        foreach (var suffix in new[] { "", "/identity", "/binding", "/model-routes", "/model-routes/tokenizers", "/emotion", "/jobs", "/usage" })
             await Assert.That((await b.GetAsync($"/api/v1/bots/{id}{suffix}")).StatusCode)
                 .IsEqualTo(HttpStatusCode.NotFound);
         await Assert
@@ -71,6 +71,35 @@ public sealed class ApiTests
         await Assert.That((await a.GetAsync($"/api/v1/bots/{id}")).StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That((await a.PostAsync("/api/v1/system/backups", null)).StatusCode)
             .IsEqualTo(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task ModelRoutesUseDiscoveredTokenizersAndRejectUnavailableChoices()
+    {
+        using var app = new TestApp();
+        var (client, _) = await LoginAsync(app, "tokenizers@example.com");
+        var created = await client.PostAsJsonAsync("/api/v1/bots", new { name = "Tokenizer Bot", identity = "Wonder" });
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var url = $"/api/v1/bots/{id}/model-routes";
+        var available = (await client.GetFromJsonAsync<Wonder.Host.Contracts.TokenizerResponse[]>(url + "/tokenizers"))!;
+        await Assert.That(available.Length > 0).IsTrue();
+        var selected = available[0].Id;
+        var route = new Wonder.Host.Contracts.ModelRouteInput(TaskKind.Chat, "https://model.example/v1", selected, "test-key");
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { route })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var profile = await db.Models.AsNoTracking().SingleAsync(x => x.BotId == id);
+        var counter = scope.ServiceProvider.GetRequiredService<Wonder.Infrastructure.Models.TokenCounter>();
+        await Assert.That(profile.TokenizerId).IsEqualTo("auto");
+        await Assert.That(counter.Resolve(profile)).IsEqualTo(selected);
+        await Assert.That(counter.Text(profile, "Hello world") > 0).IsTrue();
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } })).StatusCode)
+            .IsEqualTo(HttpStatusCode.NoContent);
+        var invalid = await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = "not-installed" } });
+        await Assert.That(invalid.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That((await invalid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors")
+            .GetProperty("x[0].TokenizerId").GetArrayLength() > 0).IsTrue();
+        await Assert.That((await db.Models.AsNoTracking().SingleAsync(x => x.BotId == id)).TokenizerId).IsEqualTo(selected);
     }
 
     [Test]

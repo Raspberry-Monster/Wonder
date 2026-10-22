@@ -1,16 +1,18 @@
 using FluentValidation;
 using Wonder.Core;
+using Wonder.Infrastructure.Models;
 
 namespace Wonder.Host.Contracts;
 
 public sealed class ModelRouteInputValidator : AbstractValidator<ModelRouteInput>
 {
-    public ModelRouteInputValidator()
+    public ModelRouteInputValidator(TokenCounter tokenizers)
     {
         RuleFor(x => x.TaskKind).IsInEnum();
         RuleFor(x => x.Endpoint).Must(x => RequestRules.IsUrl(x, "http", "https"));
         RuleFor(x => x.Model).NotEmpty();
-        RuleFor(x => x.TokenizerId).NotEmpty().MaximumLength(100).Matches("^[a-zA-Z0-9_.-]+$");
+        RuleFor(x => x.TokenizerId).Cascade(CascadeMode.Stop).NotEmpty().MaximumLength(100)
+            .Must(tokenizers.Contains).WithMessage("Choose auto, estimate, or an available tokenizer.");
         RuleFor(x => x.MessageTokenOverhead).InclusiveBetween(0, 4096);
         RuleFor(x => x.ImageTokenBudget).InclusiveBetween(0, 100000);
         RuleFor(x => x.ContextWindow).InclusiveBetween(2048, 2_000_000);

@@ -17,6 +17,6 @@ public sealed record ModelRouteInput(
     bool? ThinkingEnabled = null,
     string? ReasoningEffort = null,
     bool? SupportsTools = null,
-    string TokenizerId = "estimate",
+    string TokenizerId = "auto",
     int MessageTokenOverhead = 16,
     int ImageTokenBudget = 4096);

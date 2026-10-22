@@ -1120,6 +1120,55 @@
         }
       }
     },
+    "/api/v1/bots/{id}/model-routes/tokenizers": {
+      "get": {
+        "tags": [
+          "ModelRoutes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TokenizerResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TokenizerResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TokenizerResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/bots/{id}/model-routes": {
       "get": {
         "tags": [
@@ -1694,7 +1743,7 @@
           },
           "tokenizerId": {
             "type": "string",
-            "default": "estimate"
+            "default": "auto"
           },
           "messageTokenOverhead": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -1868,6 +1917,24 @@
       },
       "TaskKind": {
         "type": "integer"
+      },
+      "TokenizerResponse": {
+        "required": [
+          "id",
+          "models"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "UpdateBot": {
         "required": [

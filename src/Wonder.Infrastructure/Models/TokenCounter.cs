@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Configuration;
 using Wonder.Core;
 using Tokenizer = Tokenizers.HuggingFace.Tokenizer.Tokenizer;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
@@ -10,33 +8,53 @@ using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 namespace Wonder.Infrastructure.Models;
 
 // Tokenizers are immutable after loading. No lock surrounds requests or model calls.
-public sealed class TokenCounter(IConfiguration configuration) : IDisposable
+public sealed record TokenizerDefinition(string Id, IReadOnlyList<string> Models);
+
+public sealed class TokenCounter : IDisposable
 {
-    public const string DeepSeekId = "deepseek-v4.1-flash-1017";
+    private readonly Dictionary<string, string> paths;
+    private readonly Dictionary<string, string> modelTokenizers;
     private readonly ConcurrentDictionary<string, Lazy<Tokenizer>> tokenizers = new();
+
+    public IReadOnlyList<TokenizerDefinition> Available { get; }
+
+    public TokenCounter(string directory)
+    {
+        paths = (Directory.Exists(directory) ? Directory.EnumerateDirectories(directory) : [])
+            .Where(folder => File.Exists(Path.Combine(folder, "tokenizer.json")))
+            .Order(StringComparer.Ordinal)
+            .ToDictionary(folder => Path.GetFileName(folder), folder => Path.Combine(folder, "tokenizer.json"),
+                StringComparer.OrdinalIgnoreCase);
+        Available = paths.Select(entry =>
+        {
+            var aliases = Path.Combine(Path.GetDirectoryName(entry.Value)!, "models.json");
+            return new TokenizerDefinition(entry.Key, File.Exists(aliases) ? Json.Read<string[]>(File.ReadAllText(aliases)) : []);
+        }).ToArray();
+        modelTokenizers = Available.SelectMany(item => item.Models.Prepend(item.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Select(model => (Model: model, item.Id)))
+            .ToDictionary(item => item.Model, item => item.Id, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public bool Contains(string id) => id is "auto" or "estimate" || paths.ContainsKey(id);
+
+    public string Resolve(ModelProfile profile) => profile.TokenizerId == "auto"
+        ? modelTokenizers.GetValueOrDefault(profile.Model, "estimate")
+        : profile.TokenizerId;
 
     public static int Estimate(string text) => Encoding.UTF8.GetByteCount(text);
 
     public int Text(ModelProfile profile, string text)
     {
-        if (profile.TokenizerId == "estimate") return Estimate(text);
-        return tokenizers.GetOrAdd(profile.TokenizerId, id => new Lazy<Tokenizer>(() => Load(id))).Value
+        var id = Resolve(profile);
+        if (id == "estimate") return Estimate(text);
+        return tokenizers.GetOrAdd(id, key => new Lazy<Tokenizer>(() => Load(key))).Value
             .Encode(text, false).First().Ids.Count;
     }
 
     private Tokenizer Load(string id)
     {
-        var bundled = id == DeepSeekId;
-        var path = bundled
-            ? Path.Combine(AppContext.BaseDirectory, "Tokenizers", DeepSeekId, "tokenizer.json")
-            : configuration[$"Tokenizers:{id}:Path"];
-        var expected = bundled ? "C90DFA01249DB1BE4245780A052EDE752E1361C612AC6D08E2BDADA7D599476B"
-            : configuration[$"Tokenizers:{id}:Sha256"];
-        if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(expected))
-            throw new ModelConfigurationException($"Tokenizer '{id}' requires a server-side Path and Sha256.");
-        using var stream = File.OpenRead(path);
-        if (!Convert.ToHexString(SHA256.HashData(stream)).Equals(expected, StringComparison.OrdinalIgnoreCase))
-            throw new ModelConfigurationException($"Tokenizer '{id}' checksum does not match.");
+        if (!paths.TryGetValue(id, out var path))
+            throw new ModelConfigurationException($"Tokenizer '{id}' was not found in the Tokenizer directory.");
         return Tokenizer.FromFile(path);
     }
 

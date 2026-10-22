@@ -37,6 +37,8 @@ test("login, custom model editing, field validation and production CSP", async (
       return authenticated
         ? ok({ id: "owner", email: "owner@example.com", logicalUserId: null })
         : route.fulfill({ status: 401 });
+    if (p.endsWith("/model-routes/tokenizers"))
+      return ok([{ id: "test-vocabulary", models: ["my-custom-model"] }]);
     if (p.endsWith("/model-routes")) {
       if (route.request().method() === "PUT") {
         if (rejectFirstSave) {
@@ -45,7 +47,7 @@ test("login, custom model editing, field validation and production CSP", async (
             status: 400,
             json: {
               title: "输入无效",
-              errors: { "[0].Model": ["模型名称不可用"] },
+              errors: { "x[0].Model": ["模型名称不可用"] },
             },
           });
         }
@@ -78,7 +80,7 @@ test("login, custom model editing, field validation and production CSP", async (
   await expect(page.getByText("模型名称不可用", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "保存更改" }).click();
   await expect.poll(() => saved?.[0]?.model).toBe("my-custom-model");
-  expect(saved[0].tokenizerId).toBe("estimate");
+  expect(saved[0].tokenizerId).toBe("auto");
   expect(saved[0].supportsImages).toBe(true);
   expect(saved[0].thinkingEnabled).toBe(true);
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -89,7 +91,11 @@ test("login, custom model editing, field validation and production CSP", async (
   await expect(page.getByLabel("模型名称", { exact: true })).toHaveValue(
     "my-custom-model",
   );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("combobox", { name: "Tokenizer", exact: true }).click();
+  await page.getByText("test-vocabulary", { exact: true }).click();
+  await page.getByRole("button", { name: "保存更改" }).click();
+  await expect.poll(() => saved?.[0]?.tokenizerId).toBe("test-vocabulary");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "批量应用模型" }).click();
   await page
     .getByLabel("API 地址", { exact: true })

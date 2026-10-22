@@ -9,6 +9,9 @@
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" PrivateAssets="all" />
     </ItemGroup>
     <ItemGroup>
+        <Content Remove="Tokenizer/**/*" />
+        <None Remove="Tokenizer/**/*" />
+        <Content Include="Tokenizer/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" />
         <Content Remove="data/**" />
         <None Remove="data/**" />

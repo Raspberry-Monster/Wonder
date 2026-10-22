@@ -3,12 +3,14 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Message } from "@arco-design/web-vue";
 import { api } from "../api";
+import type { components } from "../api.generated";
 import EditorForm, { type Field } from "../components/EditorForm.vue";
 const route = useRoute(),
   router = useRouter(),
   bot = ref<any>(),
   data = ref<any>(),
   spaces = ref<any[]>([]),
+  tokenizers = ref<components["schemas"]["TokenizerResponse"][]>([]),
   loading = ref(false),
   error = ref(""),
   editing = ref<any>(),
@@ -61,7 +63,7 @@ const settingsFields: Field[] = [
   { key: "dailyTokenLimit", label: "每日 Token 额度", type: "number" },
   { key: "monthlyTokenLimit", label: "每月 Token 额度", type: "number" },
 ];
-const modelFields: Field[] = [
+const modelFields = computed<Field[]>(() => [
   {
     key: "taskKind",
     label: "用途",
@@ -96,7 +98,13 @@ const modelFields: Field[] = [
   {
     key: "tokenizerId",
     label: "Tokenizer",
-    help: "填写与所选模型匹配的 Tokenizer ID；estimate 使用估算。",
+    type: "select",
+    options: [
+      { value: "auto", label: "自动匹配" },
+      { value: "estimate", label: "使用估算" },
+      ...tokenizers.value.map((item) => ({ value: item.id, label: item.id })),
+    ],
+    help: "自动匹配当前模型的词表；未匹配时使用估算。也可手动选择。",
     required: true,
   },
   {
@@ -115,7 +123,7 @@ const modelFields: Field[] = [
     label: "每百万输出 Tokens 成本",
     type: "number",
   },
-];
+]);
 const bindingFields: Field[] = [
   { key: "platformAccountId", label: "Bot QQ 号", required: true },
   { key: "webSocketUrl", label: "OneBot WebSocket 地址", required: true },
@@ -148,6 +156,15 @@ async function load() {
         api(base.value + "/deliveries"),
       ]);
       data.value = { jobs, usage, emotion, deliveries };
+    } else if (tab.value === "model-routes") {
+      const [routes, available] = await Promise.all([
+        api(base.value + "/model-routes"),
+        api<components["schemas"]["TokenizerResponse"][]>(
+          base.value + "/model-routes/tokenizers",
+        ),
+      ]);
+      data.value = routes;
+      tokenizers.value = available;
     } else if (tab.value === "settings") data.value = bot.value;
     else data.value = await api(base.value + "/" + tab.value);
     if (tab.value === "groups")
@@ -185,7 +202,7 @@ function newModel() {
     thinkingEnabled: null,
     reasoningEffort: null,
     embeddingDimensions: 1536,
-    tokenizerId: "estimate",
+    tokenizerId: "auto",
     messageTokenOverhead: 16,
     imageTokenBudget: 4096,
     inputCostPerMillion: 0,

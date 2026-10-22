@@ -100,7 +100,7 @@ builder.Services.AddSingleton<ConversationTools>();
 builder.Services.AddSingleton<EmotionEngine>();
 builder.Services.AddSingleton<MessageIngestor>();
 builder.Services.AddSingleton<ModelRouter>();
-builder.Services.AddSingleton<TokenCounter>();
+builder.Services.AddSingleton(_ => new TokenCounter(Path.Combine(builder.Environment.ContentRootPath, "Tokenizer")));
 builder.Services.AddSingleton<TokenBudget>();
 builder.Services.AddSingleton<MemoryService>();
 builder.Services.AddSingleton<MediaStore>();

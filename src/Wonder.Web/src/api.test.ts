@@ -23,5 +23,13 @@ describe("API client", () => {
         "email",
       ),
     ).toBe("Invalid email");
+    expect(
+      fieldError(
+        new ApiError(400, "Invalid", {
+          "x[0].TokenizerId": ["Choose an available tokenizer"],
+        }),
+        "tokenizerId",
+      ),
+    ).toBe("Choose an available tokenizer");
   });
 });

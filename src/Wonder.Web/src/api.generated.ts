@@ -1200,6 +1200,45 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/bots/{id}/model-routes/tokenizers": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["TokenizerResponse"][];
+            "application/json": components["schemas"]["TokenizerResponse"][];
+            "text/json": components["schemas"]["TokenizerResponse"][];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/bots/{id}/model-routes": {
     parameters: {
       query?: never;
@@ -1508,7 +1547,7 @@ export interface components {
       thinkingEnabled?: null | boolean;
       reasoningEffort?: null | string;
       supportsTools?: null | boolean;
-      /** @default estimate */
+      /** @default auto */
       tokenizerId: string;
       /**
        * Format: int32
@@ -1558,6 +1597,10 @@ export interface components {
       contextSpaceId?: null | string;
     };
     TaskKind: number;
+    TokenizerResponse: {
+      id: string;
+      models: string[];
+    };
     UpdateBot: {
       name: null | string;
       enabled: null | boolean;

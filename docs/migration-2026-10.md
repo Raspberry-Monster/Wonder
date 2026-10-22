@@ -23,11 +23,13 @@ dotnet run --project src/Wonder.Host -- --export-event-schema (Join-Path $PWD 'd
 
 ## 模型与 Tokenizer
 
-模型名称、API 地址和 Tokenizer 独立配置，不按 DeepSeek 名称自动切换。
+词表保存在 `src/Wonder.Host/Tokenizer`，程序枚举子目录中的 Hugging Face `tokenizer.json`。每个目录可通过 `models.json` 数组声明模型别名，匹配规则不绑定供应商。详见 [Tokenizer 目录说明](../src/Wonder.Host/Tokenizer/README.md)。
 
-- `estimate`：按 UTF-8 字节数做保守文本预算，适用于尚无词表的自定义模型，不承诺任意供应商的精确计费。
-- `deepseek-v4.1-flash-1017`：内置官方固定版本词表，由 Tokenizers.HuggingFace 执行。
-- 自定义 ID：在服务器配置 `Tokenizers:{id}:Path` 与 `Tokenizers:{id}:Sha256`，再在路由中填写该 ID。使用 Hugging Face tokenizer.json 格式，加载时校验 SHA-256。
+- `auto`：新路由默认值，按模型名称匹配词表目录名或模型别名，未匹配时使用估算。
+- `estimate`：明确按 UTF-8 字节数估算，不承诺任意供应商的精确计费。
+- 词表 ID：从程序自动枚举的列表中手动选择，与当前模型独立配置。不再使用旧的 Path / Sha256 配置项。
+
+新增或替换词表后重启应用。构建和发布自动携带 `Tokenizer` 目录。已有路由保留原选择，可在界面改为“自动匹配”，无需数据库迁移。
 
 词表只计算文本分词，消息封装、工具和图片采用显式预算。messageTokenOverhead 默认 16，imageTokenBudget 默认 4096，这些不是供应商承诺的实际用量。[DeepSeek 官方说明](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)还提供了完整提示编码工具 encoding / deepseek-recipe，文本词表计数不能等同于完整请求精确计数。最终按供应商 usage 结算，缺失 usage 时使用估算。
 

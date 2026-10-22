@@ -18,6 +18,5 @@
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="Persistence/quartz-postgres.sql" />
-        <Content Include="Models/Tokenizers/**/*" Link="Tokenizers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 </Project>

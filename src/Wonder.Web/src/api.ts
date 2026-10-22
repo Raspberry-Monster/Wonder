@@ -46,8 +46,7 @@ export function fieldError(error: unknown, field: string): string | undefined {
   return (
     Object.entries(error.fields)
       .filter(
-        ([key]) =>
-          key.replace(/^\[\d+\]\./, "").toLowerCase() === field.toLowerCase(),
+        ([key]) => key.split(".").at(-1)?.toLowerCase() === field.toLowerCase(),
       )
       .flatMap(([, value]) => value)
       .join("；") || undefined

@@ -4,7 +4,7 @@
 
 ## 控制台配置
 
-Tokenizer 可选择 `deepseek-v4.1-flash-1017`，内置官方固定版本词表。也可独立选择 `estimate` 或服务器配置的其他词表，不限制模型供应商。计数范围与预算结算见 [迁移指南](migration-2026-10.md#模型与-tokenizer)。
+Tokenizer 默认“自动匹配”，匹配关系来自 `Wonder.Host/Tokenizer` 中的目录名和 `models.json` 别名。也可选择程序枚举出的其他词表或明确使用估算，不限制模型供应商。计数范围与预算结算见 [迁移指南](migration-2026-10.md#模型与-tokenizer)。
 
 1. 更新已有部署时，先运行数据库迁移：
 

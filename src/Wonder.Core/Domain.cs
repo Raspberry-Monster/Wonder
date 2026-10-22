@@ -457,7 +457,7 @@ public sealed class ModelProfile
     public Guid BotId { get; set; }
     public TaskKind TaskKind { get; set; }
     public string Provider { get; set; } = "openai-compatible";
-    public string TokenizerId { get; set; } = "estimate";
+    public string TokenizerId { get; set; } = "auto";
     public int MessageTokenOverhead { get; set; } = 16;
     public int ImageTokenBudget { get; set; } = 4096;
     public string Endpoint { get; set; } = "";

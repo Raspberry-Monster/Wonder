@@ -3,12 +3,21 @@ using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Host.Contracts;
 using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 
 namespace Wonder.Host.Controllers;
 
 [Route("/api/v1/bots/{id:guid}/model-routes")]
-public sealed class ModelRoutesController(WonderDbContext db, SecretProtector secrets) : WonderControllerBase(db)
+public sealed class ModelRoutesController(WonderDbContext db, SecretProtector secrets, TokenCounter tokenizers) : WonderControllerBase(db)
 {
+    [HttpGet("tokenizers")]
+    [ProducesResponseType<TokenizerResponse[]>(200)]
+    public async Task<IActionResult> GetTokenizers(Guid id, CancellationToken ct)
+    {
+        if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
+        return Ok(tokenizers.Available.Select(item => new TokenizerResponse(item.Id, item.Models)).ToArray());
+    }
+
     [HttpGet]
     [ProducesResponseType<ModelRouteResponse[]>(200)]
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
