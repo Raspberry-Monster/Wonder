@@ -5,8 +5,8 @@
     -apple-system,
     "Segoe UI",
     sans-serif;
-  color: #233d37;
-  background: #f5f7f4;
+  color: var(--color-text-1);
+  background: var(--color-fill-1);
   font-synthesis: none;
 }
 * {
@@ -34,7 +34,7 @@ h2 {
 }
 .shell {
   min-height: 100vh;
-  background: #f5f7f4;
+  background: var(--color-fill-1);
 }
 .topbar {
   height: 80px;
@@ -42,8 +42,8 @@ h2 {
   display: flex;
   align-items: center;
   gap: 48px;
-  background: #fff;
-  border-bottom: 1px solid #e5ebe5;
+  background: var(--color-bg-2);
+  border-bottom: 1px solid var(--color-border-2);
   line-height: normal;
 }
 .brand {
@@ -53,11 +53,11 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #173c38;
+  color: rgb(var(--primary-6));
 }
 .brand-mark {
-  background: #173c38;
-  color: #f5f8e8;
+  background: rgb(var(--primary-6));
+  color: var(--color-white);
   border-radius: 10px;
   width: 36px;
   height: 36px;
@@ -71,13 +71,13 @@ h2 {
 }
 .topbar nav a {
   font-size: 14px;
-  color: #6a7972;
+  color: var(--color-text-2);
   padding: 29px 0;
   border-bottom: 3px solid transparent;
 }
 .topbar nav a.active {
-  color: #28685b;
-  border-bottom-color: #28685b;
+  color: rgb(var(--primary-6));
+  border-bottom-color: rgb(var(--primary-6));
 }
 .account {
   margin-left: auto;
@@ -85,7 +85,7 @@ h2 {
   align-items: center;
   gap: 14px;
   font-size: 12px;
-  color: #78837d;
+  color: var(--color-text-3);
 }
 .page {
   max-width: 1280px;
@@ -105,12 +105,12 @@ h2 {
   display: block;
   font-size: 11px;
   letter-spacing: 2px;
-  color: #738a77;
+  color: var(--color-text-3);
   font-weight: 700;
   margin-bottom: 14px;
 }
 .muted {
-  color: #7b867f;
+  color: var(--color-text-3);
   line-height: 1.8;
 }
 .bot-grid {
@@ -120,13 +120,13 @@ h2 {
 }
 .bot-card {
   min-height: 255px;
-  border-color: #e4eae2;
+  border-color: var(--color-border-2);
 }
 .bot-symbol {
   width: 52px;
   height: 52px;
-  background: #eaf0e3;
-  color: #376149;
+  background: var(--color-primary-light-1);
+  color: rgb(var(--primary-6));
   border-radius: 16px;
   display: inline-grid;
   place-items: center;
@@ -138,18 +138,18 @@ h2 {
   margin-bottom: 8px;
 }
 .card-bottom {
-  border-top: 1px solid #edf0e9;
+  border-top: 1px solid var(--color-border-2);
   margin-top: 24px;
   padding-top: 18px;
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: #28685b;
+  color: rgb(var(--primary-6));
 }
 .footer {
   text-align: center;
   background: transparent;
-  color: #8b988d;
+  color: var(--color-text-3);
   font-size: 12px;
 }
 .editor-form {
@@ -195,7 +195,7 @@ h2 {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
-  background: #eef2e9;
+  background: var(--color-fill-1);
   padding: 9vh 10%;
   gap: 8vw;
   align-items: center;
@@ -203,27 +203,26 @@ h2 {
 .login-intro h1 {
   font-size: 48px;
   line-height: 1.5;
-  color: #173c38;
+  color: rgb(var(--primary-6));
   font-weight: 650;
   letter-spacing: -2px;
 }
 .login-intro p {
   line-height: 2;
-  color: #6d8073;
+  color: var(--color-text-2);
 }
 .intro-note {
   margin-top: 65px;
   padding-top: 24px;
-  border-top: 1px solid #cfdbcb;
+  border-top: 1px solid var(--color-border-2);
   letter-spacing: 8px;
   font-size: 12px;
-  color: #71866c;
+  color: var(--color-text-3);
 }
 .login-card {
   max-width: 450px;
   width: 100%;
   padding: 18px;
-  box-shadow: 0 20px 60px #2c513510;
 }
 .login-card .brand {
   margin-bottom: 30px;
@@ -231,20 +230,20 @@ h2 {
 .login-card h2 {
   margin-bottom: 8px;
 }
-.login-card .ant-form {
+.login-card .arco-form {
   margin-top: 28px;
 }
 .auth-switch {
   display: block;
   margin: 18px auto 0;
 }
-.ant-tabs {
+.arco-tabs {
   margin-bottom: 20px;
 }
-.ant-card {
-  border-color: #e5ebe2;
+.arco-card {
+  border-color: var(--color-border-2);
 }
-.ant-table-wrapper {
+.arco-table {
   overflow: hidden;
 }
 @media (max-width: 800px) {
@@ -296,4 +295,8 @@ h2 {
   .pager {
     justify-content: center;
   }
+}
+
+.arco-spin {
+  width: 100%;
 }

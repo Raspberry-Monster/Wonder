@@ -52,7 +52,7 @@ test("login, custom model editing, field validation and production CSP", async (
         saved = route.request().postDataJSON();
         return route.fulfill({ status: 204 });
       }
-      return ok([]);
+      return ok(saved || []);
     }
     if (p === "/api/v1/bots") return ok([bot]);
     if (p.endsWith(bot.id)) return ok(bot);
@@ -64,19 +64,32 @@ test("login, custom model editing, field validation and production CSP", async (
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的 Bot" })).toBeVisible();
   await page.getByRole("heading", { name: "测试 Bot" }).click();
-  await page.getByRole("tab", { name: "模型路由" }).click();
+  await page.locator(".arco-tabs-tab").filter({ hasText: "模型路由" }).click();
   await page.getByRole("button", { name: "配置模型" }).click();
   await page
     .getByLabel("API 地址", { exact: true })
     .fill("http://localhost:11434/v1");
   await page.getByLabel("模型名称", { exact: true }).fill("my-custom-model");
   await page.getByLabel("API Key", { exact: true }).fill("local-key");
+  await page.getByRole("switch", { name: "支持图片", exact: true }).click();
+  await page.getByRole("combobox", { name: "思考模式", exact: true }).click();
+  await page.getByText("开启", { exact: true }).click();
   await page.getByRole("button", { name: "保存更改" }).click();
   await expect(page.getByText("模型名称不可用", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "保存更改" }).click();
   await expect.poll(() => saved?.[0]?.model).toBe("my-custom-model");
   expect(saved[0].tokenizerId).toBe("estimate");
+  expect(saved[0].supportsImages).toBe(true);
+  expect(saved[0].thinkingEnabled).toBe(true);
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "my-custom-model", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(page.getByLabel("模型名称", { exact: true })).toHaveValue(
+    "my-custom-model",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "批量应用模型" }).click();
   await page
     .getByLabel("API 地址", { exact: true })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { message } from "ant-design-vue";
+import { Message } from "@arco-design/web-vue";
 import { api } from "../api";
 import { useSession } from "../session";
 import EditorForm, { type Field } from "../components/EditorForm.vue";
@@ -57,11 +57,11 @@ watch(
 async function action(path: string, method = "POST", body?: unknown) {
   try {
     const result = await api(path, method, body);
-    message.success("操作已完成");
+    Message.success("操作已完成");
     await load();
     return result;
   } catch (e) {
-    message.error((e as Error).message);
+    Message.error((e as Error).message);
     return false;
   }
 }
@@ -73,7 +73,7 @@ async function share(memory: any) {
     const options = await api(`/me/memories/${memory.id}/sharing-options`);
     sharing.value = { memory, ...options };
   } catch (e) {
-    message.error((e as Error).message);
+    Message.error((e as Error).message);
   }
 }
 async function refreshBinding() {
@@ -96,20 +96,21 @@ async function refreshBinding() {
     ><a-alert
       v-if="challenge"
       type="info"
-      :message="challenge.instruction"
-      :description="'有效期至 ' + challenge.expiresAt"
+      :title="challenge.instruction"
       class="form-alert"
-  /></a-card>
+      >有效期至 {{ challenge.expiresAt }}</a-alert
+    ></a-card
+  >
   <template v-else
     ><a-tabs
       :active-key="tab"
       @change="(key: string | number) => router.push('/me/' + key)"
-      ><a-tab-pane key="settings" tab="记忆偏好" /><a-tab-pane
+      ><a-tab-pane key="settings" title="记忆偏好" /><a-tab-pane
         key="memories"
-        tab="我的记忆" /><a-tab-pane key="maintenance" tab="维护记录"
+        title="我的记忆" /><a-tab-pane key="maintenance" title="维护记录"
     /></a-tabs>
-    <a-alert v-if="error" type="error" :message="error" show-icon /><a-spin
-      :spinning="loading"
+    <a-alert v-if="error" type="error" :title="error" show-icon /><a-spin
+      :loading="loading"
     >
       <a-card v-if="data && tab === 'settings'" title="记忆偏好"
         ><EditorForm
@@ -121,15 +122,15 @@ async function refreshBinding() {
       <a-card v-if="data && tab === 'memories'" title="我的记忆"
         ><template #extra
           ><a-checkbox
-            v-model:checked="archived"
+            v-model="archived"
             @change="
               skip = 0;
               load();
             "
             >包含已归档</a-checkbox
           ></template
-        ><a-list :data-source="data"
-          ><template #renderItem="{ item }"
+        ><a-list :data="data"
+          ><template #item="{ item }"
             ><a-list-item
               ><div class="memory-body">
                 <a-space
@@ -149,9 +150,11 @@ async function refreshBinding() {
                     @click="share(item)"
                     >共享</a-button
                   ><a-popconfirm
-                    title="删除此记忆及关联版本？"
-                    @confirm="action('/me/memories/' + item.id, 'DELETE')"
-                    ><a-button size="small" danger>删除</a-button></a-popconfirm
+                    content="删除此记忆及关联版本？"
+                    @ok="action('/me/memories/' + item.id, 'DELETE')"
+                    ><a-button size="small" status="danger"
+                      >删除</a-button
+                    ></a-popconfirm
                   ></a-space
                 >
                 <div
@@ -162,14 +165,16 @@ async function refreshBinding() {
                   <a-tag>{{ copy.scope }}</a-tag
                   ><span>{{ copy.available ? "共享中" : "共享不可用" }}</span
                   ><a-popconfirm
-                    title="撤回共享？"
-                    @confirm="
+                    content="撤回共享？"
+                    @ok="
                       action(
                         '/me/memories/' + item.id + '/sharing/' + copy.id,
                         'DELETE',
                       )
                     "
-                    ><a-button type="link" danger>撤回</a-button></a-popconfirm
+                    ><a-button type="text" status="danger"
+                      >撤回</a-button
+                    ></a-popconfirm
                   >
                 </div>
               </div></a-list-item
@@ -180,7 +185,7 @@ async function refreshBinding() {
       <a-card v-if="data && tab === 'maintenance'" title="记忆维护记录"
         ><a-table
           row-key="id"
-          :data-source="data"
+          :data="data"
           :pagination="false"
           :columns="[
             { title: '内容', dataIndex: 'text' },
@@ -211,10 +216,12 @@ async function refreshBinding() {
     ></template
   >
   <a-modal
-    :open="!!editing"
+    role="dialog"
+    aria-modal="true"
+    :visible="!!editing"
     title="纠正记忆"
-    :footer="null"
-    destroy-on-close
+    :footer="false"
+    unmount-on-close
     @cancel="editing = undefined"
     ><EditorForm
       v-if="editing"
@@ -230,9 +237,11 @@ async function refreshBinding() {
       "
   /></a-modal>
   <a-modal
-    :open="!!sharing"
+    role="dialog"
+    aria-modal="true"
+    :visible="!!sharing"
     title="共享记忆"
-    :footer="null"
+    :footer="false"
     @cancel="sharing = undefined"
     ><template v-if="sharing"
       ><p>{{ sharing.memory.text }}</p>

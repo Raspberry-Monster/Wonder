@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { message } from "ant-design-vue";
+import { Message } from "@arco-design/web-vue";
 import { api } from "../api";
 import EditorForm, { type Field } from "../components/EditorForm.vue";
 const route = useRoute(),
@@ -241,10 +241,10 @@ function newGroup() {
 async function action(path: string, method = "POST", body?: unknown) {
   try {
     await api(base.value + path, method, body);
-    message.success("操作已完成");
+    Message.success("操作已完成");
     await load();
   } catch (e) {
-    message.error((e as Error).message);
+    Message.error((e as Error).message);
   }
 }
 const jobColumns = [
@@ -253,7 +253,7 @@ const jobColumns = [
   { title: "尝试次数", dataIndex: "attempts" },
   { title: "错误", dataIndex: "errorCode" },
   { title: "创建时间", dataIndex: "createdAt" },
-  { title: "操作", key: "action" },
+  { title: "操作", slotName: "action" },
 ];
 </script>
 <template>
@@ -274,15 +274,15 @@ const jobColumns = [
   <a-tabs
     :active-key="tab"
     @change="(key: string | number) => router.push(`/bots/${id}/${key}`)"
-    ><a-tab-pane v-for="[key, label] in tabs" :key="key" :tab="label"
+    ><a-tab-pane v-for="[key, label] in tabs" :key="key" :title="label"
   /></a-tabs>
   <a-alert
     v-if="error"
     type="error"
     show-icon
-    :message="error"
+    :title="error"
     class="form-alert"
-  /><a-spin :spinning="loading">
+  /><a-spin :loading="loading">
     <a-card v-if="data && tab === 'settings'" title="基本设置"
       ><EditorForm
         :value="data"
@@ -306,11 +306,11 @@ const jobColumns = [
         submit-label="发布新版本"
         @saved="load"
       /><a-divider /><a-collapse
-        ><a-collapse-panel
+        ><a-collapse-item
           v-for="revision in data"
           :key="revision.id"
           :header="`版本 ${revision.revision}`"
-          ><p class="preserve">{{ revision.content }}</p></a-collapse-panel
+          ><p class="preserve">{{ revision.content }}</p></a-collapse-item
         ></a-collapse
       ></a-card
     >
@@ -338,27 +338,24 @@ const jobColumns = [
       ><a-alert
         type="info"
         show-icon
-        message="每个用途可连接不同供应商。Tokenizer 与模型独立配置，最终用量按供应商返回结果结算。"
+        title="每个用途可连接不同供应商。Tokenizer 与模型独立配置，最终用量按供应商返回结果结算。"
         class="form-alert"
       /><a-table
         row-key="id"
-        :data-source="data"
+        :data="data"
         :pagination="false"
         :columns="[
-          { title: '用途', dataIndex: 'taskKind' },
+          { title: '用途', dataIndex: 'taskKind', slotName: 'taskKind' },
           { title: '模型', dataIndex: 'model' },
           { title: 'Tokenizer', dataIndex: 'tokenizerId' },
-          { title: '操作', key: 'action' },
+          { title: '操作', slotName: 'action' },
         ]"
         :scroll="{ x: 650 }"
-        ><template #bodyCell="{ column, record, text }"
-          ><span v-if="column.dataIndex === 'taskKind'">{{
-            taskNames[text] || text
-          }}</span
-          ><a-button
-            v-else-if="column.key === 'action'"
-            type="link"
-            @click="editModel(record)"
+        ><template #taskKind="{ record }">{{
+          taskNames[record.taskKind] || record.taskKind
+        }}</template
+        ><template #action="{ record }"
+          ><a-button type="text" @click="editModel(record)"
             >编辑</a-button
           ></template
         ></a-table
@@ -371,17 +368,14 @@ const jobColumns = [
         ></template
       ><a-table
         row-key="id"
-        :data-source="data"
+        :data="data"
         :columns="[
           { title: '群号', dataIndex: 'groupId' },
           { title: '命令前缀', dataIndex: 'commandPrefix' },
-          { title: '操作', key: 'action' },
+          { title: '操作', slotName: 'action' },
         ]"
-        ><template #bodyCell="{ column, record }"
-          ><a-button
-            v-if="column.key === 'action'"
-            type="link"
-            @click="editing = { ...record }"
+        ><template #action="{ record }"
+          ><a-button type="text" @click="editing = { ...record }"
             >编辑</a-button
           ></template
         ></a-table
@@ -392,19 +386,21 @@ const jobColumns = [
         ><a-button type="primary" @click="editing = { name: '' }"
           >创建空间</a-button
         ></template
-      ><a-list :data-source="data"
-        ><template #renderItem="{ item }"
+      ><a-list :data="data"
+        ><template #item="{ item }"
           ><a-list-item
             ><a-list-item-meta
               :title="item.name"
               :description="item.id"
             /><template #actions
-              ><a-button type="link" @click="editing = { ...item }"
+              ><a-button type="text" @click="editing = { ...item }"
                 >重命名</a-button
               ><a-popconfirm
-                title="删除空间并撤销关联的共享上下文？"
-                @confirm="action('/context-spaces/' + item.id, 'DELETE')"
-                ><a-button type="link" danger>删除</a-button></a-popconfirm
+                content="删除空间并撤销关联的共享上下文？"
+                @ok="action('/context-spaces/' + item.id, 'DELETE')"
+                ><a-button type="text" status="danger"
+                  >删除</a-button
+                ></a-popconfirm
               ></template
             ></a-list-item
           ></template
@@ -415,7 +411,7 @@ const jobColumns = [
       <a-card title="近 30 天用量"
         ><a-table
           row-key="taskKind"
-          :data-source="data.usage"
+          :data="data.usage"
           :pagination="false"
           :columns="[
             { title: '用途', dataIndex: 'taskKind' },
@@ -450,16 +446,16 @@ const jobColumns = [
       <a-card title="任务记录"
         ><a-table
           row-key="id"
-          :data-source="data.jobs"
+          :data="data.jobs"
           :columns="jobColumns"
           :pagination="false"
           :scroll="{ x: 850 }"
-          ><template #bodyCell="{ column, record }"
+          ><template #action="{ record }"
             ><a-popconfirm
-              v-if="column.key === 'action' && record.status === 'DeadLetter'"
-              title="重新执行此任务？"
-              @confirm="action('/jobs/' + record.id + '/retry')"
-              ><a-button type="link">重试</a-button></a-popconfirm
+              v-if="record.status === 'DeadLetter'"
+              content="重新执行此任务？"
+              @ok="action('/jobs/' + record.id + '/retry')"
+              ><a-button type="text">重试</a-button></a-popconfirm
             ></template
           ></a-table
         >
@@ -483,29 +479,29 @@ const jobColumns = [
         </div></a-card
       >
       <a-card title="待确认投递"
-        ><a-list :data-source="data.deliveries"
-          ><template #renderItem="{ item }"
+        ><a-list :data="data.deliveries"
+          ><template #item="{ item }"
             ><a-list-item
               ><a-list-item-meta
                 :title="item.status"
                 :description="item.id"
               /><template #actions
                 ><a-popconfirm
-                  title="确认该消息已发送？"
-                  @confirm="
+                  content="确认该消息已发送？"
+                  @ok="
                     action('/deliveries/' + item.id + '/resolve', 'POST', {
                       action: 'confirm-sent',
                     })
                   "
                   ><a-button>确认已发送</a-button></a-popconfirm
                 ><a-popconfirm
-                  title="重发可能产生重复消息，继续？"
-                  @confirm="
+                  content="重发可能产生重复消息，继续？"
+                  @ok="
                     action('/deliveries/' + item.id + '/resolve', 'POST', {
                       action: 'retry',
                     })
                   "
-                  ><a-button danger>重试</a-button></a-popconfirm
+                  ><a-button status="danger">重试</a-button></a-popconfirm
                 ></template
               ></a-list-item
             ></template
@@ -515,7 +511,9 @@ const jobColumns = [
     </div></a-spin
   >
   <a-modal
-    :open="!!editing"
+    role="dialog"
+    aria-modal="true"
+    :visible="!!editing"
     :title="
       tab === 'model-routes'
         ? '模型配置'
@@ -523,16 +521,16 @@ const jobColumns = [
           ? '群组策略'
           : '共享空间'
     "
-    :footer="null"
+    :footer="false"
     :width="680"
-    destroy-on-close
+    unmount-on-close
     @cancel="editing = undefined"
   >
     <a-form-item
       v-if="editing && tab === 'model-routes' && batch"
       label="应用到生成任务"
       ><a-checkbox-group
-        v-model:value="selectedTasks"
+        v-model="selectedTasks"
         :options="
           tasks
             .filter((t) => t !== 'Embedding')
@@ -552,8 +550,11 @@ const jobColumns = [
         load();
       "
     />
-    <a-form-item v-if="editing && tab === 'groups'" label="目标群号"
-      ><a-input v-model:value="editing.groupId"
+    <a-form-item
+      v-if="editing && tab === 'groups'"
+      label="目标群号"
+      :label-attrs="{ for: 'group-id' }"
+      ><a-input :input-attrs="{ id: 'group-id' }" v-model="editing.groupId"
     /></a-form-item>
     <EditorForm
       v-if="editing && tab === 'groups'"

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useProvideIconContext } from "@ant-design/icons-vue/es/components/Context";
+import { computed, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import zhCN from "ant-design-vue/es/locale/zh_CN";
+import zhCN from "@arco-design/web-vue/es/locale/lang/zh-cn";
 import { useSession } from "./session";
 const route = useRoute(),
   router = useRouter(),
@@ -14,14 +13,6 @@ const active = computed(() =>
       ? "me"
       : "system",
 );
-const nonce = document.querySelector<HTMLMetaElement>(
-  'meta[name="csp-nonce"]',
-)?.content;
-useProvideIconContext({
-  prefixCls: ref("anticon"),
-  rootClassName: ref(""),
-  csp: ref({ nonce }),
-});
 const unauthorized = () => {
   session.user = null;
   void router.push("/login");
@@ -36,18 +27,7 @@ async function logout() {
 }
 </script>
 <template>
-  <a-config-provider
-    :auto-insert-space-in-button="false"
-    :locale="zhCN"
-    :csp="nonce ? { nonce } : undefined"
-    :theme="{
-      token: {
-        colorPrimary: '#28685b',
-        borderRadius: 8,
-        fontFamily: 'Inter, system-ui, sans-serif',
-      },
-    }"
-  >
+  <a-config-provider :locale="zhCN">
     <div v-if="route.path === '/login'" class="login-layout">
       <router-view />
     </div>

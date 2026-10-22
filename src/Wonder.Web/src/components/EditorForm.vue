@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
 import { api, fieldError } from "../api";
-import { message } from "ant-design-vue";
+import { Message } from "@arco-design/web-vue";
 export interface Field {
   key: string;
   label: string;
@@ -40,7 +40,7 @@ async function save() {
       props.method || "PUT",
       props.transform ? props.transform({ ...form }) : form,
     );
-    message.success("已保存");
+    Message.success("已保存");
     emit("saved");
   } catch (e) {
     error.value = e;
@@ -50,54 +50,74 @@ async function save() {
 }
 </script>
 <template>
-  <a-form layout="vertical" :model="form" @finish="save" class="editor-form">
+  <a-form
+    layout="vertical"
+    :model="form"
+    @submit-success="save"
+    class="editor-form"
+  >
     <a-alert
       v-if="error"
       type="error"
       show-icon
-      :message="(error as Error).message"
+      :title="(error as Error).message"
       class="form-alert"
     />
     <a-form-item
       v-for="field in fields"
       :key="field.key"
       :label="field.label"
-      :name="field.key"
+      :field="field.key"
+      :label-attrs="{ for: 'editor-' + field.key }"
       :rules="
         field.required
           ? [{ required: true, message: '请填写' + field.label }]
           : []
       "
       :validate-status="fieldError(error, field.key) ? 'error' : undefined"
-      :help="fieldError(error, field.key) || field.help"
+      :help="fieldError(error, field.key)"
+      :extra="field.help"
     >
       <a-switch
         v-if="field.type === 'switch'"
-        v-model:checked="form[field.key]"
+        :id="'editor-' + field.key"
+        v-model="form[field.key]"
       />
       <a-input-number
         v-else-if="field.type === 'number'"
-        v-model:value="form[field.key]"
+        :input-attrs="{ id: 'editor-' + field.key }"
+        v-model="form[field.key]"
         class="full-width"
       />
       <a-input-password
         v-else-if="field.type === 'password'"
-        v-model:value="form[field.key]"
-        autocomplete="new-password"
+        :input-attrs="{
+          id: 'editor-' + field.key,
+          autocomplete: 'new-password',
+        }"
+        v-model="form[field.key]"
         placeholder="留空保留已有凭据"
       />
       <a-textarea
         v-else-if="field.type === 'textarea'"
-        v-model:value="form[field.key]"
-        :rows="6"
+        :textarea-attrs="{ id: 'editor-' + field.key }"
+        v-model="form[field.key]"
+        :auto-size="{ minRows: 6, maxRows: 14 }"
       />
       <a-select
         v-else-if="field.type === 'select'"
-        v-model:value="form[field.key]"
+        :id="'editor-' + field.key"
+        role="combobox"
+        :aria-label="field.label"
+        v-model="form[field.key]"
         :options="field.options"
         allow-clear
       />
-      <a-input v-else v-model:value="form[field.key]" /> </a-form-item
+      <a-input
+        v-else
+        :input-attrs="{ id: 'editor-' + field.key }"
+        v-model="form[field.key]"
+      /> </a-form-item
     ><a-button type="primary" html-type="submit" :loading="busy">{{
       submitLabel || "保存更改"
     }}</a-button>

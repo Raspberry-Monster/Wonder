@@ -36,7 +36,7 @@ flowchart TB
 | 模块 | 职责 |
 | --- | --- |
 | `Wonder.Host` | HTTP、认证、Features 业务工作流、模型预算与 Quartz 调度 |
-| `Wonder.Web` | Vue 3、TypeScript、Ant Design Vue 控制台，由 Host 同源托管 |
+| `Wonder.Web` | Vue 3、TypeScript、Arco Design Vue 默认主题控制台，由 Host 同源托管 |
 | `Wonder.Core` | 领域实体、标识、状态与事件契约 |
 | `Wonder.Platforms` | OneBot 传输、消息标准化、回复格式化 |
 | `Wonder.Infrastructure` | EF Core、Pgvector、任务领取、模型传输 / Tokenizer、媒体与备份 |

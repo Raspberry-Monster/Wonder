@@ -29,20 +29,20 @@ async function run(kind: string) {
   <a-alert
     v-if="error"
     type="error"
-    :message="error"
+    :title="error"
     show-icon
     class="form-alert"
   /><a-alert
     v-if="result"
     type="success"
-    message="操作已完成"
-    :description="result"
+    title="操作已完成"
     class="form-alert"
-  />
+    >{{ result }}</a-alert
+  >
   <div class="bot-grid">
     <a-card title="创建备份"
       ><p>保存数据库、密钥与删除账本的加密备份。</p>
-      <a-popconfirm title="现在创建系统备份？" @confirm="run('backups')"
+      <a-popconfirm content="现在创建系统备份？" @ok="run('backups')"
         ><a-button
           type="primary"
           :loading="busy === 'backups'"

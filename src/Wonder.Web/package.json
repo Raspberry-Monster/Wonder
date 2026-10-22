@@ -6,7 +6,6 @@
   "scripts": {
     "postinstall": "npm --prefix tools ci --no-fund --no-audit",
     "dev": "vite --host 127.0.0.1",
-    "prebuild": "node scripts/extract-styles.cjs",
     "build": "npm run typecheck && vite build",
     "typecheck": "npm --prefix tools run typecheck",
     "test": "vitest run src",
@@ -15,7 +14,7 @@
     "generate:api": "npm --prefix tools run generate:api"
   },
   "dependencies": {
-    "ant-design-vue": "4.2.6",
+    "@arco-design/web-vue": "^2.59.0",
     "pinia": "^4.1.0",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0"

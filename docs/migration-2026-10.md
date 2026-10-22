@@ -39,7 +39,7 @@ Memory / Persona / Emotion / Chat 已并入 Host/Features，AI 项目删除，�
 
 Vue 控制台使用同源 Cookie、X-Wonder 请求头和原有 Identity 账号，无需重新注册。开发运行 `npm --prefix src/Wonder.Web run dev`，代理到 localhost:5080。发布自动构建前端并复制至 wwwroot，也可先构建前端再用 `-p:SkipFrontendBuild=true` 发布。
 
-Ant Design Vue 4.2.6 样式在构建时静态提取。动态图标与滚动锁样式使用 Host 每次响应的 nonce；Vite 在该版本的样式创建入口补传 nonce，升级组件库时须重新审查此集成。CSP 不允许 unsafe-inline。
+控制台使用官方 Arco Design Vue 组件与默认主题，通过外部 CSS 加载样式。开发与生产使用相同的样式入口，无需静态提取或运行时 nonce 补丁。CSP 的 style-src 只允许同源资源，不允许 unsafe-inline。
 
 ## 回退
 

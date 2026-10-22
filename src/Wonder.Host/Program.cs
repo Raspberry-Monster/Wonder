@@ -157,11 +157,9 @@ app.UseExceptionHandler(error => error.Run(async c =>
 }));
 app.Use(async (context, next) =>
 {
-    var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
-    context.Items["StyleNonce"] = nonce;
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Content-Security-Policy"] =
-        $"default-src 'self'; script-src 'self'; style-src 'self' 'nonce-{nonce}'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     if (context.Request.Path.StartsWithSegments("/api") &&
         context.Request.Method is not ("GET" or "HEAD" or "OPTIONS") && context.Request.Headers["X-Wonder"] != "1")
     {
@@ -171,7 +169,7 @@ app.Use(async (context, next) =>
 
     await next();
 });
-// Index responses receive a fresh nonce; hashed JS/CSS assets remain static files.
+// Serve the SPA index for navigation; JS/CSS assets remain static files.
 app.Use(async (context, next) =>
 {
     if (context.Request.Path == "/" || context.Request.Path == "/index.html") await ServeFrontend(context);
@@ -214,7 +212,7 @@ async Task ServeFrontend(HttpContext context)
     context.Response.Headers.CacheControl = "no-store";
     if (context.Request.Method == "HEAD") return;
     var html = await File.ReadAllTextAsync(index, context.RequestAborted);
-    await context.Response.WriteAsync(html.Replace("__WONDER_NONCE__", (string)context.Items["StyleNonce"]!), context.RequestAborted);
+    await context.Response.WriteAsync(html, context.RequestAborted);
 }
 
 public partial class Program;

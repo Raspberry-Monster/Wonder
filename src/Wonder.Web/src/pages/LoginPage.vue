@@ -51,30 +51,37 @@ async function submit() {
       v-if="error"
       type="error"
       show-icon
-      :message="(error as Error).message"
+      :title="(error as Error).message"
       class="form-alert"
     />
-    <a-form layout="vertical" :model="form" @finish="submit">
+    <a-form layout="vertical" :model="form" @submit-success="submit">
       <a-form-item
         label="邮箱"
-        name="email"
+        field="email"
+        :label-attrs="{ for: 'login-email' }"
         :rules="[{ required: true, type: 'email', message: '请输入有效邮箱' }]"
         :help="fieldError(error, 'Email')"
         :validate-status="fieldError(error, 'Email') ? 'error' : undefined"
         ><a-input
-          v-model:value="form.email"
-          autocomplete="username"
+          :input-attrs="{ id: 'login-email', autocomplete: 'username' }"
+          v-model="form.email"
           size="large"
       /></a-form-item>
       <a-form-item
         label="密码"
-        name="password"
-        :rules="[{ required: true, min: 12, message: '密码至少 12 个字符' }]"
+        field="password"
+        :label-attrs="{ for: 'login-password' }"
+        :rules="[
+          { required: true, minLength: 12, message: '密码至少 12 个字符' },
+        ]"
         :help="fieldError(error, 'Password')"
         :validate-status="fieldError(error, 'Password') ? 'error' : undefined"
         ><a-input-password
-          v-model:value="form.password"
-          :autocomplete="register ? 'new-password' : 'current-password'"
+          :input-attrs="{
+            id: 'login-password',
+            autocomplete: register ? 'new-password' : 'current-password',
+          }"
+          v-model="form.password"
           size="large"
       /></a-form-item>
       <a-button
@@ -87,7 +94,7 @@ async function submit() {
       ></a-form
     >
     <a-button
-      type="link"
+      type="text"
       class="auth-switch"
       @click="
         register = !register;

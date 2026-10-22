@@ -31,8 +31,8 @@ onMounted(load);
       >＋ 创建 Bot</a-button
     >
   </div>
-  <a-alert v-if="error" type="error" :message="error" show-icon /><a-spin
-    :spinning="loading"
+  <a-alert v-if="error" type="error" :title="error" show-icon /><a-spin
+    :loading="loading"
     ><div class="bot-grid">
       <router-link
         v-for="bot in bots"
@@ -58,10 +58,12 @@ onMounted(load);
       description="还没有 Bot，创建一个开始吧"
   /></a-spin>
   <a-modal
-    v-model:open="creating"
+    role="dialog"
+    aria-modal="true"
+    v-model:visible="creating"
     title="创建 Bot"
-    :footer="null"
-    destroy-on-close
+    :footer="false"
+    unmount-on-close
     ><EditorForm
       :value="{ name: '', identity: '' }"
       :fields="[
