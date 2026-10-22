@@ -127,6 +127,7 @@ public sealed class LiveInfrastructureTests
                 .OrderByDescending(x => x.Sequence).Take(5).ToListAsync();
             await Assert.That(retainedHistory).HasSingleItem();
             await Assert.That(retainedHistory[0].Id).IsEqualTo(historical.Id);
+            await VerifyHistoryTimeFiltersAsync(options, historical.Id, currentMessage.Sequence);
             await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).MessageIdsJson).IsEqualTo("[]");
             await Assert.That((await db.Models.AsNoTracking().SingleAsync()).SupportsTools).IsTrue();
 
@@ -167,6 +168,38 @@ public sealed class LiveInfrastructureTests
         {
             await using var drop = new NpgsqlCommand($"DROP DATABASE \"{databaseName}\" WITH (FORCE)", admin);
             await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task VerifyHistoryTimeFiltersAsync(DbContextOptions<WonderDbContext> options, Guid messageId,
+        long currentSequence)
+    {
+        await using var db = new WonderDbContext(options);
+        // Read the persisted timestamp so comparisons use PostgreSQL's microsecond precision.
+        var message = await db.Messages.AsNoTracking().SingleAsync(x => x.Id == messageId);
+        var clock = new ConversationClock(TimeProvider.System, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+        var tools = new ConversationTools(new QueueFactory(options), clock);
+        foreach (var offset in new[] { TimeSpan.Zero, TimeSpan.FromHours(8), TimeSpan.FromHours(-5) })
+        {
+            var start = message.CreatedAt.ToOffset(offset).ToString("O");
+            var end = message.CreatedAt.AddSeconds(1).ToOffset(offset).ToString("O");
+            var afterOnly = await Search(new() { ["after"] = start });
+            await Assert.That(afterOnly).HasSingleItem();
+            await Assert.That(afterOnly[0]).IsEqualTo(message.Id);
+            var within = await Search(new() { ["after"] = start, ["before"] = end });
+            await Assert.That(within).HasSingleItem();
+            await Assert.That(within[0]).IsEqualTo(message.Id);
+            await Assert.That(await Search(new() { ["before"] = start })).IsEmpty();
+        }
+
+        async Task<IReadOnlyList<Guid>> Search(Dictionary<string, object?> arguments)
+        {
+            var result = await tools.ExecuteAsync(new Microsoft.Extensions.AI.FunctionCallContent(
+                "history-time-filter", "search_conversation_history", arguments), message.BotId,
+                message.ConversationId, currentSequence, default);
+            using var json = System.Text.Json.JsonDocument.Parse(result.Json);
+            await Assert.That(json.RootElement.TryGetProperty("error", out _)).IsFalse();
+            return result.MessageIds!;
         }
     }
 

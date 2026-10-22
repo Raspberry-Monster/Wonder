@@ -123,7 +123,8 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
         if (text.Length == 0) return null;
         if (!text.EndsWith('Z') && !(text.Length >= 6 && (text[^6] == '+' || text[^6] == '-') && text[^3] == ':'))
             throw new ArgumentException("Include a timezone offset in history date filters.");
-        return DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.None);
+        // Npgsql timestamptz parameters require UTC, regardless of the caller's timezone.
+        return DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
     }
     private static void CheckKeys(IDictionary<string, object?> args, string[] allowed)
     {
