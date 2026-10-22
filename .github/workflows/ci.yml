@@ -33,6 +33,6 @@ jobs:
       - run: dotnet restore Wonder.slnx
       - run: dotnet test --solution Wonder.slnx --configuration Release --no-restore
       - run: dotnet build src/Wonder.Host --no-restore
-      - run: npx playwright install --with-deps chromium && npm run test:e2e
+      - run: npx playwright install --with-deps chromium && npm run test:e2e && npm run test:dev
         working-directory: src/Wonder.Web
       - run: dotnet publish src/Wonder.Host -c Release --no-restore -p:SkipFrontendBuild=true -o artifacts/host

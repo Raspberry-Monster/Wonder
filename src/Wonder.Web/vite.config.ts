@@ -4,6 +4,21 @@ export default defineConfig({
   plugins: [
     vue(),
     {
+      name: "antd-production-styles",
+      apply: "build",
+      // Production cache markers suppress runtime injection. They must never
+      // be loaded in dev, where Ant Design uses different CSS class names.
+      transformIndexHtml() {
+        return [
+          {
+            tag: "link",
+            attrs: { rel: "stylesheet", href: "/antd.css" },
+            injectTo: "head-prepend",
+          },
+        ];
+      },
+    },
+    {
       name: "antd-style-nonce",
       enforce: "pre",
       transform(code, id) {
