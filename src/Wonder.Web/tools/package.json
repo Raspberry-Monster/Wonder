@@ -1,0 +1,17 @@
+{
+  "name": "@wonder/web-tools",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "typecheck": "vue-tsc --noEmit -p ../tsconfig.json",
+    "generate:api": "openapi-typescript ../../../docs/api/openapi.v1.json -o ../src/api.generated.ts"
+  },
+  "devDependencies": {
+    "typescript": "npm:typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2",
+    "vue-tsc": "^3.3.13",
+    "openapi-typescript": "^7.13.0"
+  },
+  "overrides": {
+    "typescript": "$typescript"
+  }
+}

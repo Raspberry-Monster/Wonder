@@ -25,7 +25,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: src/Wonder.Web/package-lock.json
+          cache-dependency-path: |
+            src/Wonder.Web/package-lock.json
+            src/Wonder.Web/tools/package-lock.json
       - run: npm ci && npm run build && npm test
         working-directory: src/Wonder.Web
       - run: dotnet restore Wonder.slnx

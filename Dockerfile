@@ -1,6 +1,7 @@
 FROM node:24-bookworm-slim AS frontend
 WORKDIR /web
 COPY src/Wonder.Web/package*.json ./
+COPY src/Wonder.Web/tools/package*.json ./tools/
 RUN npm ci --no-fund --no-audit
 COPY src/Wonder.Web/ ./
 RUN npm run build
