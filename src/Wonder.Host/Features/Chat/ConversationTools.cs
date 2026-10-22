@@ -1,3 +1,4 @@
+using Wonder.Infrastructure;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
@@ -6,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Wonder.Core;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed record ConversationToolResult(string Json, IReadOnlyList<Guid> MemoryIds, IReadOnlyList<Guid>? MessageIds = null, IReadOnlyList<Guid>? UserIds = null);
 

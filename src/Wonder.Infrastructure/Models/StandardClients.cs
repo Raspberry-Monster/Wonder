@@ -9,7 +9,7 @@ using OpenAI.Chat;
 using EmbeddingClient = OpenAI.Embeddings.EmbeddingClient;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
-namespace Wonder.AI;
+namespace Wonder.Infrastructure.Models;
 
 public sealed class ProviderRetryException(TimeSpan retryAfter)
     : HttpRequestException("Provider requested delayed retry.")

@@ -1,7 +1,7 @@
 using System.Linq.Expressions;
 using Wonder.Core;
 
-namespace Wonder.Memory;
+namespace Wonder.Host.Features.Memory;
 
 public static class MemoryRules
 {

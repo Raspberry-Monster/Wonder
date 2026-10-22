@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
 using Wonder.Infrastructure;
 using Wonder.Platforms;

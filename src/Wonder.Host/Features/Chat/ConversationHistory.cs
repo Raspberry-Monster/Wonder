@@ -1,9 +1,10 @@
+using Wonder.Infrastructure;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using ChatMessage = Wonder.Core.ChatMessage;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> factory, ConversationClock clock)
 {

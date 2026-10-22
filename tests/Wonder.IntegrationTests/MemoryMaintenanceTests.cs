@@ -1,3 +1,4 @@
+using Wonder.Host;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -206,7 +207,7 @@ public sealed class MemoryMaintenanceTests
         using var app = new TestApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue("""{"data":[{"index":0,"embedding":[0,0,0]}]}""");
-        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<Wonder.AI.ModelResponseException>();
+        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<Wonder.Infrastructure.Models.ModelResponseException>();
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That((await db.Memories.SingleAsync()).Text).IsEqualTo("我住杭州。");
@@ -221,7 +222,7 @@ public sealed class MemoryMaintenanceTests
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue("""{"choices":[{"finish_reason":"length","message":{"content":"{}"}}],"usage":{"prompt_tokens":20,"completion_tokens":1024}}""");
-        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<Wonder.AI.ModelResponseException>();
+        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<Wonder.Infrastructure.Models.ModelResponseException>();
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That((await db.Memories.SingleAsync()).ArchivedAt).IsNull();

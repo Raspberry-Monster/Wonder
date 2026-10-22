@@ -1,8 +1,9 @@
+using Wonder.Host;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
 using Wonder.Infrastructure;
 using ChatMessage = Wonder.Core.ChatMessage;

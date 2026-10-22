@@ -1,8 +1,9 @@
+using Wonder.Infrastructure;
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Wonder.Core;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class ConversationClock(TimeProvider time, IConfiguration configuration)
 {

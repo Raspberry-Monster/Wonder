@@ -1,11 +1,12 @@
+using Wonder.Infrastructure;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext> factory, ModelRouter models)
 {

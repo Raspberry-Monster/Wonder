@@ -1,6 +1,7 @@
+using Wonder.Host;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
 using Wonder.Infrastructure;
 

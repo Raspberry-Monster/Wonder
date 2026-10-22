@@ -6,11 +6,11 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
-using Wonder.Chat;
-using Wonder.Emotion;
+using Wonder.Host.Features.Chat;
+using Wonder.Host.Features.Emotion;
 using Wonder.Host;
 using Wonder.Infrastructure;
-using Wonder.Persona;
+using Wonder.Host.Features.Persona;
 using Wonder.Platforms;
 
 var builder = WebApplication.CreateBuilder(args);

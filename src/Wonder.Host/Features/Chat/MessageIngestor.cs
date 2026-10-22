@@ -1,10 +1,11 @@
+using Wonder.Infrastructure;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Wonder.Core;
 using Wonder.Platforms;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory)
 {

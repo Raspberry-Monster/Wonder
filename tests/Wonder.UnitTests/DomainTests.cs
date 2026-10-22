@@ -1,10 +1,11 @@
+using Wonder.Host;
 using System.Net;
-using Wonder.Chat;
+using Wonder.Host.Features.Chat;
 using Wonder.Core;
-using Wonder.Emotion;
+using Wonder.Host.Features.Emotion;
 using Wonder.Infrastructure;
-using Wonder.Memory;
-using Wonder.Persona;
+using Wonder.Host.Features.Memory;
+using Wonder.Host.Features.Persona;
 using Wonder.Platforms;
 
 namespace Wonder.UnitTests;

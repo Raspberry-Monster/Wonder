@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-    <ItemGroup>
-        <ProjectReference Include="../Wonder.Core/Wonder.Core.csproj"/>
-        <ProjectReference Include="../Wonder.Persona/Wonder.Persona.csproj"/>
-        <ProjectReference Include="../Wonder.Memory/Wonder.Memory.csproj"/>
-        <ProjectReference Include="../Wonder.AI/Wonder.AI.csproj"/>
-    </ItemGroup>
-</Project>

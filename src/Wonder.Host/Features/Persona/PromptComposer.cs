@@ -1,6 +1,6 @@
 using Wonder.Core;
 
-namespace Wonder.Persona;
+namespace Wonder.Host.Features.Persona;
 
 public sealed class PromptComposer
 {

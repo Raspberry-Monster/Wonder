@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Wonder.AI;
+namespace Wonder.Infrastructure.Models;
 
 // This is an output guard, not a tool parser. Only structured FunctionCallContent may invoke tools.
 public static class ToolCallMarkup

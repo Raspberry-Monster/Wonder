@@ -1,13 +1,14 @@
+using Wonder.Infrastructure;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
-using Wonder.Emotion;
-using Wonder.Memory;
+using Wonder.Host.Features.Emotion;
+using Wonder.Host.Features.Memory;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class ReflectionWorkflow(
     IDbContextFactory<WonderDbContext> factory,

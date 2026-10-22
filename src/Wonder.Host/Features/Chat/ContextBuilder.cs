@@ -1,7 +1,7 @@
 using Wonder.Core;
-using Wonder.Persona;
+using Wonder.Host.Features.Persona;
 
-namespace Wonder.Chat;
+namespace Wonder.Host.Features.Chat;
 
 public sealed record ContextTurn(
     string Role, string Text, IReadOnlyList<MessageSegment>? Segments = null, string? SpeakerTag = null, string? PreferredName = null, IReadOnlyList<Guid>? MemoryIds = null, DateTimeOffset? SentAt = null, IReadOnlyList<Guid>? MessageIds = null)

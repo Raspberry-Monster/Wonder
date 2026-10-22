@@ -1,10 +1,11 @@
+using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Wonder.Core;
-using Wonder.Emotion;
+using Wonder.Host.Features.Emotion;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class MaintenanceWorkflow(
     IDbContextFactory<WonderDbContext> factory,

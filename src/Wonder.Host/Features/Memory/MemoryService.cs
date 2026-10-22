@@ -1,12 +1,13 @@
+using Wonder.Infrastructure;
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
-using Wonder.Memory;
+using Wonder.Host.Features.Memory;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class MemoryService(
     IDbContextFactory<WonderDbContext> factory,

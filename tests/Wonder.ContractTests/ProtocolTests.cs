@@ -1,3 +1,4 @@
+using Wonder.Host;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -5,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
 using Wonder.Infrastructure;
 using Wonder.Platforms;

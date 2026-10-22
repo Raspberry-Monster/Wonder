@@ -1,9 +1,10 @@
+using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Wonder.AI;
+using Wonder.Infrastructure.Models;
 using Wonder.Core;
 using Wonder.Platforms;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory, IPlatformConnection platform)
 {

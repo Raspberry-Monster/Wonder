@@ -1,12 +1,13 @@
+using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Wonder.Chat;
+using Wonder.Host.Features.Chat;
 using Wonder.Core;
 using Wonder.Platforms;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 using ChatMessage = Wonder.Core.ChatMessage;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public sealed class ChatWorkflow(
     IDbContextFactory<WonderDbContext> factory,
@@ -138,7 +139,7 @@ public sealed class ChatWorkflow(
         else response = await models.GenerateAsync(profile, request, false, ct);
         var final = response.Messages.LastOrDefault(x => x.Role == ChatRole.Assistant);
         if (final is null || final.Contents.OfType<FunctionCallContent>().Any())
-            throw new Wonder.AI.ModelResponseException("Model did not return a final answer after tool use.");
+            throw new Wonder.Infrastructure.Models.ModelResponseException("Model did not return a final answer after tool use.");
         var text = final.Text.Trim();
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
         var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision, null,
@@ -188,8 +189,8 @@ public sealed class ChatWorkflow(
 
     public static void QueueReply(WonderDbContext db, OutboxMessage source, Guid sessionId, string text)
     {
-        if (Wonder.AI.ToolCallMarkup.Contains(text))
-            throw new Wonder.AI.ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
+        if (Wonder.Infrastructure.Models.ToolCallMarkup.Contains(text))
+            throw new Wonder.Infrastructure.Models.ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
         var batch = new OutgoingMessageBatch
         {
             BotId = source.BotId, ConversationId = source.ConversationId!.Value, SessionId = sessionId,

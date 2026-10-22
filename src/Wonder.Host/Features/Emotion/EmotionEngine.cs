@@ -1,6 +1,6 @@
 using Wonder.Core;
 
-namespace Wonder.Emotion;
+namespace Wonder.Host.Features.Emotion;
 
 public sealed class EmotionEngine
 {

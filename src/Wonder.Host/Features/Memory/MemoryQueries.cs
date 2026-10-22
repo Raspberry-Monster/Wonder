@@ -1,10 +1,11 @@
+using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using Wonder.Core;
-using Wonder.Memory;
+using Wonder.Host.Features.Memory;
 
-namespace Wonder.Infrastructure;
+namespace Wonder.Host;
 
 public static class MemoryQueries
 {
