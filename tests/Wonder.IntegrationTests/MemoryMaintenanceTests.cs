@@ -222,7 +222,7 @@ public sealed class MemoryMaintenanceTests
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue("""{"choices":[{"finish_reason":"length","message":{"content":"{}"}}],"usage":{"prompt_tokens":20,"completion_tokens":1024}}""");
-        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<Wonder.Infrastructure.Models.ModelResponseException>();
+        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<OutputLimitException>();
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That((await db.Memories.SingleAsync()).ArchivedAt).IsNull();

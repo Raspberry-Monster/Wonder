@@ -956,6 +956,9 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ProgressJson")
+                        .HasColumnType("text");
+
                     b.Property<DateOnly?>("ScheduledDate")
                         .HasColumnType("date");
 
@@ -1276,6 +1279,9 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Estimated")
+                        .HasColumnType("boolean");
 
                     b.Property<long>("InputTokens")
                         .HasColumnType("bigint");

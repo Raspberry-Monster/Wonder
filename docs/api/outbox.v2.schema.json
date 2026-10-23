@@ -8,6 +8,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -133,6 +139,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -258,6 +270,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -408,6 +426,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -533,6 +557,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -658,6 +688,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -783,6 +819,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -908,6 +950,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -1033,6 +1081,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -1158,6 +1212,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -1283,6 +1343,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"
@@ -1416,6 +1482,12 @@
         "null"
       ],
       "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string",
           "format": "uuid"

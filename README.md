@@ -154,6 +154,7 @@ dotnet test --solution Wonder.slnx
 - [模型路由](docs/model-routes.md) / [DeepSeek 示例](docs/deepseek.md)：任务配置与兼容接口。
 - [跨群记忆与用户称呼](docs/shared-context.md)：授权范围、共享与撤回。
 - [对话延续与时间](docs/conversation-continuity.md)：跨 Session 上下文、当前时间、历史查询工具与升级。
+- [统一上下文预算](docs/context-budget.md)：优先级、工具结果、后台分批恢复、配额与迁移。
 - [API 说明](docs/api/README.md) / [测试指南](tests/README.md)：接口契约与验证方式。
 
 ## 许可与免责声明

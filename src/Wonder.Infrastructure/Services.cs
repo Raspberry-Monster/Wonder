@@ -63,11 +63,22 @@ public static class Jobs
 
     public static void Complete(WonderDbContext db, OutboxMessage job)
     {
+        job.ProgressJson = null;
         job.Status = JobStatus.Completed;
         job.LeaseUntil = null;
         job.LeaseId = null;
         job.ErrorCode = null;
         db.Inbox.Add(new InboxProcessedEvent { EventId = job.Id, HandlerName = job.Type });
+    }
+
+    public static void Continue<T>(OutboxMessage job, T progress, DateTimeOffset? next = null)
+    {
+        job.ProgressJson = Json.Write(progress);
+        job.Status = JobStatus.Pending;
+        job.LeaseId = null;
+        job.LeaseUntil = null;
+        job.NextAttemptAt = next ?? DateTimeOffset.UtcNow;
+        job.Attempts = Math.Max(0, job.Attempts - 1);
     }
 }
 

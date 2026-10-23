@@ -70,8 +70,8 @@ public sealed class TokenCounter : IDisposable
             foreach (var content in message.Contents)
                 count += content switch
                 {
-                    FunctionCallContent call => Text(profile, call.Name + Json.Write(call.Arguments)) + 32,
-                    FunctionResultContent result => Text(profile, result.Result is string text ? text : Json.Write(result.Result)) + 32,
+                    FunctionCallContent call => Text(profile, call.Name + Json.ForPrompt(call.Arguments)) + 32,
+                    FunctionResultContent result => Text(profile, result.Result is string text ? text : Json.ForPrompt(result.Result)) + 32,
                     TextReasoningContent thought => Text(profile, thought.Text ?? ""),
                     DataContent or UriContent => profile.ImageTokenBudget,
                     _ => 0

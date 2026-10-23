@@ -1587,6 +1587,7 @@ export interface components {
       /** Format: int32 */
       imageTokenBudget: number | string;
       hasApiKey: boolean;
+      resolvedTokenizer: string;
     };
     PublishIdentity: {
       content: string;

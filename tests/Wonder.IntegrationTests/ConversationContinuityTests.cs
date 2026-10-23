@@ -406,8 +406,9 @@ public sealed class ConversationContinuityTests
         await db.SaveChangesAsync();
         var dense = await QueueAsync(app, f.Binding, "dense-search", "查看关键词");
         var clipped = await tools.ExecuteAsync(new FunctionCallContent("dense", "search_conversation_history",
-            new Dictionary<string, object?> { ["query"] = "关键词" }), f.Bot, dense.Message.ConversationId, dense.Message.Sequence, default, maxCharacters: 900);
-        await Assert.That(clipped.Json.Length).IsLessThanOrEqualTo(900);
+            new Dictionary<string, object?> { ["query"] = "关键词" }), f.Bot, dense.Message.ConversationId, dense.Message.Sequence, default,
+            fits: value => app.Services.GetRequiredService<ContextBudget>().For(new ModelProfile { TokenizerId = "estimate" }).Text(value) <= 900);
+        await Assert.That(System.Text.Encoding.UTF8.GetByteCount(clipped.Json)).IsLessThanOrEqualTo(900);
         using var excerpts = JsonDocument.Parse(clipped.Json);
         await Assert.That(excerpts.RootElement.GetProperty("records").GetArrayLength()).IsEqualTo(1);
         var excerpt = excerpts.RootElement.GetProperty("records")[0];

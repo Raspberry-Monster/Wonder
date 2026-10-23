@@ -406,6 +406,7 @@ public sealed class ReflectionResult
 
 public sealed class OutboxMessage
 {
+    public string? ProgressJson { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public long Sequence { get; set; }
     public Guid BotId { get; set; }
@@ -477,6 +478,7 @@ public sealed class ModelProfile
 
 public sealed class UsageRecord
 {
+    public bool Estimated { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid ModelProfileId { get; set; }

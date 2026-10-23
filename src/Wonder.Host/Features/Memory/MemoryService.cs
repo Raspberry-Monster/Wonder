@@ -29,18 +29,27 @@ public sealed class MemoryService(
             x => x.BotId == access.BotId && x.Provider == profile.Endpoint && x.Model == profile.Model &&
                  x.Dimensions == profile.EmbeddingDimensions && x.Version == 1, ct);
         if (space is null) return await allowed.OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(5).ToListAsync(ct);
-        float[] vector;
+        var ranked = new Dictionary<Guid, (Core.Memory Memory, double Score)>();
         try
         {
-            vector = await models.EmbedAsync(profile, query, ct);
+            foreach (var part in models.Context(profile).Split(query))
+            {
+                var vector = await models.EmbedAsync(profile, part, ct);
+                var matches = await MemoryQueries.Nearest(db, access, space.Id, vector).ToListAsync(ct);
+                for (var i = 0; i < matches.Count; i++)
+                {
+                    var match = matches[i];
+                    ranked[match.Id] = (match, ranked.GetValueOrDefault(match.Id).Score + 1d / (60 + i + 1));
+                }
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or ModelConfigurationException or TaskCanceledException &&
+        catch (Exception ex) when (ex is HttpRequestException or ModelConfigurationException or TokenQuotaException or ContextLimitException or TaskCanceledException &&
                                    !ct.IsCancellationRequested)
         {
             return await allowed.OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(5).ToListAsync(ct);
         }
 
-        return await MemoryQueries.Nearest(db, access, space.Id, vector).ToListAsync(ct);
+        return ranked.Values.OrderByDescending(x => x.Score).ThenBy(x => x.Memory.Id).Take(5).Select(x => x.Memory).ToArray();
     }
 
     public static async Task<MemoryAccess?> ResolveAccessAsync(WonderDbContext db, MemoryAccess access, CancellationToken ct)
@@ -235,6 +244,12 @@ public sealed class MemoryService(
             x.Status != MemoryStatus.Revoked, ct) ?? throw new KeyNotFoundException("Memory not found.");
         var rootId = selected.SharedFromMemoryId ?? selected.Id;
         var memory = await db.Memories.SingleAsync(x => x.Id == rootId && x.SubjectId == userId, ct);
+        if (!string.IsNullOrWhiteSpace(replacement))
+        {
+            var embedding = await db.Models.AsNoTracking().SingleOrDefaultAsync(x => x.BotId == memory.BotId && x.TaskKind == TaskKind.Embedding, ct);
+            if (embedding is not null && models.Context(embedding).Text(replacement) > models.Context(embedding).InputLimit)
+                throw new ArgumentException("The replacement exceeds the embedding input limit. Split it into shorter facts.", nameof(replacement));
+        }
         // User deletion/correction covers archived versions and all their shares.
         var roots = await db.Memories.Where(x => x.SubjectId == userId && x.BotId == memory.BotId &&
             x.SharedFromMemoryId == null).ToListAsync(ct);
@@ -329,6 +344,10 @@ public sealed class MemoryService(
         await db.Parts.Where(x => dependentBatches.Contains(x.BatchId) && x.Status == DeliveryStatus.Pending)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, DeliveryStatus.Failed), ct);
         var subjectKey = userId.ToString();
+        // Drafts can carry user-derived text. Reset them when their subject is revoked.
+        await db.Outbox.Where(x => x.BotId == botId && x.ProgressJson != null &&
+                (x.ProgressJson.Contains(subjectKey) || x.Payload.Contains(subjectKey) || x.Type == JobTypes.MemoryMaintenance))
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ProgressJson, (string?)null), ct);
         await db.Summaries
             .Where(x => x.BotId == botId && (sessionIds.Contains(x.SessionId) || x.SubjectIdsJson.Contains(subjectKey)))
             .ExecuteDeleteAsync(ct);

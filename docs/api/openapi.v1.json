@@ -1784,7 +1784,8 @@
           "tokenizerId",
           "messageTokenOverhead",
           "imageTokenBudget",
-          "hasApiKey"
+          "hasApiKey",
+          "resolvedTokenizer"
         ],
         "type": "object",
         "properties": {
@@ -1883,6 +1884,9 @@
           },
           "hasApiKey": {
             "type": "boolean"
+          },
+          "resolvedTokenizer": {
+            "type": "string"
           }
         }
       },

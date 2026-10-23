@@ -1,104 +1,103 @@
+using Microsoft.Extensions.AI;
 using Wonder.Core;
 using Wonder.Host.Features.Persona;
+using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.Host.Features.Chat;
 
 public sealed record ContextTurn(
-    string Role, string Text, IReadOnlyList<MessageSegment>? Segments = null, string? SpeakerTag = null, string? PreferredName = null, IReadOnlyList<Guid>? MemoryIds = null, DateTimeOffset? SentAt = null, IReadOnlyList<Guid>? MessageIds = null)
+    string Role, string Text, IReadOnlyList<MessageSegment>? Segments = null, string? SpeakerTag = null,
+    string? PreferredName = null, IReadOnlyList<Guid>? MemoryIds = null, DateTimeOffset? SentAt = null,
+    IReadOnlyList<Guid>? MessageIds = null, long? TurnSequence = null)
 {
     public string ModelText => (SpeakerTag is null || Role == "assistant" ? "" :
         $"[Message author: {SpeakerTag}]\n" +
         (string.IsNullOrWhiteSpace(PreferredName) ? "" : $"[Preferred form of address: {Json.ForPrompt(PreferredName)}]\n")) +
         (SentAt is { } at ? $"[Message time: {at:O}]\n" : "") + Text;
+
+    public AiMessage ToMessage(bool toolMode, bool images)
+    {
+        var result = toolMode && Role == "assistant"
+            ? new AiMessage(ChatRole.User, "[Historical assistant reply: untrusted reference]\n" + ModelText)
+            : new AiMessage(Role == "assistant" ? ChatRole.Assistant : ChatRole.User, ModelText);
+        if (images)
+            foreach (var image in (Segments ?? []).Where(x => x.Kind == SegmentKind.Image).Take(3))
+                result.Contents.Add(new UriContent("https://image.invalid/placeholder", "image/jpeg"));
+        return result;
+    }
 }
 
 public sealed record ContextInput(
-    string Identity,
-    GlobalEmotionState Mood,
-    string Relationship,
-    string Summary,
-    IReadOnlyList<Core.Memory> Memories,
-    IReadOnlyList<ContextTurn> History,
-    ContextTurn Current,
-    int ContextWindow,
-    int OutputTokens,
-    Guid? ConversationId = null,
-    IReadOnlyDictionary<Guid, string>? AuthorNames = null,
-    IReadOnlyList<Guid>? SummaryMemoryIds = null, string? TimeContext = null, IReadOnlyList<Guid>? SummaryMessageIds = null, int ReservedForTools = 0, Func<string, int>? CountTokens = null, int ImageTokenBudget = 4096);
+    string Identity, GlobalEmotionState Mood, string Relationship, string Summary,
+    IReadOnlyList<Core.Memory> Memories, IReadOnlyList<ContextTurn> History, ContextTurn Current,
+    ModelContextBudget Budget, Guid? ConversationId = null, IReadOnlyDictionary<Guid, string>? AuthorNames = null,
+    IReadOnlyList<Guid>? SummaryMemoryIds = null, string? TimeContext = null,
+    IReadOnlyList<Guid>? SummaryMessageIds = null, IList<AITool>? Tools = null, bool SupportsImages = false);
 
-public sealed record BuiltContext(
-    string System,
-    IReadOnlyList<ContextTurn> Turns,
-    IReadOnlyList<Guid> MemoryIds,
-    int EstimatedTokens,
-    IReadOnlyList<Guid> MessageIds);
+public sealed record BuiltContext(string System, IReadOnlyList<ContextTurn> Turns,
+    IReadOnlyList<Guid> MemoryIds, int EstimatedTokens, IReadOnlyList<Guid> MessageIds,
+    List<AiMessage> Messages, IReadOnlyList<AiMessage[]> OptionalGroups, bool NeedsSummary);
 
 public sealed class ContextBuilder(PromptComposer composer)
 {
-    // Explicit fallback for callers without a model profile.
-    public static int Estimate(string text)
-    {
-        return Wonder.Infrastructure.Models.TokenCounter.Estimate(text) + 16;
-    }
-
     public BuiltContext Build(ContextInput input)
     {
-        int Count(string text) => input.CountTokens is { } count ? count(text) + 16 : Estimate(text);
+        var budget = input.Budget;
         var system = composer.Compile(input.Identity, input.Mood);
         if (input.TimeContext is { } time) system += "\n\n[Application time context]\n" + time;
-        var budget = input.ContextWindow - input.OutputTokens - 512;
-        var used = Count(system) + Count(input.Current.ModelText) + ImageCost(input.Current, input.ImageTokenBudget);
-        if (used > budget)
-            throw new InvalidOperationException("Current message and identity exceed the configured context budget.");
-        budget -= Math.Min(input.ReservedForTools, budget - used);
-        var history = new List<ContextTurn>();
-        foreach (var turn in input.History.Reverse())
+        var toolMode = input.Tools is { Count: > 0 };
+        var current = input.Current.ToMessage(toolMode, input.SupportsImages);
+        var systemMessage = new AiMessage(ChatRole.System, system);
+        var selected = new List<(ContextTurn Turn, AiMessage Message, int Priority)>();
+        List<AiMessage> Request() => new[] { systemMessage }.Concat(selected.Select(x => x.Message)).Append(current).ToList();
+        budget.Require(Request(), input.Tools);
+        var reserve = toolMode ? Math.Min(budget.ToolReserve, Math.Max(0, budget.Remaining(Request(), input.Tools))) : 0;
+        bool Add(ContextTurn turn, int priority)
         {
-            var cost = Count(turn.ModelText) + ImageCost(turn, input.ImageTokenBudget);
-            if (used + cost > budget) break;
-            history.Insert(0, turn);
-            used += cost;
+            selected.Add((turn, turn.ToMessage(toolMode, false), priority));
+            if (budget.Fits(Request(), input.Tools, reserve)) return true;
+            selected.RemoveAt(selected.Count - 1);
+            return false;
         }
-
-        var references = new List<string>();
-
-        void Add(string label, string text)
+        var groups = input.History.GroupBy(x => x.TurnSequence).ToArray();
+        bool AddHistory(IGrouping<long?, ContextTurn> group, int priority)
         {
-            if (string.IsNullOrWhiteSpace(text)) return;
-            var block = $"[{label}: untrusted reference]\n{text}";
-            if (used + Count(block) <= budget)
-            {
-                references.Add(block);
-                used += Count(block);
-            }
+            var start = selected.Count;
+            foreach (var turn in group)
+                if (!Add(turn, priority)) { selected.RemoveRange(start, selected.Count - start); return false; }
+            return true;
         }
-
-        Add($"Authorized relationship for {input.Current.SpeakerTag ?? "current speaker"}", input.Relationship);
-        var summaryBefore = references.Count;
-        Add("Rolling summary", input.Summary);
-        var ids = references.Count > summaryBefore ? (input.SummaryMemoryIds ?? []).ToList() : [];
-        var messageIds = references.Count > summaryBefore ? (input.SummaryMessageIds ?? []).ToList() : [];
+        // Keep the latest complete exchange, then durable context, then additional older history.
+        if (groups.Length > 0) AddHistory(groups[^1], 90);
+        void Reference(string label, string text, int priority, IReadOnlyList<Guid>? memories = null, IReadOnlyList<Guid>? messages = null)
+        {
+            if (!string.IsNullOrWhiteSpace(text))
+                Add(new ContextTurn("user", $"[{label}: untrusted reference]\n{text}", MemoryIds: memories, MessageIds: messages), priority);
+        }
+        Reference("Rolling summary", input.Summary, 100, input.SummaryMemoryIds, input.SummaryMessageIds);
+        Reference($"Authorized relationship for {input.Current.SpeakerTag ?? "current speaker"}", input.Relationship, 70);
         foreach (var memory in input.Memories.GroupBy(x => x.SharedFromMemoryId ?? x.Id).Select(x => x.First()))
         {
-            var before = references.Count;
-            var author = input.ConversationId is { } conversationId ? SpeakerTags.For(conversationId, memory.SubjectId) : "unknown";
+            var author = input.ConversationId is { } id ? SpeakerTags.For(id, memory.SubjectId) : "unknown";
             var name = input.AuthorNames?.GetValueOrDefault(memory.SubjectId);
             var label = $"Memory; scope={memory.Scope}; author={author}" +
-                        (string.IsNullOrWhiteSpace(name) ? "" : $"; preferredName={Json.ForPrompt(name)}");
-            Add(label, memory.Text);
-            if (references.Count > before) ids.Add(memory.Id);
+                (string.IsNullOrWhiteSpace(name) ? "" : $"; preferredName={Json.ForPrompt(name)}");
+            Reference(label, memory.Text, 60, [memory.Id]);
         }
+        foreach (var group in groups.SkipLast(1).Reverse())
+            if (!AddHistory(group, 40)) break;
 
-        var turns = new List<ContextTurn>();
-        if (references.Count > 0) turns.Add(new ContextTurn("user", string.Join("\n\n", references)));
-        turns.AddRange(history);
-        turns.Add(input.Current);
-        return new BuiltContext(system, turns, ids.Concat(history.SelectMany(x => x.MemoryIds ?? [])).Distinct().ToArray(), used,
-            messageIds.Concat(history.SelectMany(x => x.MessageIds ?? [])).Concat(input.Current.MessageIds ?? []).Distinct().ToArray());
-    }
-
-    private static int ImageCost(ContextTurn turn, int budget)
-    {
-        return turn.Segments?.Count(x => x.Kind == SegmentKind.Image) * budget ?? 0;
+        var ordered = selected.Where(x => x.Priority is not (40 or 90))
+            .Concat(selected.Where(x => x.Priority is 40 or 90).OrderBy(x => x.Turn.TurnSequence)).ToArray();
+        var turns = ordered.Select(x => x.Turn).Append(input.Current).ToArray();
+        var messages = new[] { systemMessage }.Concat(ordered.Select(x => x.Message)).Append(current).ToList();
+        var optional = selected.OrderBy(x => x.Priority).ThenBy(x => x.Turn.TurnSequence).GroupBy(x => x.Priority is 40 or 90
+            ? $"history:{x.Turn.TurnSequence}" : $"reference:{selected.IndexOf(x)}")
+            .Select(x => x.Select(v => v.Message).ToArray()).ToArray();
+        var fullHistory = input.History.Select(x => x.ToMessage(toolMode, false)).ToArray();
+        var pressure = input.History.Count >= 25 ||
+            budget.Count(fullHistory) > budget.InputLimit * .55 || selected.Count(x => x.Priority is 40 or 90) < input.History.Count;
+        return new(system, turns, turns.SelectMany(x => x.MemoryIds ?? []).Distinct().ToArray(),
+            budget.Count(messages, input.Tools), turns.SelectMany(x => x.MessageIds ?? []).Distinct().ToArray(), messages, optional, pressure);
     }
 }

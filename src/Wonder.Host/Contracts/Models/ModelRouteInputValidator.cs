@@ -17,7 +17,7 @@ public sealed class ModelRouteInputValidator : AbstractValidator<ModelRouteInput
         RuleFor(x => x.ImageTokenBudget).InclusiveBetween(0, 100000);
         RuleFor(x => x.ContextWindow).InclusiveBetween(2048, 2_000_000);
         RuleFor(x => x.MaxOutputTokens).InclusiveBetween(16, 1_000_000)
-            .Must((x, max) => max + 1024 < x.ContextWindow);
+            .Must((x, max) => x.TaskKind == TaskKind.Embedding || max + 1024 < x.ContextWindow);
         RuleFor(x => x.EmbeddingDimensions).InclusiveBetween(1, 8192);
         RuleFor(x => x.InputCostPerMillion).GreaterThanOrEqualTo(0);
         RuleFor(x => x.OutputCostPerMillion).GreaterThanOrEqualTo(0);

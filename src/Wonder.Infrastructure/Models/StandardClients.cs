@@ -18,7 +18,7 @@ public sealed class ProviderRetryException(TimeSpan retryAfter)
 }
 
 public sealed class ModelConfigurationException(string message) : Exception(message);
-public sealed class ModelResponseException(string message, Exception? inner = null) : Exception(message, inner);
+public class ModelResponseException(string message, Exception? inner = null) : Exception(message, inner);
 
 // The official adapter owns protocol serialization, images, responses and structured tool calls.
 // This decorator only supplies provider options and preserves reasoning during tool round trips.

@@ -74,7 +74,12 @@ const modelFields = computed<Field[]>(() => [
   { key: "endpoint", label: "API 地址", required: true },
   { key: "model", label: "模型名称", required: true },
   { key: "apiKey", label: "API Key", type: "password" },
-  { key: "contextWindow", label: "上下文窗口", type: "number" },
+  {
+    key: "contextWindow",
+    label: "上下文窗口",
+    type: "number",
+    help: "按模型实际限制填写；向量用途表示单次输入上限。",
+  },
   { key: "maxOutputTokens", label: "最大输出 Tokens", type: "number" },
   { key: "supportsImages", label: "支持图片", type: "switch" },
   { key: "supportsJson", label: "支持 JSON 输出", type: "switch" },
@@ -365,6 +370,10 @@ const jobColumns = [
           { title: '用途', dataIndex: 'taskKind', slotName: 'taskKind' },
           { title: '模型', dataIndex: 'model' },
           { title: 'Tokenizer', dataIndex: 'tokenizerId' },
+          {
+            title: '实际词表 / estimate 表示估算',
+            dataIndex: 'resolvedTokenizer',
+          },
           { title: '操作', slotName: 'action' },
         ]"
         :scroll="{ x: 650 }"
@@ -436,6 +445,7 @@ const jobColumns = [
             { title: '输出 Tokens', dataIndex: 'outputTokens' },
             { title: '成本', dataIndex: 'cost' },
             { title: '请求数', dataIndex: 'requests' },
+            { title: '估算用量请求数', dataIndex: 'estimatedRequests' },
           ]"
           :scroll="{ x: 600 }"
       /></a-card>

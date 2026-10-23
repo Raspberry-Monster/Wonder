@@ -81,18 +81,31 @@ public sealed class JobProcessor(
         var failed = await db.Outbox.SingleOrDefaultAsync(x => x.Id == job.Id && x.Status == JobStatus.Running &&
             x.LeaseId == job.LeaseId, ct);
         if (failed is null) return;
-        var terminal = failed.Attempts >= MaxAttempts(job.Type) || ex is ModelConfigurationException or DeliveryUnknownException;
+        var deferredQuota = ex is TokenQuotaException && job.Type != JobTypes.Chat;
+        var terminal = !deferredQuota && (failed.Attempts >= MaxAttempts(job.Type) ||
+            ex is ModelConfigurationException or DeliveryUnknownException or ContextLimitException or OutputLimitException or TokenQuotaException);
         failed.Status = terminal ? JobStatus.DeadLetter : JobStatus.Pending;
         failed.LeaseUntil = null;
         failed.LeaseId = null;
         failed.ErrorCode = ex.GetType().Name;
         failed.NextAttemptAt = DateTimeOffset.UtcNow.Add(ex is ProviderRetryException retry
             ? retry.RetryAfter : TimeSpan.FromSeconds(Math.Min(300, Math.Pow(2, failed.Attempts) * 5)));
+        if (deferredQuota)
+        {
+            failed.NextAttemptAt = ((TokenQuotaException)ex).RetryAt;
+            failed.Attempts = Math.Max(0, failed.Attempts - 1);
+        }
         if (terminal && job.Type == JobTypes.Chat && !await db.Batches.AnyAsync(x => x.SourceJobId == job.Id, ct))
         {
             var messageId = Json.Read<IdPayload>(job.Payload).Id;
             var session = await db.Messages.Where(x => x.Id == messageId).Select(x => x.SessionId).SingleOrDefaultAsync(ct);
-            if (session is not null) ChatWorkflow.QueueReply(db, job, session.Value, "这次回复暂时没能完成，请稍后再试。");
+            if (session is not null) ChatWorkflow.QueueReply(db, job, session.Value, ex switch
+            {
+                TokenQuotaException => "今天或本月的模型使用额度已用完，请在额度恢复后再试。",
+                ContextLimitException => "这次消息或必要上下文超出了模型可处理的长度，请分段发送，或调整模型上下文与额度设置。",
+                OutputLimitException => "这次生成达到了输出长度上限，请缩小问题范围或调整模型输出设置。",
+                _ => "这次回复暂时没能完成，请稍后再试。"
+            });
         }
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

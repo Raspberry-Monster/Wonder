@@ -23,13 +23,14 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        return Ok(await Db.Models.AsNoTracking().Where(x => x.BotId == id).OrderBy(x => x.TaskKind).Select(x =>
+        var routes = await Db.Models.AsNoTracking().Where(x => x.BotId == id).OrderBy(x => x.TaskKind).ToListAsync(ct);
+        return Ok(routes.Select(x =>
             new ModelRouteResponse(
                 x.Id, x.TaskKind, x.Endpoint, x.Model, x.ContextWindow, x.MaxOutputTokens, x.SupportsImages,
                 x.SupportsJson, x.SupportsTools, x.ThinkingEnabled, x.ReasoningEffort, x.EmbeddingDimensions,
                 x.InputCostPerMillion, x.OutputCostPerMillion, x.TokenizerId, x.MessageTokenOverhead, x.ImageTokenBudget,
-                x.ProtectedApiKey != ""
-            )).ToListAsync(ct));
+                x.ProtectedApiKey != "", tokenizers.Resolve(x)
+            )).ToArray());
     }
 
     [HttpPut]

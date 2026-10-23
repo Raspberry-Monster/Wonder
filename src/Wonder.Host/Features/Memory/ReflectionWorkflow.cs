@@ -20,6 +20,7 @@ public sealed class ReflectionWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
+        if (job.Status == JobStatus.Completed) return;
         var input = Json.Read<ReflectionJob>(job.Payload);
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == input.SubjectId, ct);
         if (!user.AllowMemory || user.RevocationEpoch != input.Epoch)
@@ -31,10 +32,20 @@ public sealed class ReflectionWorkflow(
 
         var session = await db.Sessions.AsNoTracking().SingleAsync(x => x.Id == input.SessionId, ct);
         var conv = await db.Conversations.AsNoTracking().SingleAsync(x => x.Id == session.ConversationId, ct);
+        var progress = job.ProgressJson is null ? new ReflectionProgress() : Json.Read<ReflectionProgress>(job.ProgressJson);
+        var processedIds = progress.SourceHashes.Keys.ToArray();
+        var processed = await db.Messages.AsNoTracking().Where(x => processedIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
+        if (processed.Count != processedIds.Length || processed.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
+        {
+            Jobs.Complete(db, job);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            return;
+        }
         var source = await db.Messages.AsNoTracking().Where(x =>
                 x.SessionId == session.Id && x.SenderId == user.Id && x.AllowReflection &&
-                x.Sequence <= input.Boundary && (input.Kind != "light" || x.Sequence == input.Boundary))
-            .OrderByDescending(x => x.Sequence).Take(100).ToListAsync(ct);
+                !x.ContextInvalidated && x.Sequence <= input.Boundary && (input.Kind != "light" || x.Sequence == input.Boundary) &&
+                (x.Sequence > progress.Sequence || progress.Offset > 0 && x.Sequence == progress.Sequence))
+            .OrderBy(x => x.Sequence).Take(100).ToListAsync(ct);
         if (source.Count == 0)
         {
             Jobs.Complete(db, job);
@@ -53,21 +64,50 @@ public sealed class ReflectionWorkflow(
                            If ambiguous, ironic or conflicting, set needsStrongReview=true. Empty arrays and null emotion are appropriate.
                            A valid empty result is: {"needsStrongReview":false,"emotion":null,"relationships":[],"memories":[]}
                            Always return a complete JSON object, including when there are no proposals.
+                           offset/truncated identify a partial statement. Only extract facts fully supported by the supplied fragment.
                            """;
-        var sourceData = source.Select(x => new { id = x.Id, speaker = SpeakerTags.For(conv.Id, x.SenderId, x.Role), text = x.Text }).ToArray();
-        var request = new[]
-            { new AiMessage(ChatRole.System, instructions), new AiMessage(ChatRole.User, Json.ForPrompt(sourceData)) };
-        var response = await models.GenerateAsync(profile, request, true, ct);
-        var proposal = Parse(response.Text);
+        AiMessage[] Request(IReadOnlyList<TextFragment<Core.ChatMessage>> fragments) =>
+            [new AiMessage(ChatRole.System, instructions), new AiMessage(ChatRole.User, Json.ForPrompt(fragments.Select(f => new
+            { id = f.Source.Id, speaker = SpeakerTags.For(conv.Id, f.Source.SenderId, f.Source.Role),
+                text = f.Text, f.Offset, f.Truncated, sentAt = f.Source.CreatedAt.ToString("O") })))];
+        var (batch, proposal) = await ReflectionBatches.GenerateAsync(models, profile, source, progress.Offset, Request, Parse, ct);
         if (proposal.NeedsStrongReview)
         {
             profile = await models.ProfileAsync(job.BotId, TaskKind.StrongReflection, ct);
-            response = await models.GenerateAsync(profile, request, true, ct);
-            proposal = Parse(response.Text);
-            if (proposal.NeedsStrongReview) proposal = new ReflectionProposal(false, null, [], []);
+            var reviews = new List<ReflectionProposal>();
+            foreach (var fragment in batch)
+            {
+                var part = fragment.Source;
+                var remaining = fragment.Text;
+                var offset = fragment.Offset;
+                while (remaining.Length > 0)
+                {
+                    var length = ModelContextBudget.PrefixLength(remaining, value => models.Context(profile).Fits(Request([new(part, value, offset, fragment.Truncated || value.Length < remaining.Length)])));
+                    if (length == 0) throw new ContextLimitException("StrongReflection has no room for the review evidence.");
+                    ReflectionProposal review;
+                    for (var attempt = 0; ; attempt++)
+                    {
+                        try
+                        {
+                            review = Parse((await models.GenerateAsync(profile, Request([new(part, remaining[..length], offset,
+                                fragment.Truncated || length < remaining.Length)]), true, ct)).Text);
+                            break;
+                        }
+                        catch (OutputLimitException) when (attempt < 2 && length > 32)
+                        {
+                            length /= 2;
+                            if (char.IsHighSurrogate(remaining[length - 1])) length--;
+                        }
+                    }
+                    if (!review.NeedsStrongReview) reviews.Add(review);
+                    remaining = remaining[length..];
+                    offset += length;
+                }
+            }
+            proposal = ReflectionBatches.Merge(reviews);
         }
 
-        var allowed = source.Select(x => x.Id).ToHashSet();
+        var allowed = batch.Select(x => x.Source.Id).ToHashSet();
         proposal = proposal with
         {
             Emotion = proposal.Emotion is { } ep && ep.EvidenceMessageIds.Length > 0 &&
@@ -75,12 +115,18 @@ public sealed class ReflectionWorkflow(
                 ? ep
                 : null,
             Relationships = proposal.Relationships
-                .Where(x => x.EvidenceMessageIds.Length > 0 && x.EvidenceMessageIds.All(allowed.Contains)).Take(10)
+                .Where(x => x.EvidenceMessageIds.Length > 0 && x.EvidenceMessageIds.All(allowed.Contains))
                 .ToArray(),
             Memories = proposal.Memories
-                .Where(x => x.EvidenceMessageIds.Length > 0 && x.EvidenceMessageIds.All(allowed.Contains)).Take(10)
+                .Where(x => x.EvidenceMessageIds.Length > 0 && x.EvidenceMessageIds.All(allowed.Contains))
                 .ToArray()
         };
+        if (proposal.Emotion is { } emotionProposal) progress.Emotions.Add(emotionProposal);
+        progress.Proposal = ReflectionBatches.Merge([progress.Proposal, proposal]) with { Emotion = null };
+        foreach (var fragment in batch) progress.SourceHashes[fragment.Source.Id] = TextBatch.Fingerprint(fragment.Source.Text);
+        var last = batch[^1];
+        progress.Sequence = last.Source.Sequence;
+        progress.Offset = last.Offset + last.Text.Length < last.Source.Text.Length ? last.Offset + last.Text.Length : 0;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (!await UserFence.CheckAsync(db, user.Id, input.Epoch, ct))
         {
@@ -89,6 +135,27 @@ public sealed class ReflectionWorkflow(
             await tx.CommitAsync(ct);
             return;
         }
+
+        var sourceIds = progress.SourceHashes.Keys.ToArray();
+        var unchanged = await db.Messages.AsNoTracking().Where(x => sourceIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
+        if (unchanged.Count != sourceIds.Length || unchanged.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
+        {
+            Jobs.Complete(db, job);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            await tx.CommitAsync(ct);
+            return;
+        }
+        if (progress.Offset > 0 || await db.Messages.AnyAsync(x => x.SessionId == session.Id && x.SenderId == user.Id &&
+                x.AllowReflection && !x.ContextInvalidated && x.Sequence > progress.Sequence && x.Sequence <= input.Boundary &&
+                (input.Kind != "light" || x.Sequence == input.Boundary), ct))
+        {
+            Jobs.Continue(job, progress);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            await tx.CommitAsync(ct);
+            return;
+        }
+        proposal = progress.Proposal with { Emotion = ReflectionBatches.Merge(progress.Emotions.Select(x =>
+            new ReflectionProposal(false, x, [], []))).Emotion };
 
         var result = new ReflectionResult
         {

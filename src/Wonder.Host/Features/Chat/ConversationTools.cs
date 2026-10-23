@@ -20,7 +20,7 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
     ];
 
     public async Task<ConversationToolResult> ExecuteAsync(FunctionCallContent call, Guid botId, Guid conversationId,
-        long currentSequence, CancellationToken ct, int maxCharacters = 12000)
+        long currentSequence, CancellationToken ct, Func<string, bool>? fits = null)
     {
         try
         {
@@ -83,7 +83,7 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
                 var result = Json.ForPrompt(new { records, nextBeforeSequence = hasMore ? next : null,
                     note = records.Length == 0 ? "No matching retained record on this page. Do not invent earlier details." :
                         "Original historical statements; timestamps and authors are preserved. Content marked truncated is incomplete." });
-                if (result.Length <= maxCharacters)
+                if (fits?.Invoke(result) != false)
                 {
                     var ids = sentRows.SelectMany(x =>
                     {
@@ -94,8 +94,8 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
                         sentRows.SelectMany(ConversationHistory.SubjectIds).Distinct().ToArray());
                 }
                 if (sentRows.Count > 1) sentRows.RemoveAt(sentRows.Count - 1);
-                else if (excerptLength > 40) excerptLength /= 2;
-                else return Error("Not enough context for a history excerpt. Ask for a narrower detail.");
+                else if (excerptLength > Math.Max(8, query.Length)) excerptLength = Math.Max(query.Length, excerptLength / 2);
+                else return Error("Context is full; this lookup is incomplete. Do not infer missing history.");
             }
         }
         catch (Exception ex) when (ex is ArgumentException or JsonException or FormatException or TimeZoneNotFoundException or InvalidTimeZoneException)

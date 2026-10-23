@@ -26,7 +26,7 @@ public sealed class ReflectionResponseTests
         using var scope = app.Services.CreateScope();
         var workflow = scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>();
         var error = await Assert.That(() => workflow.GenerateAsync(jobId, default))
-            .ThrowsExactly<ModelResponseException>();
+            .Throws<ModelResponseException>();
         await Assert.That(error!.Message).Contains(expectedError);
         if (finishReason == "length")
         {
@@ -52,7 +52,7 @@ public sealed class ReflectionResponseTests
         app.ModelResponses.Enqueue(Response("{\"needsStrongReview\":false,\"emotion\":null,\"relationships\":[],\"memories\":[]}", "stop"));
         using var scope = app.Services.CreateScope();
         var workflow = scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>();
-        await Assert.That(() => workflow.GenerateAsync(jobId, default)).ThrowsExactly<ModelResponseException>();
+        await Assert.That(() => workflow.GenerateAsync(jobId, default)).ThrowsExactly<OutputLimitException>();
         await workflow.GenerateAsync(jobId, default);
         using var request = JsonDocument.Parse(app.ModelRequests[^1]);
         var content = request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;

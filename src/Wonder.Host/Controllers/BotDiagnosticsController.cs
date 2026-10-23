@@ -31,7 +31,7 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
             .Select(g => new
             {
                 taskKind = g.Key, inputTokens = g.Sum(x => x.InputTokens), outputTokens = g.Sum(x => x.OutputTokens),
-                cost = g.Sum(x => x.Cost), requests = g.Count()
+                cost = g.Sum(x => x.Cost), requests = g.Count(), estimatedRequests = g.Count(x => x.Estimated)
             }).ToListAsync(ct));
     }
 
@@ -43,7 +43,8 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
             : Ok(await Db.Outbox.AsNoTracking().Where(x => x.BotId == id).OrderByDescending(x => x.Sequence)
                 .Skip(Math.Clamp(skip ?? 0, 0, 100000)).Take(100)
                 .Select(x => new
-                    { x.Id, x.Type, x.Status, x.Attempts, x.ErrorCode, x.CreatedAt, x.NextAttemptAt, x.CorrelationId })
+                    { x.Id, x.Type, x.Status, x.Attempts, x.ErrorCode, x.CreatedAt, x.NextAttemptAt, x.CorrelationId,
+                        hasProgress = x.ProgressJson != null })
                 .ToListAsync(ct));
     }
 

@@ -11,8 +11,9 @@ public sealed class ModelRouter(
     IDbContextFactory<WonderDbContext> factory,
     IHttpClientFactory http,
     SecretProtector secrets,
-    TokenCounter tokens,
-    TokenBudget budget)
+    ContextBudget contexts,
+    TokenBudget budget,
+    ILogger<ModelRouter> logger)
 {
     public async Task<ModelProfile> ProfileAsync(Guid botId, TaskKind kind, CancellationToken ct)
     {
@@ -33,7 +34,10 @@ public sealed class ModelRouter(
         return await GenerateCoreAsync(client, profile, messages, json, ct, tools, disableTools);
     }
 
-    public IChatClient CreateToolClient(ModelProfile profile) => new AccountedChatClient(CreateTransport(profile), this, profile);
+    public ModelContextBudget Context(ModelProfile profile) => contexts.For(profile);
+
+    public IChatClient CreateToolClient(ModelProfile profile, Action<List<ChatMessage>>? prepare = null) =>
+        new AccountedChatClient(CreateTransport(profile), this, profile, prepare);
 
     private IChatClient CreateTransport(ModelProfile profile)
     {
@@ -43,36 +47,47 @@ public sealed class ModelRouter(
     }
 
     private async Task<ChatResponse> GenerateCoreAsync(IChatClient client, ModelProfile profile, IEnumerable<ChatMessage> messages, bool json,
-        CancellationToken ct, IList<AITool>? tools, bool disableTools)
+        CancellationToken ct, IList<AITool>? tools, bool disableTools, int? outputTokens = null)
     {
         var input = messages.ToArray();
-        var inputTokens = CountInput(profile, input, tools);
-        if (inputTokens + profile.MaxOutputTokens + 512 > profile.ContextWindow)
-            throw new ModelResponseException("Conversation exceeds the configured context window.");
-        var reservation = await budget.ReserveAsync(profile, inputTokens + profile.MaxOutputTokens, ct);
+        var context = outputTokens is { } output ? Context(profile).WithOutput(output) : Context(profile);
+        context.Require(input, tools);
+        var inputTokens = context.Count(input, tools);
+        logger.LogInformation("Model budget: Task={Task}, Model={Model}, Tokenizer={Tokenizer}, Input={Input}, Output={Output}, Remaining={Remaining}",
+            profile.TaskKind, profile.Model, context.Tokenizer, inputTokens, context.OutputTokens, context.Remaining(input, tools));
+        var reservation = await budget.ReserveAsync(profile, inputTokens + context.OutputTokens, ct);
         ChatResponse result;
         try
         {
-        result = await client.GetResponseAsync(input,
-            new ChatOptions
-            {
-                MaxOutputTokens = profile.MaxOutputTokens,
-                ResponseFormat = json ? ChatResponseFormat.Json : ChatResponseFormat.Text,
-                Tools = tools,
-                ToolMode = disableTools ? ChatToolMode.None : ChatToolMode.Auto
-            }, ct);
+            result = await client.GetResponseAsync(input,
+                new ChatOptions
+                {
+                    MaxOutputTokens = context.OutputTokens,
+                    ResponseFormat = json ? ChatResponseFormat.Json : ChatResponseFormat.Text,
+                    Tools = tools,
+                    ToolMode = disableTools ? ChatToolMode.None : ChatToolMode.Auto
+                }, ct);
         }
-        catch { await budget.ReleaseAsync(reservation); throw; }
+        catch (Exception ex) when (ex is ModelConfigurationException or ProviderRetryException)
+        { await budget.ReleaseAsync(reservation); throw; }
+        catch
+        {
+            // A lost response can still have been billed. Keep an explicitly estimated charge.
+            await budget.SettleAsync(reservation, profile, inputTokens, context.OutputTokens, CancellationToken.None, estimated: true);
+            throw;
+        }
         var i = result.Usage?.InputTokenCount ?? inputTokens;
         var o = result.Usage?.OutputTokenCount ?? CountInput(profile, result.Messages, null);
-        await budget.SettleAsync(reservation, profile, i, o, CancellationToken.None);
+        await budget.SettleAsync(reservation, profile, i, o, CancellationToken.None,
+            estimated: result.Usage?.InputTokenCount is null || result.Usage?.OutputTokenCount is null);
+        logger.LogInformation("Model usage: Task={Task}, Input={Input}, Output={Output}", profile.TaskKind, i, o);
         // Failed generations still consume tokens; record usage before rejecting the response.
         var details = $"Task={profile.TaskKind}; Model={profile.Model}; " +
                       $"FinishReason={result.FinishReason?.Value ?? "unknown"}; " +
-                      $"MaxOutputTokens={profile.MaxOutputTokens}; OutputTokens={o}; " +
+                      $"MaxOutputTokens={context.OutputTokens}; OutputTokens={o}; " +
                       $"ThinkingEnabled={profile.ThinkingEnabled?.ToString() ?? "provider-default"}.";
-        if (json && result.FinishReason == ChatFinishReason.Length)
-            throw new ModelResponseException("Structured model response was truncated. " + details +
+        if (result.FinishReason == ChatFinishReason.Length)
+            throw new OutputLimitException("Model response was truncated. " + details +
                 " Increase the output limit or reduce input/thinking before retrying.");
         if (ToolCallMarkup.Contains(result.Text))
             throw new ModelResponseException("Model returned unparsed or ambiguous tool call markup instead of a final answer. " + details);
@@ -84,11 +99,12 @@ public sealed class ModelRouter(
         return result;
     }
 
-    public int CountText(ModelProfile profile, string text) => tokens.Text(profile, text);
-    public int CountInput(ModelProfile profile, IEnumerable<ChatMessage> messages, IList<AITool>? tools) => tokens.Messages(profile, messages, tools);
+    public int CountText(ModelProfile profile, string text) => Context(profile).Text(text);
+    public int CountInput(ModelProfile profile, IEnumerable<ChatMessage> messages, IList<AITool>? tools) => Context(profile).Count(messages, tools);
 
     // Accounting and limits are application policy; function dispatch and looping belong to M.E.AI.
-    private sealed class AccountedChatClient(IChatClient inner, ModelRouter router, ModelProfile profile) : DelegatingChatClient(inner)
+    private sealed class AccountedChatClient(IChatClient inner, ModelRouter router, ModelProfile profile,
+        Action<List<ChatMessage>>? prepare) : DelegatingChatClient(inner)
     {
         private int rounds;
         private int calls;
@@ -96,7 +112,13 @@ public sealed class ModelRouter(
             CancellationToken cancellationToken = default)
         {
             var disabled = rounds++ >= 3 || calls >= 8 || options?.ToolMode == ChatToolMode.None;
-            var result = await router.GenerateCoreAsync(InnerClient, profile, messages, false, cancellationToken, options?.Tools, disabled);
+            var input = messages.ToList();
+            prepare?.Invoke(input);
+            var available = router.Context(profile).OutputAvailable(input, options?.Tools);
+            var output = Math.Min(profile.MaxOutputTokens, available);
+            if (output < Math.Min(256, profile.MaxOutputTokens))
+                throw new ContextLimitException("The required tool conversation leaves no room for a final answer.");
+            var result = await router.GenerateCoreAsync(InnerClient, profile, input, false, cancellationToken, options?.Tools, disabled, output);
             var count = result.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().Count();
             if (count > 8 - calls) throw new ModelResponseException("Model exceeded the tool call limit.");
             calls += count;
@@ -106,6 +128,7 @@ public sealed class ModelRouter(
 
     public async Task<float[]> EmbedAsync(ModelProfile profile, string text, CancellationToken ct)
     {
+        Context(profile).RequireEmbedding(text);
         var reservation = await budget.ReserveAsync(profile, CountText(profile, text), ct);
         using var client = CompatibleHttp.Configure(http.CreateClient("models"), profile.Endpoint,
             secrets.Unprotect(profile.ProtectedApiKey));
@@ -113,8 +136,15 @@ public sealed class ModelRouter(
             new CompatibleEmbeddingGenerator(client, profile.Model, profile.EmbeddingDimensions);
         GeneratedEmbeddings<Embedding<float>> result;
         try { result = await generator.GenerateAsync([text], cancellationToken: ct); }
-        catch { await budget.ReleaseAsync(reservation); throw; }
-        await budget.SettleAsync(reservation, profile, result.Usage?.InputTokenCount ?? CountText(profile, text), 0, CancellationToken.None);
+        catch (Exception ex) when (ex is ModelConfigurationException or ProviderRetryException)
+        { await budget.ReleaseAsync(reservation); throw; }
+        catch
+        {
+            await budget.SettleAsync(reservation, profile, CountText(profile, text), 0, CancellationToken.None, estimated: true);
+            throw;
+        }
+        await budget.SettleAsync(reservation, profile, result.Usage?.InputTokenCount ?? CountText(profile, text), 0, CancellationToken.None,
+            estimated: result.Usage?.InputTokenCount is null);
         return result[0].Vector.ToArray();
     }
 }

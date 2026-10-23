@@ -212,7 +212,7 @@ public sealed class LiveInfrastructureTests
         async Task<Guid?> Reserve()
         {
             try { return await budget.ReserveAsync(profile, 700, default); }
-            catch (Wonder.Infrastructure.Models.ModelConfigurationException) { return null; }
+            catch (TokenQuotaException) { return null; }
         }
         var results = await Task.WhenAll(Reserve(), Reserve());
         await Assert.That(results.Count(x => x.HasValue)).IsEqualTo(1);

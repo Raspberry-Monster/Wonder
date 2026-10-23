@@ -78,21 +78,17 @@ public sealed class ChatWorkflow(
                 SpeakerTag: SpeakerTags.For(conv.Id, x.SenderId, x.Role),
                 PreferredName: x.SenderId is { } sender ? names.GetValueOrDefault(sender) : null,
                 MemoryIds: ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out var memoryIds) ? memoryIds : [],
-                SentAt: clock.Local(x.CreatedAt), MessageIds: ConversationHistory.MessageIds(x))).ToArray(),
+                SentAt: clock.Local(x.CreatedAt), MessageIds: ConversationHistory.MessageIds(x),
+                TurnSequence: x.InReplyToSequence ?? x.Sequence)).ToArray(),
             new ContextTurn("user", currentText, segments, SpeakerTags.For(conv.Id, message.SenderId), user.PreferredName,
                 SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id]),
-            profile.ContextWindow,
-            profile.MaxOutputTokens, conv.Id, names, summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson),
+            models.Context(profile), conv.Id, names, summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson),
             clock.Context(message.CreatedAt, history.LastOrDefault()?.CreatedAt,
                 history.Any(x => x.SessionId != null && x.SessionId != message.SessionId) || summary is not null && summary.SessionId != message.SessionId),
             summary is null ? null : Json.Read<Guid[]>(summary.MessageIdsJson),
-            ReservedForTools: profile.SupportsTools ? Math.Min(4096, (profile.ContextWindow - profile.MaxOutputTokens) / 2) : 0, CountTokens: text => models.CountText(profile, text), ImageTokenBudget: profile.ImageTokenBudget));
-        var request = new List<AiMessage> { new(ChatRole.System, context.System) };
-        request.AddRange(context.Turns.Select(x =>
-            // Historical replies are references in tool mode; reasoning stays inside this request's tool loop.
-            profile.SupportsTools && x.Role == "assistant"
-                ? new AiMessage(ChatRole.User, "[Historical assistant reply: untrusted reference]\n" + x.ModelText)
-                : new AiMessage(x.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, x.ModelText)));
+            Tools: toolDefinitions, SupportsImages: profile.SupportsImages));
+        var request = context.Messages;
+        foreach (var placeholder in request[^1].Contents.OfType<UriContent>().ToArray()) request[^1].Contents.Remove(placeholder);
         if (profile.SupportsImages)
             foreach (var segment in segments.Where(x => x.Kind == SegmentKind.Image).Take(3))
                 try
@@ -118,17 +114,19 @@ public sealed class ChatWorkflow(
             .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
         if (profile.SupportsTools)
         {
-            using var client = new FunctionInvokingChatClient(models.CreateToolClient(profile))
+            var toolBudget = new ToolContextBudget(models.Context(profile), toolDefinitions!, context.OptionalGroups);
+            using var client = new FunctionInvokingChatClient(models.CreateToolClient(profile, toolBudget.Prepare))
             {
                 MaximumIterationsPerRequest = 4,
                 MaximumConsecutiveErrorsPerRequest = 0,
                 AllowConcurrentInvocation = false,
                 FunctionInvoker = async (invocation, token) =>
                 {
-                    var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - models.CountInput(profile, invocation.Messages, toolDefinitions);
-                    var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id, message.Sequence, token, Math.Max(256, available - 64));
-                    if (models.CountText(profile, result.Json) + 64 > available)
-                        result = new(Json.ForPrompt(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
+                    var fits = toolBudget.ResultFits(invocation.Messages, invocation.CallContent.CallId);
+                    var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id, message.Sequence, token, fits);
+                    if (!fits(result.Json)) result = new("{\"error\":\"context_full\"}", []);
+                    if (!fits(result.Json)) throw new ContextLimitException("The required tool conversation cannot fit even a minimal tool result.");
+                    toolBudget.Remember(invocation.CallContent.CallId, result.Json);
                     retrievedIds.UnionWith(result.MemoryIds);
                     sourceMessageIds.UnionWith(result.MessageIds ?? []);
                     sourceUserIds.UnionWith(result.UserIds ?? []);
@@ -181,7 +179,8 @@ public sealed class ChatWorkflow(
         });
         QueueReply(db, job, message.SessionId.Value, text);
         Jobs.Complete(db, job);
-        if (history.Count >= 25)
+        if (context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id && x.ConversationId == conv.Id &&
+                x.Type == JobTypes.Summary && x.Status == JobStatus.Pending, ct))
             Jobs.Add(db, bot.Id, JobTypes.Summary, new SummaryJob(message.SessionId.Value, message.Sequence), conv.Id,
                 job.Id);
         await db.SaveChangesAsync(ct);
