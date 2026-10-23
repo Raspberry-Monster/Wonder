@@ -1,70 +1,123 @@
-# 运行、备份与恢复
+# 运行、更新、备份与恢复
 
-## 首次部署
+首次本地启动和 Compose 命令见 [主 README](../README.md)，rootless Podman 见 [Quadlet 指南](../deploy/quadlet/README.md)。两种容器部署方式选择其一；完整应用按单 Host 运行。
 
-按 README 执行 Compose 构建和 --migrate，再启动 Host。迁移不会在普通启动时自动执行。PostgreSQL 实例必须能够安装 vector 扩展；首次迁移的数据库账号需要相应权限。
+## 配置与持久目录
 
-初始先在控制台配置 Chat 路由，再配置其余后台任务模型；未配置的模型任务会进入失败列表。补齐配置后可以在“状态与任务”重试。消息生成和发送均有持久状态；消费者每秒轮询 PostgreSQL Outbox，通过 FOR UPDATE SKIP LOCKED 原子领取任务。租约为十分钟，每三十秒续租；进程退出后过期租约会自动恢复。
+配置可以写入 Host 的 `appsettings.Local.json` 或环境变量。环境变量使用双下划线表示层级。
 
-数据库领取支持并发消费者；完整应用仍按单 Host 部署，OneBot 连接与维护扫描尚未提供多 Host 协调。同一 QQ 账号只允许绑定一个逻辑 Bot。
+| 配置键 | 环境变量 | 默认值或用途 |
+| --- | --- | --- |
+| `ConnectionStrings:Postgres` | `ConnectionStrings__Postgres` | 必填，PostgreSQL + pgvector 数据库 |
+| `Workers:Enabled` | `Workers__Enabled` | `true`；关闭时不启动 OneBot、Outbox 消费者和 Quartz |
+| `Storage:KeysPath` | `Storage__KeysPath` | `data/keys`；Data Protection 密钥环 |
+| `Storage:MediaPath` | `Storage__MediaPath` | `data/media` |
+| `Backups:Path` | `Backups__Path` | `data/backups` |
+| `Backups:DeletionLedgerPath` | `Backups__DeletionLedgerPath` | `data/deletion-ledger` |
+| `Backups:AgeRecipient` | `Backups__AgeRecipient` | age 公钥收件人，备份和账本导出需要 |
+| `SystemAdminIds` | `SystemAdminIds__0` 等 | 可执行备份 API 的账号 UUID |
+| `Chat:TimeZone` | `Chat__TimeZone` | `Asia/Shanghai`，用于时间上下文和日常调度 |
+| `Authentication:AllowRegistration` | `Authentication__AllowRegistration` | `true` |
+| `Authentication:RequireHttps` | `Authentication__RequireHttps` | `false`；启用时 Cookie 始终带 Secure |
 
-Podman / systemd 的等价部署方式见 [Quadlet 指南](../deploy/quadlet/README.md)。两种部署方式选择其一。
+存储配置中的相对路径按进程工作目录解析。IDE、仓库根目录、发布目录的启动方式可能不同；需要固定存储位置时使用绝对路径。词表目录则按 Host ContentRoot 下的 `Tokenizer` 查找。
+
+容器工作目录为 `/app`，宿主 `~/quadlet.config.d/Wonder/Host` 挂载到 `/app/data`，其中 `keys`、`media` 和 `backups` 分别保存密钥、媒体和备份。删除账本另挂载到 `/app/data/deletion-ledger`。目录布局见 [Quadlet 指南](../deploy/quadlet/README.md#宿主机目录)。
+
+## 首次部署和更新应用
+
+1. 首次部署准备 .NET 10、Node.js 24、PostgreSQL 18 + pgvector，或使用仓库容器配置。数据库账号需要执行迁移及创建 vector 扩展的权限。
+2. 更新时停止当前 Host，包括 IDE 调试进程和后台任务；备份数据库、密钥和必要的媒体文件。
+3. 构建前端及应用。容器构建包含这些步骤；源码运行可执行：
+
+   ```powershell
+   npm --prefix src/Wonder.Web ci
+   npm --prefix src/Wonder.Web run build
+   dotnet restore Wonder.slnx
+   dotnet run --project src/Wonder.Host -- --migrate
+   ```
+
+4. 发布包使用 `dotnet Wonder.Host.dll --migrate`；容器使用对应指南中的手动迁移入口。普通启动不会自动执行迁移，不要让旧 Host 同时使用正在升级的数据库。
+5. 保持原数据库连接及密钥目录，启动新版，检查 `/health/ready`、登录、模型路由和任务状态。迁移失败时先修复，不启动应用。
+
+迁移链位于 `src/Wonder.Infrastructure/Migrations`，由 EF Core 按数据库记录依次应用。运行时任务只接受事件 v2。需要回退时，停止应用并使用与旧版匹配的数据库备份；不能假定 Down 迁移无损保留新版字段、任务进度和配置。
+
+配置六类模型路由：Chat、LightReflection、StrongReflection、DailyNarrative、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在“状态与任务”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
+
+## 密钥解密失败
+
+日志出现 `CryptographicException: The key {...} was not found in the key ring`，表示当前密钥环缺少用于加密已有数据的密钥。数据库备份或发布目录本身不能替代密钥目录。
+
+1. 确认当前 `Storage:KeysPath` 实际指向的绝对路径。
+2. 在原运行环境或备份中找到整个密钥目录，核对日志里的 `key-{UUID}.xml`。
+3. 停止 Host，将原密钥文件补充到当前目录，保留现有密钥，确保运行账号可读，然后重启。
+4. 如果原密钥不可恢复，重新填写受影响的模型 API Key、QQ 令牌并重新登录。新生成的密钥无法解开旧密文。
+5. 修复后重试 DeadLetter 任务；Pending 任务会按计划继续。
+
+Windows PowerShell 可在启动前固定目录，例如：
+
+```powershell
+$env:Storage__KeysPath = 'D:\WonderData\keys'
+dotnet run --project src/Wonder.Host
+```
+
+Data Protection 使用应用名 `Wonder`。迁移机器时，数据库和原密钥目录需要配套保留；密钥目录应私有持久化，并另行加密备份。
+
+## 任务失败与重试
+
+Outbox 是任务状态的权威来源。消费者查询到期候选，再通过资格条件和 LeaseId 的 EF 条件更新竞争领取；租约 10 分钟，每 30 秒续期。空队列等待 1 秒；过期 Running 可以被重新领取。Completed 与 DeadLetter 不会自动执行。
+
+| 情况 | 当前处理 |
+| --- | --- |
+| 普通失败 | Chat 最多 2 次，其他任务最多 5 次；指数退避最高 5 分钟 |
+| 配置错误、必要上下文超限、输出截断、不确定发送 | 进入 DeadLetter；摘要和反思流程可在内部缩小输入重试后再上报截断 |
+| 后台任务日 / 月额度耗尽 | 排到下一 UTC 配额周期，保留进度，不消耗失败重试次数 |
+| Chat 额度耗尽 | 进入 DeadLetter，并排入额度提示回复 |
+| 供应商要求长时间等待 | 按 Retry-After 重新排队，仍受任务尝试次数限制 |
+| 分批任务成功但尚未处理完 | 保存 ProgressJson 后重新排队，不消耗失败重试次数 |
+
+模型请求失败也可能产生费用。供应商明确拒绝或要求延迟的请求释放预留；响应丢失等不确定情况按预留上限估算结算。上下文、输出和配额诊断见 [统一上下文预算](context-budget.md)。
+
+在控制台“状态与任务”重试死信，会重置尝试次数、错误和租约，并保留已有分批进度。API 为 `POST /api/v1/bots/{id}/jobs/{jobId}/retry`，需登录并携带 `X-Wonder: 1`。
+
+不确定发送先处理分段，再重试 outgoing。`confirm-sent` 确认已发送，可补平台消息 ID；`retry` 允许重新发送，可能重复。恢复时尚为 Sending 的分段会转为 DeliveryUnknown，需先去 QQ 核对。
+
+## 日志与健康检查
+
+任务失败和租约异常的 Warning 包含任务 UUID、异常消息和堆栈；默认 Information 级别可见。任务列表只存错误类型，另显示进度是否存在。日志不主动记录聊天正文、完整 Prompt、反思结果或密钥。
+
+```bash
+# Podman / Quadlet
+journalctl --user -u wonder-app.service -n 200 -f
+# Compose，在仓库根目录执行
+docker compose -f deploy/compose.yaml logs --tail 200 -f app
+```
+
+源码或 IDE 运行查看终端、调试输出。按任务 UUID 定位；ModelConfigurationException 常见于缺少路由、端点或供应商拒绝请求，TokenQuotaException 表示周期额度耗尽，ContextLimitException 表示输入或单次额度无法容纳请求。模型错误诊断包含模型、FinishReason、输出上限等信息，供应商错误响应正文不直接写入异常。
+
+`/health/live` 检查进程，`/health/ready` 检查数据库连接。ready 成功不代表 QQ 已登录、模型路由可调用或全部迁移已经应用，仍需分别检查控制台和任务记录。
 
 ## 手动备份
 
-应用镜像内包含 PostgreSQL 18 客户端和 age，pg_dump / pg_restore 与部署的 PostgreSQL 18 对齐。应用外使用 age-keygen 生成密钥；仅将公开 age1... 收件人填入 Backups__AgeRecipient，私钥放在异机。Compose 直接编辑 deploy/compose.yaml 的 environment；Quadlet 直接编辑 wonder-app.container 的 Environment=，不使用独立 env 文件。
+应用镜像内包含 PostgreSQL 18 客户端及 age。源码运行时需自行提供 `pg_dump` 和 age。使用 age-keygen 生成密钥，仅将公开 `age1...` 收件人填入 `Backups:AgeRecipient`，私钥另存。
 
-将系统管理员账号 UUID 写入 SystemAdminIds__0。登录后 POST /api/v1/system/backups，携带 X-Wonder: 1。接口执行 pg_dump 并直接流式 age 加密，不写明文数据库转储，同时在独立目录输出加密撤销账本。
+将管理员账号 UUID 写入 SystemAdminIds。登录后调用 `POST /api/v1/system/backups`，携带 `X-Wonder: 1`。接口将 pg_dump 自定义格式流式 age 加密，并输出独立的加密删除账本，不写明文数据库转储。Data Protection 密钥和媒体文件需另外备份。
 
-容器数据统一映射到 ~/quadlet.config.d/Wonder/ 下的 PostgreSQL、Host、DeletionLedger 和 SnowLuma 子目录。删除账本在容器内仍位于 data/deletion-ledger，宿主对应 DeletionLedger；默认仍在同一物理主机，请将它挂到独立磁盘或同步到异机。启用收件人后，每次删除会排入账本导出任务；可以 POST /api/v1/system/deletion-ledger 手动再导出。关注导出任务失败和积压。
-
-数据库备份之外还需要独立加密保存 data/keys。丢失 Data Protection 密钥会导致现有模型 Key、QQ 令牌和登录 Cookie 无法解密。恢复后可以重新输入模型 Key / QQ 令牌，但不能从密文反推出它们。
+配置收件人后，删除会排入账本导出任务，也可调用 `POST /api/v1/system/deletion-ledger` 手动导出。默认账本仍在同一主机，应另行安排异盘或异机保存，并关注失败和积压。
 
 ## 恢复流程
 
-1. 停止 Host，保留最新可用的删除账本与 Data Protection 密钥。不要启动 Gateway 或消费者。
-2. 使用 age 私钥解密数据库备份，在空的 PostgreSQL + pgvector 数据库中用 pg_restore 恢复。
-3. 还原 Data Protection 密钥目录，并使用 --migrate 应用当前迁移。
-4. 将最新的独立删除账本解密到临时私有文件，再运行下面的命令。此模式不会启动 HTTP、Gateway 或消费者。
+1. 停止 Host，保留最新独立删除账本和密钥，暂不启动 OneBot 或消费者。
+2. 用 age 私钥解密数据库备份，在空的 PostgreSQL + pgvector 数据库中用 pg_restore 恢复。
+3. 恢复原密钥及必要媒体，确认目录权限，显式执行 `--migrate`。
+4. 将最新删除账本解密到私有临时文件，运行 `dotnet Wonder.Host.dll --replay-ledger /private/latest-ledger.json`。该入口不启动 HTTP、OneBot 或消费者，且可重复执行。
+5. 验证撤销记忆、向量和派生内容不可检索，再启动 Host，处理不确定发送和死信。
+6. 检查 ready、任务、本人记忆及模型配置，再恢复流量。
 
-   ~~~bash
-   dotnet Wonder.Host.dll --replay-ledger /private/latest-ledger.json
-   ~~~
+恢复点之后的删除只有在独立账本已成功保存且可取得时才能重放；数据库与最新账本同时丢失时不能保证保留这些删除记录。
 
-5. 验证已撤销记忆、向量与派生内容不可检索。账本重放可重复执行；临时解密文件不应放进静态目录或版本库。
-6. 启动 Host。到期的 Pending 任务会被直接领取，过期的 Running 租约会恢复；Completed 和 DeadLetter 不会自动执行。外部发送为 Sending 的分段会转 DeliveryUnknown，先到 QQ 核对再人工确认或允许重发。
-7. 检查 /health/ready、任务列表和本人记忆接口，再恢复外部流量。
+## 保留与清理
 
-不要重放旧账本来代替最新删除记录。恢复点之后新增的删除，只有在独立账本成功保存且仍可取得时才能重放；数据库和账本一起丢失时没有相应保证。RPO 取决于最近一次成功备份。
+原始消息默认保留 90 天，创建时记录 ExpiresAt，修改 Bot 保留期只影响后续消息；图片缓存 7 天。清理每 5 分钟分批执行，符合条件的完成发送正文按 30 天清理。Memory / Relationship 不随原始消息自动过期。
 
-## 发送与保留
-
-不确定发送先在控制台处理分段，再重试对应 outgoing 任务。确认已发送可补充平台消息 ID；允许重发可能重复。不要直接把 DeliveryUnknown 当成普通网络错误清空重试。
-
-原始消息默认 90 天，按创建时配置保存 ExpiresAt；后台分批清理。图片缓存七天。已确认完成的发送正文缓存三十天清理。Memory / Relationship 不随原始消息过期；删除记忆将清理其保守关联的派生上下文。
-
-控制台展示任务类型、状态、错误类型、重试次数、用量和模拟情绪版本；普通日志不写入聊天正文、Prompt、反思结果或密钥。
-
-## 查看任务详细日志
-
-任务失败、数据库任务领取、租约续租和维护扫描的 Warning 日志包含异常消息与堆栈，默认 Information 级别即可看到。数据库任务列表仍只记录错误类型。
-
-- dotnet run / IDE：查看运行终端或调试输出。
-- Podman Quadlet：journalctl --user -u wonder-app.service -n 200 -f。
-- Compose（项目根目录）：docker compose -f deploy/compose.yaml logs --tail 200 -f app。
-
-按任务 UUID 查找对应失败记录。ModelConfigurationException 的消息可区分缺少模型路由、Token 预算耗尽和供应商拒绝请求的 HTTP 状态码；供应商错误响应正文目前没有写入异常。修正配置后，在控制台“状态与任务”重试。
-
-普通任务最多尝试五次，聊天最多两次；配置错误与不确定发送直接进入 DeadLetter。重试遵循供应商 Retry-After，否则使用指数退避（最高五分钟）。死信保留在 Outbox，控制台手动重试会清除错误、重置尝试次数和租约。
-
-反思生成遇到空最终回答或截断的结构化回答时，记录 ModelResponseException 并沿用任务重试，不把空内容当成有效提案。日志包含 Task、Model、FinishReason、MaxOutputTokens、OutputTokens 和 ThinkingEnabled；失败生成也记录用量。FinishReason=length 时应增加输出上限或减少输入 / 思考消耗，再到任务列表重试。请按模型能力为反思路由开启 JSON 输出格式。
-
-## 更新应用
-
-停止当前 Host（包括 IDE 调试进程），执行 README 或对应容器指南中的 --migrate，再启动新版应用。不要在旧版本仍运行时切换数据库结构。
-
-用户称呼、共享空间与记忆授权的操作见 [跨群记忆与用户称呼](shared-context.md)。核心状态、权限和派生上下文处理见 [核心架构](Wonder-Architecture-v0.1.md)。
-
-跨 Session 对话延续与工具功能需要执行 ConversationContinuityAndTools 迁移。默认使用 Asia/Shanghai 时区；可设置 Chat__TimeZone。历史查询工具需在聊天路由中单独开启，当前时间每轮自动注入。使用范围和验证说明见 [对话延续与时间](conversation-continuity.md)。
-
-本次重构需执行 IdentityPgvectorAndPostgresQueue 迁移：原地转换 Embeddings.Values 为 vector，保留账号 ID、密码哈希和任务状态，启用旧账号的 Identity 锁定支持。登录 Cookie 名称及传输策略保持一致，旧版本 Cookie 因认证方案变更需要重新登录。可删除旧 Redis 连接配置及容器；已有 Redis 数据不再被读取。
+记忆更正、撤回和删除的范围见 [跨群记忆](shared-context.md) 及 [自主维护记忆](memory-maintenance.md)，整体结构见 [核心架构](architecture.md)。

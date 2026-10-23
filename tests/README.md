@@ -36,12 +36,30 @@ dotnet test --project tests/Wonder.IntegrationTests/Wonder.IntegrationTests.cspr
 
 设置 WONDER_TEST_POSTGRES 后运行集成测试；未设置时跳过依赖 PostgreSQL 的基础设施、记忆维护及相关分批预算用例。测试创建 / 删除随机临时数据库，PostgreSQL 账号需要 CREATEDB 权限，实例须支持 pgvector。使用专用测试服务。记忆维护直接验证生产使用的向量查询，不在业务代码中提供 SQLite 替代算法。
 
-该用例覆盖完整迁移、旧 real[] 向量和旧账号密码的升级兼容、共享空间授权下的向量查询与距离排序、作者关闭共享后的检索、真实 pgvector 上的自主维护更新与版本链删除，以及并发领取、任务顺序、租约续期与恢复、旧租约写入拦截、重试退避和死信。CI 配置对应基础设施服务。
+这些用例覆盖完整迁移和历史数据升级、共享空间授权下的向量查询与距离排序、作者关闭共享后的检索、自主维护更新与版本链删除、维护分批预算，以及并发领取、任务顺序、租约续期与恢复、旧租约写入拦截、重试退避和死信。CI 使用 pgvector PostgreSQL 服务并配置此环境变量；本地示例：
+
+```powershell
+$env:WONDER_TEST_POSTGRES = 'Host=localhost;Database=postgres;Username=wonder;Password=测试服务密码'
+dotnet test --solution Wonder.slnx --configuration Release
+```
+
+`TestPostgres` 为每个记忆维护用例创建独立数据库，并在结束后删除；`LiveInfrastructureTests` 自行管理临时库。普通测试的 SQLite 不用于替代 pgvector SQL、迁移或 PostgreSQL 并发语义。模型响应和 QQ 发送由测试适配器模拟；当前未引入 Testcontainers 或 DbSet Mock 库。
 
 ## 契约与验收边界
 
 运行测试时可通过 WONDER_EXPORT_OPENAPI 指定 OpenAPI 导出路径，用于同步 [API 契约](../docs/api/openapi.v1.json)。
 
-日常测试通过模拟供应商和 QQ 发送适配器验证链路。真实 NapCat 的回执与断线行为、模型供应商的 JSON / 图片 / 用量兼容性、容器部署、备份恢复与目标机器负载仍需分别验收。
+前端脚本与 CI 验证入口为：
+
+```powershell
+npm --prefix src/Wonder.Web ci
+npm --prefix src/Wonder.Web run build
+npm --prefix src/Wonder.Web test
+dotnet build src/Wonder.Host
+npm --prefix src/Wonder.Web run test:e2e
+npm --prefix src/Wonder.Web run test:dev
+```
+
+浏览器测试需要 Playwright 浏览器，首次运行在 Wonder.Web 目录执行 `npx playwright install`；服务器和运行参数见该目录的 Playwright 配置。真实 SnowLuma / OneBot 回执与断线行为、模型供应商的 JSON / 图片 / 用量兼容性、容器部署、备份恢复与目标机器负载仍需分别验收。
 
 参考：[TUnit 安装说明](https://tunit.dev/docs/getting-started/installation/)、[运行测试](https://tunit.dev/docs/getting-started/running-your-tests/)。

@@ -146,8 +146,6 @@ journalctl --user -u wonder-app.service -f
 
 修改 `.container` 后先 `daemon-reload`，再重启对应服务。更新 SnowLuma 时修改 `wonder-snowluma.container` 的镜像标签，再 reload / restart。PostgreSQL 已有数据目录的密码不会随 `POSTGRES_PASSWORD` 自动改变；已有库需同步修改数据库角色密码。
 
-从依赖 Redis 的版本升级时，先停止旧应用、同步新单元并执行迁移。新版启动成功后，可停止 `wonder-redis.service`，移除已安装的 `~/.config/containers/systemd/wonder-redis.container`，再执行 `systemctl --user daemon-reload`。原 Redis 数据目录可保留，数据库任务会继续从 Outbox 恢复。
-
 备份 API 与账本导出见 [运行指南](../../docs/operations.md)。恢复时停止应用，恢复数据库及密钥，再重放最新删除账本。重放沿用 `wonder-migrate.container` 的网络、挂载和连接串：
 
 1. 停止 `wonder-app.service`，将解密账本放到私有路径。
@@ -155,6 +153,6 @@ journalctl --user -u wonder-app.service -f
 3. 执行 `systemctl --user daemon-reload`、`systemctl --user restart wonder-migrate.service`，确认成功。
 4. 还原该单元的 Exec 和临时挂载，再 daemon-reload。验证恢复结果后启动应用。
 
-当前开发环境未安装 Podman / systemd，实际 generator 校验、QQ 扫码和容器联调需在目标 Linux 主机执行。
+单元 generator 校验、QQ 扫码、容器联调及备份恢复需在实际部署的 Linux 主机验收。
 
 参考：[SnowLuma Docker 部署](https://snowluma.github.io/zh/docs/guide/deploy/docker)、[OneBot 对接](https://snowluma.github.io/zh/docs/guide/connect-bot)、[Podman Quadlet](https://docs.podman.io/en/v5.4.0/markdown/podman-systemd.unit.5.html)。

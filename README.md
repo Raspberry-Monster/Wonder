@@ -20,9 +20,9 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 - **可靠的聊天链路**：消息与 Outbox 同事务，消费幂等、失败可重试；完整生成后逐段发送并保存回执，不确定的发送交由人工处理。
 - **可追踪的模型上下文**：按轮固定快照，同一对话跨 Session 衔接近期历史与滚动摘要，每轮注入当前时间；可为聊天开启只读时间与历史查询工具。生成和向量任务独立配置模型、预算与用量。
 
-模块边界、状态流转和实现限制见 [核心架构](docs/Wonder-Architecture-v0.1.md)。
+模块边界、状态流转和实现限制见 [核心架构](docs/architecture.md)。
 
-升级已有部署请先阅读 [迁移指南](docs/migration-2026-10.md)。
+升级、备份、恢复和密钥排错见 [运行指南](docs/operations.md)。
 
 ## 本地启动
 
@@ -47,7 +47,7 @@ dotnet run --project src/Wonder.Host
 
 不同发言者的称呼、跨群共享空间和逐条记忆共享见 [跨群记忆与用户称呼](docs/shared-context.md)。Bot 的 Identity 只描述助手自身；每个人在“我的记忆”设置自己的称呼。
 
-基础设施等应用配置也可写在 src/Wonder.Host/appsettings.Local.json（已忽略），或使用环境变量。图片目录、Data Protection 密钥、备份目录都不在公开静态目录内。密钥目录应持久化并仅允许运行账号读取。
+基础设施等应用配置也可写在 src/Wonder.Host/appsettings.Local.json（已忽略），或使用环境变量。图片、Data Protection 密钥和备份位于私有目录；相对存储路径按进程工作目录解析。搬迁或恢复时需同时保留数据库和原密钥目录，否则已保存的模型 Key、QQ 令牌无法解密。配置说明见 [运行指南](docs/operations.md#配置与持久目录)。
 
 只检查界面而暂不启动后台任务：
 
@@ -100,8 +100,6 @@ docker compose -f deploy/compose.yaml up -d --no-deps app
 
 更新时数据库保持运行，迁移成功后再启动新版应用。首次部署仍需按下节或 [Quadlet 指南](deploy/quadlet/README.md) 准备目录、网络、数据库密码与数据目录权限。
 
-本次更新包含 `IdentityPgvectorAndPostgresQueue` 迁移，旧账号密码、向量和任务状态均保留，登录会话需重新登录。已有 Compose 部署可在迁移后使用 `up -d --remove-orphans app` 清理旧 Redis 容器；Quadlet 清理方式见对应指南。
-
 ## 容器运行
 
 Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值，再运行：
@@ -149,12 +147,14 @@ dotnet test --solution Wonder.slnx
 
 ## 文档
 
-- [核心架构](docs/Wonder-Architecture-v0.1.md)：模块、提示、心境、记忆与可靠性设计。
+- [核心架构](docs/architecture.md)：模块、提示、心境、记忆与可靠性设计。
 - [运行指南](docs/operations.md) / [Quadlet 部署](deploy/quadlet/README.md)：部署、排错、备份与恢复。
 - [模型路由](docs/model-routes.md) / [DeepSeek 示例](docs/deepseek.md)：任务配置与兼容接口。
 - [跨群记忆与用户称呼](docs/shared-context.md)：授权范围、共享与撤回。
-- [对话延续与时间](docs/conversation-continuity.md)：跨 Session 上下文、当前时间、历史查询工具与升级。
-- [统一上下文预算](docs/context-budget.md)：优先级、工具结果、后台分批恢复、配额与迁移。
+- [Reflection 与 Memory](docs/reflection-memory.md)：即时和会话结束反思、模型复核及候选生成。
+- [自主维护记忆](docs/memory-maintenance.md)：候选准入、事实维护、版本与用户边界。
+- [对话延续与时间](docs/conversation-continuity.md)：跨 Session 上下文、当前时间和历史查询工具。
+- [统一上下文预算](docs/context-budget.md)：优先级、工具结果、后台分批恢复与配额。
 - [API 说明](docs/api/README.md) / [测试指南](tests/README.md)：接口契约与验证方式。
 
 ## 许可与免责声明

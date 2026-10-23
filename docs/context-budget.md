@@ -46,16 +46,10 @@ Embedding 的 ContextWindow 表示单次输入上限，无输出预留，同样�
 
 未匹配词表时仍使用估算；图片与协议开销也存在估算。512 Token 余量不能代替正确配置模型窗口，供应商的实际计数仍可能不同。
 
-## 升级
+## 额度预留与进度存储
 
-新增迁移 `20261023034400_ContextBudgetProgress`，仅增加 `Outbox.ProgressJson` 和 `Usage.Estimated` 两列。旧记录无需重写，旧任务可以从头执行。历史 Usage 的默认 false 表示没有新版本估算标记，不证明旧记录都是供应商精确计量。
+Bot 的日 / 月额度按 UTC 统计，不按任务分别分配。TokenBudget 以短串行化事务检查已结算用量和有效预留，再写入 Usage；网络调用不持有该事务。调用完成后结算供应商用量或估算值，预留 15 分钟后失效，失效超过一天的预留由清理任务删除。跨日仍有效的预留计入当前额度。
 
-清理迁移 `20261023145954_RemoveUnusedModelProvider` 移除未使用的 `Models.Provider` 列；模型传输仍使用统一的兼容协议，EmbeddingProfile 的 Provider 字段保留。
+模型配置错误和供应商要求延迟的请求释放预留，其他不确定失败按估算结算。`Usage.Estimated` 标记当前结算是否包含估算；未带该标记的历史记录不能据此认定为供应商精确计量。
 
-停止旧 Host，在仓库根目录运行：
-
-```powershell
-dotnet run --project src/Wonder.Host -- --migrate
-```
-
-然后启动新版本。部署环境使用对应发布包的 `--migrate` 入口。开发验证使用独立临时 PostgreSQL 数据库，没有替用户迁移正在使用的数据库。
+摘要、反思和记忆维护的分批状态保存在 `Outbox.ProgressJson`，任务完成后清空。没有检查点的任务从头执行。更新和恢复命令统一见 [运行指南](operations.md)。
