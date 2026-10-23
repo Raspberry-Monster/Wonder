@@ -15,12 +15,18 @@ public sealed class JobQueue(IDbContextFactory<WonderDbContext> factory)
         // The same eligibility predicate is used for selection and the atomic update.
         // No process lock or transaction is held while a job executes.
         var eligible = db.Outbox.Where(j => types.Contains(j.Type) &&
-            (j.Status == JobStatus.Pending || j.Status == JobStatus.Running) && j.NextAttemptAt <= now &&
-            (j.LeaseUntil == null || j.LeaseUntil <= now) &&
-            !db.Outbox.Any(p => j.ConversationId != null && p.ConversationId == j.ConversationId && p.Id != j.Id &&
-                (p.Status == JobStatus.Pending || p.Status == JobStatus.Running) &&
-                ((j.Type == JobTypes.Chat && ((p.Type == JobTypes.Chat && p.Sequence < j.Sequence) || p.Type == JobTypes.Outgoing)) ||
-                 (j.Type == JobTypes.Outgoing && p.Type == JobTypes.Outgoing && p.Sequence < j.Sequence))));
+                                            (j.Status == JobStatus.Pending || j.Status == JobStatus.Running) &&
+                                            j.NextAttemptAt <= now &&
+                                            (j.LeaseUntil == null || j.LeaseUntil <= now) &&
+                                            !db.Outbox.Any(p =>
+                                                j.ConversationId != null && p.ConversationId == j.ConversationId &&
+                                                p.Id != j.Id &&
+                                                (p.Status == JobStatus.Pending || p.Status == JobStatus.Running) &&
+                                                ((j.Type == JobTypes.Chat &&
+                                                  ((p.Type == JobTypes.Chat && p.Sequence < j.Sequence) ||
+                                                   p.Type == JobTypes.Outgoing)) ||
+                                                 (j.Type == JobTypes.Outgoing && p.Type == JobTypes.Outgoing &&
+                                                  p.Sequence < j.Sequence))));
         var candidates = await eligible.AsNoTracking().OrderBy(x => x.Sequence).Take(8)
             .Select(x => new { x.Id, x.LeaseId }).ToListAsync(ct);
         foreach (var candidate in candidates)
@@ -32,6 +38,7 @@ public sealed class JobQueue(IDbContextFactory<WonderDbContext> factory)
                     .SetProperty(x => x.Attempts, x => x.Attempts + 1), ct);
             if (updated == 1) return await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == candidate.Id, ct);
         }
+
         return null;
     }
 
@@ -40,7 +47,7 @@ public sealed class JobQueue(IDbContextFactory<WonderDbContext> factory)
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = DateTimeOffset.UtcNow;
         return await db.Outbox.Where(x => x.Id == id && x.Status == JobStatus.Running &&
-                x.LeaseId == leaseId && x.LeaseUntil > now)
+                                          x.LeaseId == leaseId && x.LeaseUntil > now)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.LeaseUntil, now.Add(LeaseDuration)), ct) == 1;
     }
 

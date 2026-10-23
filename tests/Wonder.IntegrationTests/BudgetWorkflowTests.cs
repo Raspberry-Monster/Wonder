@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Pgvector;
 using Wonder.Core;
 using Wonder.Host;
 using Wonder.Infrastructure;
@@ -12,8 +13,6 @@ namespace Wonder.IntegrationTests;
 
 public sealed class BudgetWorkflowTests
 {
-    private sealed record Fixture(Guid Bot, Guid User, Guid Session, Guid Conversation, StoredMessage[] Messages);
-
     [Test]
     public async Task SummaryResumesFromDatabaseAndNeverSkipsTheOldestBacklogOrLongFragments()
     {
@@ -26,26 +25,30 @@ public sealed class BudgetWorkflowTests
             Guid jobId;
             using (var app = new TestApp(databaseFile: path))
             {
-                f = await SeedAsync(app, 130, longFirst: true);
+                f = await SeedAsync(app, 130, true);
                 using var scope = app.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-                var job = Jobs.Add(db, f.Bot, JobTypes.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence), f.Conversation);
+                var job = Jobs.Add(db, f.Bot, JobTypes.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence),
+                    f.Conversation);
                 await db.SaveChangesAsync();
                 jobId = job.Id;
                 RecordSummaries(app, fragments);
                 await scope.ServiceProvider.GetRequiredService<SummaryWorkflow>().RunAsync(jobId, default);
-                await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == jobId)).ProgressJson).IsNotNull();
+                await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == jobId)).ProgressJson)
+                    .IsNotNull();
                 await Assert.That(await db.Summaries.AnyAsync()).IsFalse();
             }
+
             using (var restarted = new TestApp(databaseFile: path))
             {
                 RecordSummaries(restarted, fragments);
-                await DrainAsync(restarted, jobId, reflection: false);
+                await DrainAsync(restarted, jobId, false);
                 using var scope = restarted.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
                 var summary = await db.Summaries.SingleAsync();
                 await Assert.That(summary.ThroughSequence).IsEqualTo(f.Messages[^7].Sequence);
-                await Assert.That(string.Concat(fragments)).IsEqualTo(string.Concat(f.Messages.SkipLast(6).Select(x => x.Text)));
+                await Assert.That(string.Concat(fragments))
+                    .IsEqualTo(string.Concat(f.Messages.SkipLast(6).Select(x => x.Text)));
                 var ids = Json.Read<Guid[]>(summary.MessageIdsJson);
                 foreach (var message in f.Messages.SkipLast(6)) await Assert.That(ids).Contains(message.Id);
                 var completed = await db.Outbox.SingleAsync(x => x.Id == jobId);
@@ -53,19 +56,23 @@ public sealed class BudgetWorkflowTests
                 await Assert.That(completed.Attempts).IsEqualTo(0);
             }
         }
-        finally { folder.Delete(true); }
+        finally
+        {
+            folder.Delete(true);
+        }
     }
 
     [Test]
     public async Task FullReflectionProcessesMoreThanOneHundredMessagesAndPublishesEmotionOnlyOnce()
     {
         using var app = new TestApp();
-        var f = await SeedAsync(app, 110, longFirst: true);
+        var f = await SeedAsync(app, 110, true);
         var seen = new HashSet<Guid>();
         app.BeforeModelResponse = body =>
         {
             using var request = JsonDocument.Parse(body);
-            using var data = JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+            using var data =
+                JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
             var ids = data.RootElement.EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToArray();
             seen.UnionWith(ids);
             app.ModelResponses.Enqueue(Response(Json.Write(new ReflectionProposal(false,
@@ -74,9 +81,10 @@ public sealed class BudgetWorkflowTests
         };
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var job = Jobs.Add(db, f.Bot, JobTypes.Reflection, new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, "full"), f.Conversation);
+        var job = Jobs.Add(db, f.Bot, JobTypes.Reflection,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, "full"), f.Conversation);
         await db.SaveChangesAsync();
-        await DrainAsync(app, job.Id, reflection: true);
+        await DrainAsync(app, job.Id, true);
         var result = await db.Reflections.AsNoTracking().SingleAsync();
         var proposal = Json.Read<ReflectionProposal>(result.Payload);
         await Assert.That(seen.Count).IsEqualTo(110);
@@ -90,15 +98,17 @@ public sealed class BudgetWorkflowTests
     public async Task RevokedSourceCancelsAnUnpublishedSummaryDraft()
     {
         using var app = new TestApp();
-        var f = await SeedAsync(app, 20, longFirst: true);
+        var f = await SeedAsync(app, 20, true);
         RecordSummaries(app, []);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var job = Jobs.Add(db, f.Bot, JobTypes.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence), f.Conversation);
+        var job = Jobs.Add(db, f.Bot, JobTypes.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence),
+            f.Conversation);
         await db.SaveChangesAsync();
         var workflow = scope.ServiceProvider.GetRequiredService<SummaryWorkflow>();
         await workflow.RunAsync(job.Id, default);
-        await db.Messages.Where(x => x.Id == f.Messages[0].Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true));
+        await db.Messages.Where(x => x.Id == f.Messages[0].Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true));
         await workflow.RunAsync(job.Id, default);
         await Assert.That(await db.Summaries.AnyAsync()).IsFalse();
         var saved = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id);
@@ -115,11 +125,15 @@ public sealed class BudgetWorkflowTests
         using var scope = app.Services.CreateScope();
         var router = scope.ServiceProvider.GetRequiredService<ModelRouter>();
         var embedding = await router.ProfileAsync(f.Bot, TaskKind.Embedding, default);
-        await Assert.That(async () => { await router.EmbedAsync(embedding, new string('大', 5000), default); }).ThrowsExactly<ContextLimitException>();
+        await Assert.That(async () => { await router.EmbedAsync(embedding, new string('大', 5000), default); })
+            .ThrowsExactly<ContextLimitException>();
         await Assert.That(app.ModelRequests).IsEmpty();
         var profile = await router.ProfileAsync(f.Bot, TaskKind.RollingSummary, default);
         app.BeforeModelResponse = _ => throw new OperationCanceledException("response lost");
-        await Assert.That(async () => { await router.GenerateAsync(profile, [new AiMessage(ChatRole.User, "hello")], false, default); }).Throws<Exception>();
+        await Assert.That(async () =>
+        {
+            await router.GenerateAsync(profile, [new AiMessage(ChatRole.User, "hello")], false, default);
+        }).Throws<Exception>();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var usage = await db.Usage.SingleAsync();
         await Assert.That(usage.Estimated).IsTrue();
@@ -137,7 +151,10 @@ public sealed class BudgetWorkflowTests
         await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
         db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 950, OutputTokens = 0 });
         var job = Jobs.Add(db, f.Bot, JobTypes.Narrative, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
-        job.Status = JobStatus.Running; job.LeaseId = Guid.NewGuid(); job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10); job.Attempts = 1;
+        job.Status = JobStatus.Running;
+        job.LeaseId = Guid.NewGuid();
+        job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);
+        job.Attempts = 1;
         await db.SaveChangesAsync();
         await scope.ServiceProvider.GetRequiredService<JobProcessor>().ProcessAsync(job, default);
         var saved = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id);
@@ -152,7 +169,7 @@ public sealed class BudgetWorkflowTests
     public async Task SmallerStrongReflectionRouteRepartitionsTheLightEvidence()
     {
         using var app = new TestApp();
-        var f = await SeedAsync(app, 18, longFirst: true);
+        var f = await SeedAsync(app, 18, true);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await db.Models.Where(x => x.BotId == f.Bot && x.TaskKind == TaskKind.LightReflection)
@@ -163,15 +180,19 @@ public sealed class BudgetWorkflowTests
         {
             using var request = JsonDocument.Parse(body);
             var strong = request.RootElement.GetProperty("model").GetString() == nameof(TaskKind.StrongReflection);
-            using var content = JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
-            if (strong) strongFragments.AddRange(content.RootElement.EnumerateArray().Select(x => x.GetProperty("text").GetString()!));
+            using var content =
+                JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+            if (strong)
+                strongFragments.AddRange(content.RootElement.EnumerateArray()
+                    .Select(x => x.GetProperty("text").GetString()!));
             else lightCalls++;
             app.ModelResponses.Enqueue(Response(Json.Write(new ReflectionProposal(!strong, null, [], []))));
             return Task.CompletedTask;
         };
-        var job = Jobs.Add(db, f.Bot, JobTypes.Reflection, new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, "full"), f.Conversation);
+        var job = Jobs.Add(db, f.Bot, JobTypes.Reflection,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, "full"), f.Conversation);
         await db.SaveChangesAsync();
-        await DrainAsync(app, job.Id, reflection: true);
+        await DrainAsync(app, job.Id, true);
         await Assert.That(string.Concat(strongFragments)).IsEqualTo(string.Concat(f.Messages.Select(x => x.Text)));
         await Assert.That(strongFragments.Count).IsGreaterThan(lightCalls);
         await Assert.That(await db.Reflections.CountAsync()).IsEqualTo(1);
@@ -189,35 +210,49 @@ public sealed class BudgetWorkflowTests
         original.Text = new string('a', 1400);
         for (var i = 0; i < 2; i++)
         {
-            var memory = new Core.Memory { BotId = f.Bot, SubjectId = f.User, ScopeOwnerId = f.User.ToString(),
-                Text = new string((char)('b' + i), 1400), FactKey = "related-" + i, Status = MemoryStatus.Active };
+            var memory = new Memory
+            {
+                BotId = f.Bot, SubjectId = f.User, ScopeOwnerId = f.User.ToString(),
+                Text = new string((char)('b' + i), 1400), FactKey = "related-" + i, Status = MemoryStatus.Active
+            };
             db.Memories.Add(memory);
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
+            db.Embeddings.Add(new MemoryEmbedding
+                { MemoryId = memory.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 1, 0, 0 }) });
         }
+
         (await db.Models.SingleAsync(x => x.TaskKind == TaskKind.StrongReflection)).ContextWindow = 6144;
         await db.SaveChangesAsync();
         var reviewed = 0;
         app.BeforeModelResponse = body =>
         {
             using var request = JsonDocument.Parse(body);
-            if (request.RootElement.TryGetProperty("input", out _)) app.ModelResponses.Enqueue(MemoryMaintenanceTests.Vector());
+            if (request.RootElement.TryGetProperty("input", out _))
+            {
+                app.ModelResponses.Enqueue(MemoryMaintenanceTests.Vector());
+            }
             else
             {
-                using var content = JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
-                if (content.RootElement.GetProperty("related").GetArrayLength() != 1) throw new InvalidOperationException("Expected a complete single-fact evidence group.");
+                using var content = JsonDocument.Parse(request.RootElement.GetProperty("messages")[1]
+                    .GetProperty("content").GetString()!);
+                if (content.RootElement.GetProperty("related").GetArrayLength() != 1)
+                    throw new InvalidOperationException("Expected a complete single-fact evidence group.");
                 reviewed++;
                 app.ModelResponses.Enqueue(MemoryMaintenanceTests.Decision(MemoryMaintenanceAction.Add, null));
             }
+
             return Task.CompletedTask;
         };
         await MemoryMaintenanceTests.RunAsync(app, f.Job);
         await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == f.Job)).ProgressJson).IsNotNull();
         await Assert.That(await db.Memories.CountAsync()).IsEqualTo(3);
-        for (var i = 0; i < 3 && (await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == f.Job)).Status != JobStatus.Completed; i++)
+        for (var i = 0;
+             i < 3 && (await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == f.Job)).Status != JobStatus.Completed;
+             i++)
             await MemoryMaintenanceTests.RunAsync(app, f.Job);
         await Assert.That(reviewed).IsEqualTo(3);
         await Assert.That(await db.Memories.CountAsync()).IsEqualTo(4);
-        await Assert.That((await db.MemoryCandidates.AsNoTracking().SingleAsync()).Status).IsEqualTo(MemoryMaintenanceStatus.Applied);
+        await Assert.That((await db.MemoryCandidates.AsNoTracking().SingleAsync()).Status)
+            .IsEqualTo(MemoryMaintenanceStatus.Applied);
     }
 
     [Test]
@@ -227,11 +262,13 @@ public sealed class BudgetWorkflowTests
         var f = await MemoryMaintenanceTests.SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        await db.Messages.Where(x => x.Id == f.Evidence).ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, new string('长', 10000)));
+        await db.Messages.Where(x => x.Id == f.Evidence)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, new string('长', 10000)));
         app.ModelResponses.Enqueue(MemoryMaintenanceTests.Vector());
         await MemoryMaintenanceTests.RunAsync(app, f.Job);
         await Assert.That(app.ModelRequests.Count).IsEqualTo(1);
-        await Assert.That((await db.MemoryCandidates.AsNoTracking().SingleAsync()).Status).IsEqualTo(MemoryMaintenanceStatus.Deferred);
+        await Assert.That((await db.MemoryCandidates.AsNoTracking().SingleAsync()).Status)
+            .IsEqualTo(MemoryMaintenanceStatus.Deferred);
         await Assert.That((await db.Memories.AsNoTracking().SingleAsync()).ArchivedAt).IsNull();
     }
 
@@ -240,8 +277,10 @@ public sealed class BudgetWorkflowTests
         app.BeforeModelResponse = body =>
         {
             using var request = JsonDocument.Parse(body);
-            using var data = JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
-            fragments.AddRange(data.RootElement.GetProperty("messages").EnumerateArray().Select(x => x.GetProperty("text").GetString()!));
+            using var data =
+                JsonDocument.Parse(request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+            fragments.AddRange(data.RootElement.GetProperty("messages").EnumerateArray()
+                .Select(x => x.GetProperty("text").GetString()!));
             app.ModelResponses.Enqueue(Response("已经概括的对话，保留原始作者与日期。"));
             return Task.CompletedTask;
         };
@@ -254,9 +293,11 @@ public sealed class BudgetWorkflowTests
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
             if ((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job)).Status == JobStatus.Completed) return;
-            if (reflection) await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().GenerateAsync(job, default);
+            if (reflection)
+                await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().GenerateAsync(job, default);
             else await scope.ServiceProvider.GetRequiredService<SummaryWorkflow>().RunAsync(job, default);
         }
+
         throw new InvalidOperationException("Batch processing did not make progress.");
     }
 
@@ -269,21 +310,45 @@ public sealed class BudgetWorkflowTests
         var user = new LogicalUser { AllowMemory = true };
         var conversation = new Conversation { BotId = bot.Id };
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
-        db.Users.Add(owner); db.Bots.Add(bot); db.LogicalUsers.Add(user); db.Conversations.Add(conversation); db.Sessions.Add(session);
+        db.Users.Add(owner);
+        db.Bots.Add(bot);
+        db.LogicalUsers.Add(user);
+        db.Conversations.Add(conversation);
+        db.Sessions.Add(session);
         db.Emotions.Add(new GlobalEmotionState { BotId = bot.Id });
-        foreach (var kind in new[] { TaskKind.RollingSummary, TaskKind.LightReflection, TaskKind.StrongReflection, TaskKind.Embedding, TaskKind.DailyNarrative })
-            db.Models.Add(new ModelProfile { BotId = bot.Id, TaskKind = kind, Endpoint = "https://model.example/v1/", Model = kind.ToString(),
+        foreach (var kind in new[]
+                 {
+                     TaskKind.RollingSummary, TaskKind.LightReflection, TaskKind.StrongReflection, TaskKind.Embedding,
+                     TaskKind.DailyNarrative
+                 })
+            db.Models.Add(new ModelProfile
+            {
+                BotId = bot.Id, TaskKind = kind, Endpoint = "https://model.example/v1/", Model = kind.ToString(),
                 ContextWindow = 4096, MaxOutputTokens = 256, TokenizerId = "estimate", SupportsJson = true,
-                ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key") });
-        var rows = Enumerable.Range(0, count).Select(i => new StoredMessage { BotId = bot.Id, SenderId = user.Id,
-            ConversationId = conversation.Id, SessionId = session.Id, ExternalMessageId = i.ToString(), AllowReflection = true,
-            Text = $"开始 {i:D4}: " + (i == 0 && longFirst ? string.Concat(Enumerable.Repeat("中文😀\n", 1500)) : "有作者和日期的对话。")+ " 结束。",
-            CreatedAt = DateTimeOffset.UtcNow, ExpiresAt = DateTimeOffset.UtcNow.AddDays(90) }).ToArray();
+                ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key")
+            });
+        var rows = Enumerable.Range(0, count).Select(i => new StoredMessage
+        {
+            BotId = bot.Id, SenderId = user.Id,
+            ConversationId = conversation.Id, SessionId = session.Id, ExternalMessageId = i.ToString(),
+            AllowReflection = true,
+            Text = $"开始 {i:D4}: " +
+                   (i == 0 && longFirst ? string.Concat(Enumerable.Repeat("中文😀\n", 1500)) : "有作者和日期的对话。") + " 结束。",
+            CreatedAt = DateTimeOffset.UtcNow, ExpiresAt = DateTimeOffset.UtcNow.AddDays(90)
+        }).ToArray();
         db.Messages.AddRange(rows);
         await db.SaveChangesAsync();
-        return new(bot.Id, user.Id, session.Id, conversation.Id, rows);
+        return new Fixture(bot.Id, user.Id, session.Id, conversation.Id, rows);
     }
 
-    private static string Response(string content) => Json.Write(new { choices = new[] { new { message = new { content }, finish_reason = "stop" } },
-        usage = new { prompt_tokens = 20, completion_tokens = 30 } });
+    private static string Response(string content)
+    {
+        return Json.Write(new
+        {
+            choices = new[] { new { message = new { content }, finish_reason = "stop" } },
+            usage = new { prompt_tokens = 20, completion_tokens = 30 }
+        });
+    }
+
+    private sealed record Fixture(Guid Bot, Guid User, Guid Session, Guid Conversation, StoredMessage[] Messages);
 }

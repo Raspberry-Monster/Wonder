@@ -1,15 +1,19 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Pgvector.EntityFrameworkCore;
+using Pgvector;
 using Wonder.Core;
 using Wonder.Host;
 using Wonder.Infrastructure;
+using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.IntegrationTests;
 
@@ -35,10 +39,12 @@ public sealed class LiveInfrastructureTests
 
         var cs = new NpgsqlConnectionStringBuilder(pg) { Database = databaseName, Pooling = false };
         if (!cs.Database.StartsWith("wonder_test_", StringComparison.Ordinal) || cs.Database != databaseName)
-            throw new InvalidOperationException("Migrations may only run against the newly created disposable test database.");
+            throw new InvalidOperationException(
+                "Migrations may only run against the newly created disposable test database.");
         try
         {
-            var options = new DbContextOptionsBuilder<WonderDbContext>().UseNpgsql(cs.ConnectionString, pg => pg.UseVector()).Options;
+            var options = new DbContextOptionsBuilder<WonderDbContext>()
+                .UseNpgsql(cs.ConnectionString, pg => pg.UseVector()).Options;
             await using var db = new WonderDbContext(options);
             await VerifyUpgradeAsync(db, cs.ConnectionString);
             await db.Database.MigrateAsync();
@@ -55,14 +61,14 @@ public sealed class LiveInfrastructureTests
             db.LogicalUsers.AddRange(alice, bob);
             var profile = new EmbeddingProfile { BotId = bot.Id, Model = "test", Dimensions = 3 };
             db.EmbeddingProfiles.Add(profile);
-            var privateFacts = Enumerable.Range(0, 6).Select(i => new Core.Memory
+            var privateFacts = Enumerable.Range(0, 6).Select(i => new Memory
                 { BotId = bot.Id, SubjectId = alice.Id, Scope = MemoryScope.Private, Text = "private-" + i }).ToArray();
-            var groupFact = new Core.Memory
+            var groupFact = new Memory
             {
                 BotId = bot.Id, SubjectId = alice.Id, Scope = MemoryScope.GroupUser, ScopeOwnerId = "123",
                 Text = "authorized group fact"
             };
-            var otherUserFact = new Core.Memory
+            var otherUserFact = new Memory
             {
                 BotId = bot.Id, SubjectId = bob.Id, Scope = MemoryScope.GroupUser, ScopeOwnerId = "123",
                 Text = "other user's fact"
@@ -71,9 +77,9 @@ public sealed class LiveInfrastructureTests
             db.Memories.AddRange(groupFact, otherUserFact);
             foreach (var memory in privateFacts.Append(otherUserFact))
                 db.Embeddings.Add(new MemoryEmbedding
-                    { MemoryId = memory.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
+                    { MemoryId = memory.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 1, 0, 0 }) });
             db.Embeddings.Add(new MemoryEmbedding
-                { MemoryId = groupFact.Id, ProfileId = profile.Id, Values = new(new float[] { 0, 1, 0 }) });
+                { MemoryId = groupFact.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 0, 1, 0 }) });
             await db.SaveChangesAsync();
             var authorized = await MemoryQueries
                 .Nearest(db, new MemoryAccess(bot.Id, alice.Id, "123"), profile.Id, [1, 0, 0]).ToListAsync();
@@ -84,14 +90,22 @@ public sealed class LiveInfrastructureTests
             bob.AllowCrossGroupMemory = true;
             var sharedSpace = new ContextSpace { BotId = bot.Id, Name = "project" };
             db.ContextSpaces.Add(sharedSpace);
-            db.GroupPolicies.AddRange(new GroupPolicy { BotId = bot.Id, GroupId = "source", ContextSpaceId = sharedSpace.Id },
+            db.GroupPolicies.AddRange(
+                new GroupPolicy { BotId = bot.Id, GroupId = "source", ContextSpaceId = sharedSpace.Id },
                 new GroupPolicy { BotId = bot.Id, GroupId = "123", ContextSpaceId = sharedSpace.Id });
-            var sourceFact = new Core.Memory { BotId = bot.Id, SubjectId = bob.Id, Scope = MemoryScope.GroupUser,
-                ScopeOwnerId = "source", Text = "project source" };
-            var sharedFact = new Core.Memory { BotId = bot.Id, SubjectId = bob.Id, Scope = MemoryScope.SpaceShared,
-                ScopeOwnerId = sharedSpace.Id.ToString(), Text = "shared project", SharedFromMemoryId = sourceFact.Id };
+            var sourceFact = new Memory
+            {
+                BotId = bot.Id, SubjectId = bob.Id, Scope = MemoryScope.GroupUser,
+                ScopeOwnerId = "source", Text = "project source"
+            };
+            var sharedFact = new Memory
+            {
+                BotId = bot.Id, SubjectId = bob.Id, Scope = MemoryScope.SpaceShared,
+                ScopeOwnerId = sharedSpace.Id.ToString(), Text = "shared project", SharedFromMemoryId = sourceFact.Id
+            };
             db.Memories.AddRange(sourceFact, sharedFact);
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = sharedFact.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
+            db.Embeddings.Add(new MemoryEmbedding
+                { MemoryId = sharedFact.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 1, 0, 0 }) });
             await db.SaveChangesAsync();
             var sharedAccess = new MemoryAccess(bot.Id, alice.Id, "123", sharedSpace.Id);
             var sharedMatches = await MemoryQueries.Nearest(db, sharedAccess, profile.Id, [1, 0, 0]).ToListAsync();
@@ -103,27 +117,43 @@ public sealed class LiveInfrastructureTests
             await Assert.That(withdrawnMatches).HasSingleItem();
             await Assert.That(withdrawnMatches[0].Id).IsEqualTo(groupFact.Id);
 
-            var conversation = new Conversation { BotId = bot.Id, Kind = ConversationKind.Group, ExternalId = "continuity" };
-            var previousSession = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id, Status = SessionStatus.Closed };
+            var conversation = new Conversation
+                { BotId = bot.Id, Kind = ConversationKind.Group, ExternalId = "continuity" };
+            var previousSession = new ConversationSession
+                { BotId = bot.Id, ConversationId = conversation.Id, Status = SessionStatus.Closed };
             var currentSession = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
             db.Conversations.Add(conversation);
             db.Sessions.AddRange(previousSession, currentSession);
-            var historical = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = previousSession.Id,
-                SenderId = alice.Id, ExternalMessageId = "history", Text = "previous session", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+            var historical = new ChatMessage
+            {
+                BotId = bot.Id, ConversationId = conversation.Id, SessionId = previousSession.Id,
+                SenderId = alice.Id, ExternalMessageId = "history", Text = "previous session",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
+            };
             db.Messages.Add(historical);
             await db.SaveChangesAsync();
-            var summary = new ConversationSummary { BotId = bot.Id, SessionId = previousSession.Id,
-                ThroughSequence = historical.Sequence, Text = "previous summary" };
+            var summary = new ConversationSummary
+            {
+                BotId = bot.Id, SessionId = previousSession.Id,
+                ThroughSequence = historical.Sequence, Text = "previous summary"
+            };
             db.Summaries.Add(summary);
-            var currentMessage = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = currentSession.Id,
-                SenderId = alice.Id, ExternalMessageId = "current", Text = "continue", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+            var currentMessage = new ChatMessage
+            {
+                BotId = bot.Id, ConversationId = conversation.Id, SessionId = currentSession.Id,
+                SenderId = alice.Id, ExternalMessageId = "current", Text = "continue",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
+            };
             db.Messages.Add(currentMessage);
             var toolProfile = new ModelProfile { BotId = bot.Id, TaskKind = TaskKind.Chat, SupportsTools = true };
             db.Models.Add(toolProfile);
             await db.SaveChangesAsync();
-            await Assert.That((await ConversationHistory.LatestSummaryAsync(db, bot.Id, conversation.Id, currentMessage.Sequence, default))!.Id)
+            await Assert
+                .That((await ConversationHistory.LatestSummaryAsync(db, bot.Id, conversation.Id,
+                    currentMessage.Sequence, default))!.Id)
                 .IsEqualTo(summary.Id);
-            var retainedHistory = await ConversationHistory.Visible(db, bot.Id, conversation.Id, currentMessage.Sequence, DateTimeOffset.UtcNow)
+            var retainedHistory = await ConversationHistory.Visible(db, bot.Id, conversation.Id,
+                    currentMessage.Sequence, DateTimeOffset.UtcNow)
                 .OrderByDescending(x => x.Sequence).Take(5).ToListAsync();
             await Assert.That(retainedHistory).HasSingleItem();
             await Assert.That(retainedHistory[0].Id).IsEqualTo(historical.Id);
@@ -136,19 +166,26 @@ public sealed class LiveInfrastructureTests
             {
                 var fixture = await MemoryMaintenanceTests.SeedAsync(app);
                 app.ModelResponses.Enqueue(MemoryMaintenanceTests.Vector());
-                app.ModelResponses.Enqueue(MemoryMaintenanceTests.Decision(MemoryMaintenanceAction.Update, fixture.Old, "我现在住上海。"));
+                app.ModelResponses.Enqueue(MemoryMaintenanceTests.Decision(MemoryMaintenanceAction.Update, fixture.Old,
+                    "我现在住上海。"));
                 await MemoryMaintenanceTests.RunAsync(app, fixture.Job);
-                var active = await db.Memories.AsNoTracking().SingleAsync(x => x.BotId == fixture.Bot && x.ArchivedAt == null);
+                var active = await db.Memories.AsNoTracking()
+                    .SingleAsync(x => x.BotId == fixture.Bot && x.ArchivedAt == null);
                 await Assert.That(active.SupersedesMemoryId).IsEqualTo(fixture.Old);
-                await Assert.That((await db.Memories.AsNoTracking().SingleAsync(x => x.Id == fixture.Old)).ArchivedAt).IsNotNull();
-                var matches = await MemoryQueries.Nearest(db, new(fixture.Bot, fixture.User, null),
-                    (await db.EmbeddingProfiles.AsNoTracking().SingleAsync(x => x.BotId == fixture.Bot)).Id, [1, 0, 0]).ToListAsync();
+                await Assert.That((await db.Memories.AsNoTracking().SingleAsync(x => x.Id == fixture.Old)).ArchivedAt)
+                    .IsNotNull();
+                var matches = await MemoryQueries.Nearest(db, new MemoryAccess(fixture.Bot, fixture.User, null),
+                        (await db.EmbeddingProfiles.AsNoTracking().SingleAsync(x => x.BotId == fixture.Bot)).Id,
+                        [1, 0, 0])
+                    .ToListAsync();
                 await Assert.That(matches).HasSingleItem();
                 await Assert.That(matches[0].Id).IsEqualTo(active.Id);
                 using var scope = app.Services.CreateScope();
-                await scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(fixture.User, active.Id, null, default);
+                await scope.ServiceProvider.GetRequiredService<MemoryService>()
+                    .RevokeAsync(fixture.User, active.Id, null, default);
                 await Assert.That(await db.Memories.AnyAsync(x => x.BotId == fixture.Bot && x.Text != "")).IsFalse();
-                await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.BotId == fixture.Bot && x.Text != "")).IsFalse();
+                await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.BotId == fixture.Bot && x.Text != ""))
+                    .IsFalse();
             }
 
             await using (var tx = await db.Database.BeginTransactionAsync())
@@ -159,7 +196,8 @@ public sealed class LiveInfrastructureTests
             }
 
             await Assert.That(await db.Inbox.Where(x => x.EventId == job.Id).ToListAsync()).HasSingleItem();
-            await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Completed);
+            await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id)).Status)
+                .IsEqualTo(JobStatus.Completed);
             await VerifyQueueAsync(options, bot.Id);
             await VerifyRetriesAsync(options, cs.ConnectionString, bot.Id);
             await VerifyBudgetAsync(options, bot.Id);
@@ -177,27 +215,27 @@ public sealed class LiveInfrastructureTests
         await using var db = new WonderDbContext(options);
         // Read the persisted timestamp so comparisons use PostgreSQL's microsecond precision.
         var message = await db.Messages.AsNoTracking().SingleAsync(x => x.Id == messageId);
-        var clock = new ConversationClock(TimeProvider.System, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+        var clock = new ConversationClock(TimeProvider.System, new ConfigurationBuilder().Build());
         var tools = new ConversationTools(new QueueFactory(options), clock);
         foreach (var offset in new[] { TimeSpan.Zero, TimeSpan.FromHours(8), TimeSpan.FromHours(-5) })
         {
             var start = message.CreatedAt.ToOffset(offset).ToString("O");
             var end = message.CreatedAt.AddSeconds(1).ToOffset(offset).ToString("O");
-            var afterOnly = await Search(new() { ["after"] = start });
+            var afterOnly = await Search(new Dictionary<string, object?> { ["after"] = start });
             await Assert.That(afterOnly).HasSingleItem();
             await Assert.That(afterOnly[0]).IsEqualTo(message.Id);
-            var within = await Search(new() { ["after"] = start, ["before"] = end });
+            var within = await Search(new Dictionary<string, object?> { ["after"] = start, ["before"] = end });
             await Assert.That(within).HasSingleItem();
             await Assert.That(within[0]).IsEqualTo(message.Id);
-            await Assert.That(await Search(new() { ["before"] = start })).IsEmpty();
+            await Assert.That(await Search(new Dictionary<string, object?> { ["before"] = start })).IsEmpty();
         }
 
         async Task<IReadOnlyList<Guid>> Search(Dictionary<string, object?> arguments)
         {
-            var result = await tools.ExecuteAsync(new Microsoft.Extensions.AI.FunctionCallContent(
-                "history-time-filter", "search_conversation_history", arguments), message.BotId,
+            var result = await tools.ExecuteAsync(new FunctionCallContent(
+                    "history-time-filter", "search_conversation_history", arguments), message.BotId,
                 message.ConversationId, currentSequence, default);
-            using var json = System.Text.Json.JsonDocument.Parse(result.Json);
+            using var json = JsonDocument.Parse(result.Json);
             await Assert.That(json.RootElement.TryGetProperty("error", out _)).IsFalse();
             return result.MessageIds!;
         }
@@ -209,11 +247,19 @@ public sealed class LiveInfrastructureTests
         await db.Bots.Where(x => x.Id == botId).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
         var budget = new TokenBudget(new QueueFactory(options));
         var profile = new ModelProfile { BotId = botId };
+
         async Task<Guid?> Reserve()
         {
-            try { return await budget.ReserveAsync(profile, 700, default); }
-            catch (TokenQuotaException) { return null; }
+            try
+            {
+                return await budget.ReserveAsync(profile, 700, default);
+            }
+            catch (TokenQuotaException)
+            {
+                return null;
+            }
         }
+
         var results = await Task.WhenAll(Reserve(), Reserve());
         await Assert.That(results.Count(x => x.HasValue)).IsEqualTo(1);
         await budget.SettleAsync(results.Single(x => x.HasValue)!.Value, profile, 100, 100, default);
@@ -237,22 +283,23 @@ public sealed class LiveInfrastructureTests
         var bot = new BotInstance { OwnerId = user.Id };
         db.Bots.Add(bot);
         var profile = new EmbeddingProfile { BotId = bot.Id, Model = "legacy", Dimensions = 3 };
-        var memory = new Core.Memory { BotId = bot.Id, SubjectId = Guid.NewGuid(), Text = "legacy vector" };
+        var memory = new Memory { BotId = bot.Id, SubjectId = Guid.NewGuid(), Text = "legacy vector" };
         db.EmbeddingProfiles.Add(profile);
         db.Memories.Add(memory);
         await db.SaveChangesAsync();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
-            """);
+                                                       INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
+                                                       """);
         var oldJob = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "Outbox" ("Id", "BotId", "CorrelationId", "SchemaVersion", "Type", "Payload", "Status", "Attempts", "CreatedAt", "NextAttemptAt")
-            VALUES ({oldJob}, {bot.Id}, {Guid.NewGuid()}, 1, 'maintenance', {Json.Write(new IdPayload(bot.Id))}, 0, 0, {DateTimeOffset.UtcNow}, {DateTimeOffset.UtcNow})
-            """);
+                                                       INSERT INTO "Outbox" ("Id", "BotId", "CorrelationId", "SchemaVersion", "Type", "Payload", "Status", "Attempts", "CreatedAt", "NextAttemptAt")
+                                                       VALUES ({oldJob}, {bot.Id}, {Guid.NewGuid()}, 1, 'maintenance', {Json.Write(new IdPayload(bot.Id))}, 0, 0, {DateTimeOffset.UtcNow}, {DateTimeOffset.UtcNow})
+                                                       """);
         await db.Database.MigrateAsync();
         var upgradedJob = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == oldJob);
         await Assert.That(upgradedJob.SchemaVersion).IsEqualTo(2);
-        await Assert.That(Json.Read<DailyJob>(upgradedJob.Payload).Date).IsEqualTo(DateOnly.FromDateTime(upgradedJob.CreatedAt.UtcDateTime));
+        await Assert.That(Json.Read<DailyJob>(upgradedJob.Payload).Date)
+            .IsEqualTo(DateOnly.FromDateTime(upgradedJob.CreatedAt.UtcDateTime));
         await Assert.That(upgradedJob.Status).IsEqualTo(JobStatus.Pending);
         await db.Entry(user).ReloadAsync();
         await Assert.That(user.LockoutEnabled).IsTrue();
@@ -271,7 +318,8 @@ public sealed class LiveInfrastructureTests
         var queue = new JobQueue(new QueueFactory(options));
         await using var db = new WonderDbContext(options);
         var job = new OutboxMessage { BotId = botId, Type = "queue-probe", Payload = Json.Write(new IdPayload(botId)) };
-        var delayed = new OutboxMessage { BotId = botId, Type = "queue-probe", Payload = Json.Write(new IdPayload(botId)) };
+        var delayed = new OutboxMessage
+            { BotId = botId, Type = "queue-probe", Payload = Json.Write(new IdPayload(botId)) };
         db.Outbox.AddRange(job, delayed);
         delayed.NextAttemptAt = DateTimeOffset.UtcNow.AddHours(1);
         await db.SaveChangesAsync();
@@ -301,7 +349,8 @@ public sealed class LiveInfrastructureTests
         await Assert.That(async () => { await db.SaveChangesAsync(); }).ThrowsExactly<DbUpdateConcurrencyException>();
         db.ChangeTracker.Clear();
         await Assert.That((await db.Bots.SingleAsync(x => x.Id == botId)).Name).IsEqualTo(originalName);
-        await Assert.That(() => Jobs.RequireLease(replacement, first.LeaseId)).ThrowsExactly<DbUpdateConcurrencyException>();
+        await Assert.That(() => Jobs.RequireLease(replacement, first.LeaseId))
+            .ThrowsExactly<DbUpdateConcurrencyException>();
         await CompleteAsync(options, job.Id);
         await Assert.That(await queue.TryClaimAsync(["queue-probe"], default)).IsNull();
 
@@ -312,7 +361,8 @@ public sealed class LiveInfrastructureTests
         await db.SaveChangesAsync();
         // EF does not promise INSERT order; use the database sequence as the authoritative order.
         var ordered = new[] { earlier, later }.OrderBy(x => x.Sequence).ToArray();
-        var chats = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => queue.TryClaimAsync([JobTypes.Chat], default)));
+        var chats = await Task.WhenAll(
+            Enumerable.Range(0, 4).Select(_ => queue.TryClaimAsync([JobTypes.Chat], default)));
         await Assert.That(chats.OfType<OutboxMessage>().ToArray()).HasSingleItem();
         await Assert.That(chats.OfType<OutboxMessage>().Single().Id).IsEqualTo(ordered[0].Id);
         await CompleteAsync(options, ordered[0].Id);
@@ -332,7 +382,8 @@ public sealed class LiveInfrastructureTests
         await db.SaveChangesAsync();
     }
 
-    private static async Task VerifyRetriesAsync(DbContextOptions<WonderDbContext> options, string connection, Guid botId)
+    private static async Task VerifyRetriesAsync(DbContextOptions<WonderDbContext> options, string connection,
+        Guid botId)
     {
         using var app = new TestApp(postgresConnection: connection);
         var queue = app.Services.GetRequiredService<JobQueue>();
@@ -359,6 +410,7 @@ public sealed class LiveInfrastructureTests
                 await Assert.That(await queue.TryClaimAsync([JobTypes.Summary], default)).IsNull();
             }
         }
+
         await Assert.That(await queue.TryClaimAsync([JobTypes.Summary], default)).IsNull();
         // The existing owner retry API can return this durable dead-letter row to Pending.
         job.Status = JobStatus.Pending;
@@ -371,6 +423,9 @@ public sealed class LiveInfrastructureTests
 
     private sealed class QueueFactory(DbContextOptions<WonderDbContext> options) : IDbContextFactory<WonderDbContext>
     {
-        public WonderDbContext CreateDbContext() => new(options);
+        public WonderDbContext CreateDbContext()
+        {
+            return new WonderDbContext(options);
+        }
     }
 }

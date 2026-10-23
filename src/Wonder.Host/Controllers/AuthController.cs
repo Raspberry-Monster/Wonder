@@ -9,8 +9,11 @@ namespace Wonder.Host.Controllers;
 
 [Route("/api/v1/auth")]
 [EnableRateLimiting("auth")]
-public sealed class AuthController(WonderDbContext db, IConfiguration config,
-    UserManager<ApplicationUser> users, SignInManager<ApplicationUser> signIn) : WonderControllerBase(db)
+public sealed class AuthController(
+    WonderDbContext db,
+    IConfiguration config,
+    UserManager<ApplicationUser> users,
+    SignInManager<ApplicationUser> signIn) : WonderControllerBase(db)
 {
     [HttpPost("register")]
     [AllowAnonymous]
@@ -32,7 +35,7 @@ public sealed class AuthController(WonderDbContext db, IConfiguration config,
     {
         var user = await users.FindByEmailAsync(input.Email.Trim());
         if (user is null) return Unauthorized();
-        var result = await signIn.PasswordSignInAsync(user, input.Password, isPersistent: false, lockoutOnFailure: true);
+        var result = await signIn.PasswordSignInAsync(user, input.Password, false, true);
         return result.Succeeded ? Ok(new { user.Id, user.Email }) : Unauthorized();
     }
 

@@ -18,15 +18,22 @@ public sealed class ProviderRetryException(TimeSpan retryAfter)
 }
 
 public sealed class ModelConfigurationException(string message) : Exception(message);
+
 public class ModelResponseException(string message, Exception? inner = null) : Exception(message, inner);
 
 // The official adapter owns protocol serialization, images, responses and structured tool calls.
 // This decorator only supplies provider options and preserves reasoning during tool round trips.
-public sealed class CompatibleChatClient(HttpClient http, string model, bool supportsJson,
-    bool? thinkingEnabled = null, string? reasoningEffort = null)
-    : DelegatingChatClient(new ChatClient(model, CompatibleHttp.Credential(http), CompatibleHttp.Options(http)).AsIChatClient())
+public sealed class CompatibleChatClient(
+    HttpClient http,
+    string model,
+    bool supportsJson,
+    bool? thinkingEnabled = null,
+    string? reasoningEffort = null)
+    : DelegatingChatClient(new ChatClient(model, CompatibleHttp.Credential(http), CompatibleHttp.Options(http))
+        .AsIChatClient())
 {
-    public override async Task<ChatResponse> GetResponseAsync(IEnumerable<AiMessage> messages, ChatOptions? options = null,
+    public override async Task<ChatResponse> GetResponseAsync(IEnumerable<AiMessage> messages,
+        ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         var configured = options?.Clone() ?? new ChatOptions();
@@ -35,7 +42,7 @@ public sealed class CompatibleChatClient(HttpClient http, string model, bool sup
         var originalFactory = configured.RawRepresentationFactory;
         configured.RawRepresentationFactory = client =>
         {
-            var raw = originalFactory?.Invoke(client) as ChatCompletionOptions ?? new();
+            var raw = originalFactory?.Invoke(client) as ChatCompletionOptions ?? new ChatCompletionOptions();
 #pragma warning disable SCME0001 // Official SDK extension point for compatible-provider options.
             raw.Patch.Set("$.max_tokens"u8, configured.MaxOutputTokens.Value);
             raw.Patch.Remove("$.max_completion_tokens"u8);
@@ -52,19 +59,29 @@ public sealed class CompatibleChatClient(HttpClient http, string model, bool sup
             if (response.RawRepresentation is ChatCompletion completion && response.Messages.Count == 1)
             {
                 var raw = new AssistantChatMessage(completion);
-                var reasoning = string.Concat(response.Messages[0].Contents.OfType<TextReasoningContent>().Select(x => x.Text));
+                var reasoning =
+                    string.Concat(response.Messages[0].Contents.OfType<TextReasoningContent>().Select(x => x.Text));
                 if (reasoning.Length > 0)
                 {
 #pragma warning disable SCME0001
                     raw.Patch.Set("$.reasoning_content"u8, reasoning);
 #pragma warning restore SCME0001
                 }
+
                 response.Messages[0].RawRepresentation = raw;
             }
+
             return response;
         }
-        catch (ClientResultException ex) { throw CompatibleHttp.Translate(ex); }
-        catch (JsonException ex) { throw new ModelResponseException("Provider returned an invalid or empty HTTP response for chat/completions.", ex); }
+        catch (ClientResultException ex)
+        {
+            throw CompatibleHttp.Translate(ex);
+        }
+        catch (JsonException ex)
+        {
+            throw new ModelResponseException(
+                "Provider returned an invalid or empty HTTP response for chat/completions.", ex);
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -76,7 +93,8 @@ public sealed class CompatibleChatClient(HttpClient http, string model, bool sup
 
 public sealed class CompatibleEmbeddingGenerator(HttpClient http, string model, int dimensions)
     : DelegatingEmbeddingGenerator<string, Embedding<float>>(
-        new EmbeddingClient(model, CompatibleHttp.Credential(http), CompatibleHttp.Options(http)).AsIEmbeddingGenerator(dimensions))
+        new EmbeddingClient(model, CompatibleHttp.Credential(http), CompatibleHttp.Options(http))
+            .AsIEmbeddingGenerator(dimensions))
 {
     public override async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
         EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default)
@@ -88,7 +106,8 @@ public sealed class CompatibleEmbeddingGenerator(HttpClient http, string model, 
             var originalFactory = configured.RawRepresentationFactory;
             configured.RawRepresentationFactory = generator =>
             {
-                var raw = originalFactory?.Invoke(generator) as OpenAI.Embeddings.EmbeddingGenerationOptions ?? new();
+                var raw = originalFactory?.Invoke(generator) as OpenAI.Embeddings.EmbeddingGenerationOptions ??
+                          new OpenAI.Embeddings.EmbeddingGenerationOptions();
 #pragma warning disable SCME0001
                 raw.Patch.Set("$.encoding_format"u8, "float");
 #pragma warning restore SCME0001
@@ -99,8 +118,14 @@ public sealed class CompatibleEmbeddingGenerator(HttpClient http, string model, 
                 throw new InvalidOperationException("Embedding dimension or values are invalid.");
             return result;
         }
-        catch (ClientResultException ex) { throw CompatibleHttp.Translate(ex); }
-        catch (JsonException ex) { throw new ModelResponseException("Provider returned an invalid or empty HTTP response for embeddings.", ex); }
+        catch (ClientResultException ex)
+        {
+            throw CompatibleHttp.Translate(ex);
+        }
+        catch (JsonException ex)
+        {
+            throw new ModelResponseException("Provider returned an invalid or empty HTTP response for embeddings.", ex);
+        }
     }
 }
 
@@ -108,7 +133,8 @@ public static class CompatibleHttp
 {
     public static HttpClient Configure(HttpClient http, string endpoint, string apiKey)
     {
-        if (!Uri.TryCreate(endpoint.TrimEnd('/') + "/", UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        if (!Uri.TryCreate(endpoint.TrimEnd('/') + "/", UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https"))
             throw new ModelConfigurationException("Invalid model endpoint.");
         http.BaseAddress = uri;
         http.Timeout = TimeSpan.FromSeconds(90);
@@ -116,34 +142,50 @@ public static class CompatibleHttp
         return http;
     }
 
-    internal static ApiKeyCredential Credential(HttpClient http) => new(http.DefaultRequestHeaders.Authorization?.Parameter ?? "unused");
-    internal static OpenAIClientOptions Options(HttpClient http) => new()
+    internal static ApiKeyCredential Credential(HttpClient http)
     {
-        Endpoint = http.BaseAddress ?? throw new ModelConfigurationException("Model endpoint required."),
-        Transport = new HttpClientPipelineTransport(http),
-        RetryPolicy = new DurableRetryPolicy()
-    };
+        return new ApiKeyCredential(http.DefaultRequestHeaders.Authorization?.Parameter ?? "unused");
+    }
 
-    internal static Exception Translate(ClientResultException ex) => ex.Status is 400 or 401 or 403 or 404
-        ? new ModelConfigurationException($"Provider rejected request ({ex.Status}).")
-        : new HttpRequestException($"Provider request failed ({ex.Status}).", ex);
+    internal static OpenAIClientOptions Options(HttpClient http)
+    {
+        return new OpenAIClientOptions
+        {
+            Endpoint = http.BaseAddress ?? throw new ModelConfigurationException("Model endpoint required."),
+            Transport = new HttpClientPipelineTransport(http),
+            RetryPolicy = new DurableRetryPolicy()
+        };
+    }
+
+    internal static Exception Translate(ClientResultException ex)
+    {
+        return ex.Status is 400 or 401 or 403 or 404
+            ? new ModelConfigurationException($"Provider rejected request ({ex.Status}).")
+            : new HttpRequestException($"Provider request failed ({ex.Status}).", ex);
+    }
 
     // Extend the SDK retry policy solely to hand long waits to the persistent job queue.
     private sealed class DurableRetryPolicy() : ClientRetryPolicy(2)
     {
         protected override bool ShouldRetry(PipelineMessage message, Exception? exception)
         {
-            if (message.Response is { Status: 429 or >= 500 } response && response.Headers.TryGetValue("Retry-After", out var value))
+            if (message.Response is { Status: 429 or >= 500 } response &&
+                response.Headers.TryGetValue("Retry-After", out var value))
             {
                 var delay = double.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var seconds)
                     ? TimeSpan.FromSeconds(seconds)
                     : DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
-                        ? date - DateTimeOffset.UtcNow : TimeSpan.Zero;
+                        ? date - DateTimeOffset.UtcNow
+                        : TimeSpan.Zero;
                 if (delay > TimeSpan.FromSeconds(20)) throw new ProviderRetryException(delay);
             }
+
             return base.ShouldRetry(message, exception);
         }
 
-        protected override ValueTask<bool> ShouldRetryAsync(PipelineMessage message, Exception? exception) => new(ShouldRetry(message, exception));
+        protected override ValueTask<bool> ShouldRetryAsync(PipelineMessage message, Exception? exception)
+        {
+            return new ValueTask<bool>(ShouldRetry(message, exception));
+        }
     }
 }

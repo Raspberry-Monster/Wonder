@@ -2,8 +2,8 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
-using Wonder.Infrastructure;
 using Wonder.Host.Contracts;
+using Wonder.Infrastructure;
 
 namespace Wonder.Host.Controllers;
 

@@ -1,16 +1,20 @@
-using Wonder.Infrastructure;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
+using Wonder.Infrastructure;
 using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.Host;
 
 public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> factory, ConversationClock clock)
 {
-    public static IQueryable<ChatMessage> Visible(WonderDbContext db, Guid botId, Guid conversationId, long beforeSequence, DateTimeOffset now) =>
-        db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.ConversationId == conversationId &&
-            !x.ContextInvalidated && x.ExpiresAt > now && (x.InReplyToSequence ?? x.Sequence) < beforeSequence);
+    public static IQueryable<ChatMessage> Visible(WonderDbContext db, Guid botId, Guid conversationId,
+        long beforeSequence, DateTimeOffset now)
+    {
+        return db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.ConversationId == conversationId &&
+                                                     !x.ContextInvalidated && x.ExpiresAt > now &&
+                                                     (x.InReplyToSequence ?? x.Sequence) < beforeSequence);
+    }
 
     public static bool TryMemoryIds(string? json, bool snapshot, out IReadOnlyList<Guid> ids)
     {
@@ -24,20 +28,25 @@ public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> facto
             ids = parsed;
             return true;
         }
-        catch (JsonException) { return false; }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     public static IReadOnlyList<Guid> MessageIds(ChatMessage message)
     {
         var inherited = message.ContextSnapshotJson is { Length: > 0 } json
-            ? Json.Read<ContextSnapshot>(json).SourceMessageIds ?? [] : [];
+            ? Json.Read<ContextSnapshot>(json).SourceMessageIds ?? []
+            : [];
         return inherited.Append(message.Id).Distinct().ToArray();
     }
 
     public static IReadOnlyList<Guid> SubjectIds(ChatMessage message)
     {
         var inherited = message.ContextSnapshotJson is { Length: > 0 } json
-            ? Json.Read<ContextSnapshot>(json).SourceUserIds ?? [] : [];
+            ? Json.Read<ContextSnapshot>(json).SourceUserIds ?? []
+            : [];
         return (message.SenderId is { } sender ? inherited.Append(sender) : inherited).Distinct().ToArray();
     }
 
@@ -47,11 +56,12 @@ public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> facto
         var candidates = await (from summary in db.Summaries.AsNoTracking()
             join session in db.Sessions on summary.SessionId equals session.Id
             where summary.BotId == botId && session.BotId == botId && session.ConversationId == conversationId &&
-                !summary.ContextInvalidated && summary.ThroughSequence < beforeSequence
+                  !summary.ContextInvalidated && summary.ThroughSequence < beforeSequence
             orderby summary.ThroughSequence descending, summary.Id
             select summary).Take(20).ToListAsync(ct);
         return candidates.FirstOrDefault(x => TryMemoryIds(x.MemoryIdsJson, false, out _) &&
-            TryMemoryIds(x.SubjectIdsJson, false, out _) && TryMemoryIds(x.MessageIdsJson, false, out _));
+                                              TryMemoryIds(x.SubjectIdsJson, false, out _) &&
+                                              TryMemoryIds(x.MessageIdsJson, false, out _));
     }
 
     public async Task<(ConversationSummary? Summary, IReadOnlyList<ChatMessage> Messages)> LoadAsync(

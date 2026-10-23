@@ -1,10 +1,10 @@
-using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Wonder.Host.Features.Chat;
 using Wonder.Core;
+using Wonder.Host.Features.Chat;
+using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 using Wonder.Platforms;
-using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.Host;
@@ -49,7 +49,8 @@ public sealed class ChatWorkflow(
         var (summary, history) = await conversations.LoadAsync(bot.Id, conv.Id, message.Sequence, ct);
         var toolDefinitions = profile.SupportsTools ? ConversationTools.Definitions : null;
         var selected = await memories.RetrieveAsync(
-            new MemoryAccess(bot.Id, user.Id, conv.Kind == ConversationKind.Group ? conv.ExternalId : null), message.Text, ct);
+            new MemoryAccess(bot.Id, user.Id, conv.Kind == ConversationKind.Group ? conv.ExternalId : null),
+            message.Text, ct);
         var authorIds = history.Where(x => x.SenderId != null).Select(x => x.SenderId!.Value)
             .Concat(selected.Select(x => x.SubjectId)).Append(user.Id).Distinct().ToArray();
         var names = await db.LogicalUsers.AsNoTracking().Where(x => authorIds.Contains(x.Id) && x.PreferredName != "")
@@ -61,34 +62,41 @@ public sealed class ChatWorkflow(
         if (quoteIds.Length > 0)
         {
             var quotes = await db.Messages.AsNoTracking()
-                .Where(x => x.BotId == bot.Id && x.ConversationId == conv.Id && !x.ContextInvalidated && x.ExpiresAt > clock.UtcNow && quoteIds.Contains(x.ExternalMessageId))
+                .Where(x => x.BotId == bot.Id && x.ConversationId == conv.Id && !x.ContextInvalidated &&
+                            x.ExpiresAt > clock.UtcNow && quoteIds.Contains(x.ExternalMessageId))
                 .OrderBy(x => x.Sequence).ThenBy(x => x.Id)
                 .Select(x => new { x.Role, x.SenderId, x.Text }).Take(3).ToListAsync(ct);
             if (quotes.Count > 0)
                 currentText = "[Quoted reference: original authors, not the current speaker]\n" +
                               Json.ForPrompt(quotes.Select(x => new
-                              { x.Role, speaker = SpeakerTags.For(conv.Id, x.SenderId, x.Role), x.Text })) +
+                                  { x.Role, speaker = SpeakerTags.For(conv.Id, x.SenderId, x.Role), x.Text })) +
                               "\n[Current message]\n" + currentText;
         }
 
-        var relationshipText = relationship is null ? "" : Json.ForPrompt(Json.Read<string[]>(relationship.PreferencesJson));
+        var relationshipText =
+            relationship is null ? "" : Json.ForPrompt(Json.Read<string[]>(relationship.PreferencesJson));
         var context = contextBuilder.Build(new ContextInput(identity.Content, mood, relationshipText,
             summary?.Text ?? "", selected,
             history.Select(x => new ContextTurn(x.Role, x.Text,
                 SpeakerTag: SpeakerTags.For(conv.Id, x.SenderId, x.Role),
                 PreferredName: x.SenderId is { } sender ? names.GetValueOrDefault(sender) : null,
-                MemoryIds: ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out var memoryIds) ? memoryIds : [],
+                MemoryIds: ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out var memoryIds)
+                    ? memoryIds
+                    : [],
                 SentAt: clock.Local(x.CreatedAt), MessageIds: ConversationHistory.MessageIds(x),
                 TurnSequence: x.InReplyToSequence ?? x.Sequence)).ToArray(),
-            new ContextTurn("user", currentText, segments, SpeakerTags.For(conv.Id, message.SenderId), user.PreferredName,
+            new ContextTurn("user", currentText, segments, SpeakerTags.For(conv.Id, message.SenderId),
+                user.PreferredName,
                 SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id]),
             models.Context(profile), conv.Id, names, summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson),
             clock.Context(message.CreatedAt, history.LastOrDefault()?.CreatedAt,
-                history.Any(x => x.SessionId != null && x.SessionId != message.SessionId) || summary is not null && summary.SessionId != message.SessionId),
+                history.Any(x => x.SessionId != null && x.SessionId != message.SessionId) ||
+                (summary is not null && summary.SessionId != message.SessionId)),
             summary is null ? null : Json.Read<Guid[]>(summary.MessageIdsJson),
-            Tools: toolDefinitions, SupportsImages: profile.SupportsImages));
+            toolDefinitions, profile.SupportsImages));
         var request = context.Messages;
-        foreach (var placeholder in request[^1].Contents.OfType<UriContent>().ToArray()) request[^1].Contents.Remove(placeholder);
+        foreach (var placeholder in request[^1].Contents.OfType<UriContent>().ToArray())
+            request[^1].Contents.Remove(placeholder);
         if (profile.SupportsImages)
             foreach (var segment in segments.Where(x => x.Kind == SegmentKind.Image).Take(3))
                 try
@@ -123,9 +131,12 @@ public sealed class ChatWorkflow(
                 FunctionInvoker = async (invocation, token) =>
                 {
                     var fits = toolBudget.ResultFits(invocation.Messages, invocation.CallContent.CallId);
-                    var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id, message.Sequence, token, fits);
-                    if (!fits(result.Json)) result = new("{\"error\":\"context_full\"}", []);
-                    if (!fits(result.Json)) throw new ContextLimitException("The required tool conversation cannot fit even a minimal tool result.");
+                    var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id,
+                        message.Sequence, token, fits);
+                    if (!fits(result.Json)) result = new ConversationToolResult("{\"error\":\"context_full\"}", []);
+                    if (!fits(result.Json))
+                        throw new ContextLimitException(
+                            "The required tool conversation cannot fit even a minimal tool result.");
                     toolBudget.Remember(invocation.CallContent.CallId, result.Json);
                     retrievedIds.UnionWith(result.MemoryIds);
                     sourceMessageIds.UnionWith(result.MessageIds ?? []);
@@ -135,14 +146,19 @@ public sealed class ChatWorkflow(
             };
             response = await client.GetResponseAsync(request, new ChatOptions { Tools = toolDefinitions }, ct);
         }
-        else response = await models.GenerateAsync(profile, request, false, ct);
+        else
+        {
+            response = await models.GenerateAsync(profile, request, false, ct);
+        }
+
         var final = response.Messages.LastOrDefault(x => x.Role == ChatRole.Assistant);
         if (final is null || final.Contents.OfType<FunctionCallContent>().Any())
-            throw new Wonder.Infrastructure.Models.ModelResponseException("Model did not return a final answer after tool use.");
+            throw new ModelResponseException("Model did not return a final answer after tool use.");
         var text = final.Text.Trim();
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
         var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision, null,
-            relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(), sourceMessageIds.ToArray(), sourceUserIds.ToArray());
+            relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(),
+            sourceMessageIds.ToArray(), sourceUserIds.ToArray());
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (!await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
         {
@@ -180,7 +196,8 @@ public sealed class ChatWorkflow(
         QueueReply(db, job, message.SessionId.Value, text);
         Jobs.Complete(db, job);
         if (context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id && x.ConversationId == conv.Id &&
-                x.Type == JobTypes.Summary && x.Status == JobStatus.Pending, ct))
+                                                                   x.Type == JobTypes.Summary &&
+                                                                   x.Status == JobStatus.Pending, ct))
             Jobs.Add(db, bot.Id, JobTypes.Summary, new SummaryJob(message.SessionId.Value, message.Sequence), conv.Id,
                 job.Id);
         await db.SaveChangesAsync(ct);
@@ -189,8 +206,8 @@ public sealed class ChatWorkflow(
 
     public static void QueueReply(WonderDbContext db, OutboxMessage source, Guid sessionId, string text)
     {
-        if (Wonder.Infrastructure.Models.ToolCallMarkup.Contains(text))
-            throw new Wonder.Infrastructure.Models.ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
+        if (ToolCallMarkup.Contains(text))
+            throw new ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
         var batch = new OutgoingMessageBatch
         {
             BotId = source.BotId, ConversationId = source.ConversationId!.Value, SessionId = sessionId,

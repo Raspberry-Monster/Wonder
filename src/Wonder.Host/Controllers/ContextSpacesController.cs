@@ -10,9 +10,13 @@ namespace Wonder.Host.Controllers;
 public sealed class ContextSpacesController(WonderDbContext db) : WonderControllerBase(db)
 {
     [HttpGet]
-    public async Task<IActionResult> List(Guid id, CancellationToken ct) =>
-        await FindOwnedBotAsync(id, ct) is null ? NotFound() :
-            Ok(await Db.ContextSpaces.AsNoTracking().Where(x => x.BotId == id).OrderBy(x => x.Name).ThenBy(x => x.Id).Take(200).ToListAsync(ct));
+    public async Task<IActionResult> List(Guid id, CancellationToken ct)
+    {
+        return await FindOwnedBotAsync(id, ct) is null
+            ? NotFound()
+            : Ok(await Db.ContextSpaces.AsNoTracking().Where(x => x.BotId == id).OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .Take(200).ToListAsync(ct));
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create(Guid id, ContextSpaceInput input, CancellationToken ct)
@@ -43,7 +47,8 @@ public sealed class ContextSpacesController(WonderDbContext db) : WonderControll
         if (space is null) return NotFound();
         await using var tx = await Db.Database.BeginTransactionAsync(ct);
         var key = spaceId.ToString();
-        var memories = await Db.Memories.Where(x => x.BotId == id && x.Scope == MemoryScope.SpaceShared && x.ScopeOwnerId == key)
+        var memories = await Db.Memories
+            .Where(x => x.BotId == id && x.Scope == MemoryScope.SpaceShared && x.ScopeOwnerId == key)
             .Select(x => x.Id).ToListAsync(ct);
         await MemoryService.InvalidateSharedContextAsync(Db, id, memories, ct);
         await Db.GroupPolicies.Where(x => x.BotId == id && x.ContextSpaceId == spaceId)

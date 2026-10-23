@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -5,13 +6,14 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Pgvector.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Wonder.Core;
+using Wonder.Host;
 using Wonder.Host.Features.Chat;
 using Wonder.Host.Features.Emotion;
-using Wonder.Host;
+using Wonder.Host.Features.Persona;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Host.Features.Persona;
 using Wonder.Platforms;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,8 +21,9 @@ var frontendRoot = Path.GetFullPath("../Wonder.Web/dist", builder.Environment.Co
 if (Directory.Exists(frontendRoot))
 {
     builder.Environment.WebRootPath = frontendRoot;
-    builder.Environment.WebRootFileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(frontendRoot);
+    builder.Environment.WebRootFileProvider = new PhysicalFileProvider(frontendRoot);
 }
+
 builder.Logging.ClearProviders().AddConsole();
 builder.Configuration.AddJsonFile("appsettings.Local.json", true).AddEnvironmentVariables();
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1024 * 1024);
@@ -124,9 +127,11 @@ if (builder.Configuration.GetValue("Workers:Enabled", true))
 var app = builder.Build();
 if (Array.IndexOf(args, "--export-event-schema") is var schemaIndex && schemaIndex >= 0)
 {
-    await File.WriteAllTextAsync(args[schemaIndex + 1], Wonder.Core.EventContracts.Schema().ToJsonString(new() { WriteIndented = true }));
+    await File.WriteAllTextAsync(args[schemaIndex + 1],
+        EventContracts.Schema().ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     return;
 }
+
 if (args.Contains("--migrate"))
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -208,8 +213,14 @@ async Task ServeFrontend(HttpContext context)
         context.Response.StatusCode = 404;
         return;
     }
+
     var index = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
-    if (!File.Exists(index)) { context.Response.StatusCode = 404; return; }
+    if (!File.Exists(index))
+    {
+        context.Response.StatusCode = 404;
+        return;
+    }
+
     context.Response.ContentType = "text/html; charset=utf-8";
     context.Response.Headers.CacheControl = "no-store";
     if (context.Request.Method == "HEAD") return;

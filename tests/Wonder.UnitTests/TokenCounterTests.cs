@@ -16,7 +16,8 @@ public sealed class TokenCounterTests
                 {"version":"1.0","added_tokens":[],"pre_tokenizer":{"type":"Whitespace"},
                  "model":{"type":"WordLevel","vocab":{"[UNK]":0,"Hello":1,"world":2},"unk_token":"[UNK]"}}
                 """);
-            File.WriteAllText(Path.Combine(vocabulary.FullName, "models.json"), """["my-model", "provider/my-model"]""");
+            File.WriteAllText(Path.Combine(vocabulary.FullName, "models.json"),
+                """["my-model", "provider/my-model"]""");
             directory.CreateSubdirectory("not-a-tokenizer");
             using var counter = new TokenCounter(directory.FullName);
             await Assert.That(counter.Available).HasSingleItem();
@@ -27,12 +28,18 @@ public sealed class TokenCounterTests
                 await Assert.That(counter.Resolve(profile)).IsEqualTo("test-vocabulary");
                 await Assert.That(counter.Text(profile, "Hello world")).IsEqualTo(2);
             }
-            await Assert.That(counter.Text(new ModelProfile { Model = "unrelated", TokenizerId = "test-vocabulary" }, "Hello world"))
+
+            await Assert.That(counter.Text(new ModelProfile { Model = "unrelated", TokenizerId = "test-vocabulary" },
+                    "Hello world"))
                 .IsEqualTo(2);
-            await Assert.That(counter.Text(new ModelProfile { Model = "my-model", TokenizerId = "estimate" }, "Hello world"))
+            await Assert.That(counter.Text(new ModelProfile { Model = "my-model", TokenizerId = "estimate" },
+                    "Hello world"))
                 .IsEqualTo(11);
         }
-        finally { directory.Delete(true); }
+        finally
+        {
+            directory.Delete(true);
+        }
     }
 
     [Test]

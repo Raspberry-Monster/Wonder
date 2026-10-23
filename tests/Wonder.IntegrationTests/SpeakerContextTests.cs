@@ -1,8 +1,8 @@
-using Wonder.Host;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Wonder.Core;
+using Wonder.Host;
 using Wonder.Infrastructure;
 
 namespace Wonder.IntegrationTests;
@@ -17,13 +17,21 @@ public sealed class SpeakerContextTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var ingestor = scope.ServiceProvider.GetRequiredService<MessageIngestor>();
-        async Task Ingest(string messageId, string sender, string text, bool quote = false) =>
+
+        async Task Ingest(string messageId, string sender, string text, bool quote = false)
+        {
             await ingestor.IngestAsync(bindingId,
                 new NormalizedEvent("123", messageId, sender, "789", ConversationKind.Group,
-                    quote ? [new MessageSegment(SegmentKind.Mention, "123"), new MessageSegment(SegmentKind.Text, text),
-                        new MessageSegment(SegmentKind.ReplyReference, "1")] :
-                        [new MessageSegment(SegmentKind.Mention, "123"), new MessageSegment(SegmentKind.Text, text)],
+                    quote
+                        ?
+                        [
+                            new MessageSegment(SegmentKind.Mention, "123"), new MessageSegment(SegmentKind.Text, text),
+                            new MessageSegment(SegmentKind.ReplyReference, "1")
+                        ]
+                        : [new MessageSegment(SegmentKind.Mention, "123"), new MessageSegment(SegmentKind.Text, text)],
                     DateTimeOffset.UtcNow), default);
+        }
+
         await Ingest("1", "456", "我叫小明，我喜欢蓝色。");
         await Ingest("2", "654", "我也叫小明，但我喜欢红色。", true);
         var first = await db.Messages.AsNoTracking().SingleAsync(x => x.BotId == botId && x.ExternalMessageId == "1");
@@ -33,9 +41,11 @@ public sealed class SpeakerContextTests
         await Assert.That(firstTag).IsNotEqualTo(secondTag);
         var workflow = scope.ServiceProvider.GetRequiredService<ChatWorkflow>();
         var outgoing = scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>();
-        var jobs = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobTypes.Chat).OrderBy(x => x.Sequence).ToListAsync();
+        var jobs = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobTypes.Chat).OrderBy(x => x.Sequence)
+            .ToListAsync();
         await workflow.RunAsync(jobs[0].Id, default);
-        await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing)).Id, default);
+        await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing)).Id,
+            default);
         await workflow.RunAsync(jobs[1].Id, default);
         using var secondRequest = JsonDocument.Parse(app.ModelRequests[1]);
         var messages = secondRequest.RootElement.GetProperty("messages").EnumerateArray().ToArray();
@@ -45,19 +55,23 @@ public sealed class SpeakerContextTests
         await Assert.That(current).Contains($"\"speaker\":\"{firstTag}\"");
         await Assert.That(current).Contains("我叫小明，我喜欢蓝色。");
         await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "user" &&
-            m.GetProperty("content").GetString()!.StartsWith($"[Message author: {firstTag}]", StringComparison.Ordinal))).IsTrue();
+                                            m.GetProperty("content").GetString()!.StartsWith(
+                                                $"[Message author: {firstTag}]", StringComparison.Ordinal))).IsTrue();
         await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "assistant" &&
-            m.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。", StringComparison.Ordinal))).IsTrue();
+                                            m.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。",
+                                                StringComparison.Ordinal))).IsTrue();
         await Assert.That(app.ModelRequests[1]).DoesNotContain(first.SenderId!.Value.ToString());
         await Assert.That(app.ModelRequests[1]).DoesNotContain(second.SenderId!.Value.ToString());
         await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing &&
-            x.Status == JobStatus.Pending)).Id, default);
+                                                                  x.Status == JobStatus.Pending)).Id, default);
         await Ingest("3", "456", "我现在改名叫小蓝了。");
         var third = await db.Messages.AsNoTracking().SingleAsync(x => x.BotId == botId && x.ExternalMessageId == "3");
-        var thirdJob = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobTypes.Chat).OrderByDescending(x => x.Sequence).FirstAsync();
+        var thirdJob = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobTypes.Chat)
+            .OrderByDescending(x => x.Sequence).FirstAsync();
         await workflow.RunAsync(thirdJob.Id, default);
         using var thirdRequest = JsonDocument.Parse(app.ModelRequests[2]);
-        var renamed = thirdRequest.RootElement.GetProperty("messages").EnumerateArray().Last().GetProperty("content").GetString()!;
+        var renamed = thirdRequest.RootElement.GetProperty("messages").EnumerateArray().Last().GetProperty("content")
+            .GetString()!;
         await Assert.That(third.SenderId).IsEqualTo(first.SenderId);
         await Assert.That(renamed.StartsWith($"[Message author: {firstTag}]", StringComparison.Ordinal)).IsTrue();
         await Assert.That(renamed).Contains("改名叫小蓝");
@@ -72,7 +86,8 @@ public sealed class SpeakerContextTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var a = new LogicalUser();
         var b = new LogicalUser();
-        var conversation = new Conversation { BotId = botId, Kind = ConversationKind.Group, ExternalId = "group-summary" };
+        var conversation = new Conversation
+            { BotId = botId, Kind = ConversationKind.Group, ExternalId = "group-summary" };
         var session = new ConversationSession { BotId = botId, ConversationId = conversation.Id };
         db.LogicalUsers.AddRange(a, b);
         db.Conversations.Add(conversation);
@@ -115,8 +130,11 @@ public sealed class SpeakerContextTests
         db.GroupPolicies.Add(new GroupPolicy { BotId = bot.Id, GroupId = "789", RespondToMention = true });
         var key = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key");
         foreach (var task in new[] { TaskKind.Chat, TaskKind.RollingSummary })
-            db.Models.Add(new ModelProfile { BotId = bot.Id, TaskKind = task, Endpoint = "https://model.example/v1/",
-                Model = "test-model", ProtectedApiKey = key });
+            db.Models.Add(new ModelProfile
+            {
+                BotId = bot.Id, TaskKind = task, Endpoint = "https://model.example/v1/",
+                Model = "test-model", ProtectedApiKey = key
+            });
         await db.SaveChangesAsync();
         return (bot.Id, binding.Id);
     }

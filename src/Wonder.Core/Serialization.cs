@@ -15,7 +15,10 @@ public static class Json
     private static readonly JsonSerializerOptions PromptOptions = new(Options)
         { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    public static string ForPrompt<T>(T value) => JsonSerializer.Serialize(value, PromptOptions);
+    public static string ForPrompt<T>(T value)
+    {
+        return JsonSerializer.Serialize(value, PromptOptions);
+    }
 
     public static string Write<T>(T value)
     {

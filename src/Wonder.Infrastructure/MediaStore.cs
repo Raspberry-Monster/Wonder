@@ -1,16 +1,20 @@
-using Microsoft.Extensions.Caching.Hybrid;
-using SkiaSharp;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
+using SkiaSharp;
 using Wonder.Core;
 
 namespace Wonder.Infrastructure;
 
 public sealed record LoadedImage(byte[] Bytes, string ContentType);
 
-public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConfiguration configuration, IHttpClientFactory clients, HybridCache cache)
+public sealed class MediaStore(
+    IDbContextFactory<WonderDbContext> factory,
+    IConfiguration configuration,
+    IHttpClientFactory clients,
+    HybridCache cache)
 {
     private const int MaximumBytes = 5 * 1024 * 1024;
     public string Root { get; } = Path.GetFullPath(configuration["Storage:MediaPath"] ?? "data/media");
@@ -44,7 +48,8 @@ public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConf
         if (existing is not null && File.Exists(existing.Path))
             return new LoadedImage(await cache.GetOrCreateAsync("media:" + existing.Path,
                 async token => await File.ReadAllBytesAsync(existing.Path, token),
-                new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(1), LocalCacheExpiration = TimeSpan.FromMinutes(1) },
+                new HybridCacheEntryOptions
+                    { Expiration = TimeSpan.FromMinutes(1), LocalCacheExpiration = TimeSpan.FromMinutes(1) },
                 cancellationToken: ct), existing.ContentType);
         using var client = clients.CreateClient("media");
         using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -75,8 +80,16 @@ public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConf
             Size = bytes.Length,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
         });
-        try { await db.SaveChangesAsync(ct); }
-        catch { File.Delete(file); throw; }
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            File.Delete(file);
+            throw;
+        }
+
         return new LoadedImage(bytes, type);
     }
 
@@ -96,22 +109,29 @@ public sealed class MediaStore(IDbContextFactory<WonderDbContext> factory, IConf
         };
     }
 
-    public static SocketsHttpHandler CreateHandler() => new()
+    public static SocketsHttpHandler CreateHandler()
     {
-        AllowAutoRedirect = false,
-        UseProxy = false,
-        ConnectCallback = async (context, ct) =>
+        return new SocketsHttpHandler
         {
-            var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
-            if (addresses.Length == 0 || addresses.Any(address => !IsPublic(address)))
-                throw new HttpRequestException("Image host must resolve to public addresses.");
-            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
-            try
+            AllowAutoRedirect = false,
+            UseProxy = false,
+            ConnectCallback = async (context, ct) =>
             {
-                await socket.ConnectAsync(addresses, context.DnsEndPoint.Port, ct);
-                return new NetworkStream(socket, ownsSocket: true);
+                var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
+                if (addresses.Length == 0 || addresses.Any(address => !IsPublic(address)))
+                    throw new HttpRequestException("Image host must resolve to public addresses.");
+                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                try
+                {
+                    await socket.ConnectAsync(addresses, context.DnsEndPoint.Port, ct);
+                    return new NetworkStream(socket, true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
             }
-            catch { socket.Dispose(); throw; }
-        }
-    };
+        };
+    }
 }

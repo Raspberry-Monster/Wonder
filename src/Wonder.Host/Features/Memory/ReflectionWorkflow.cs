@@ -1,12 +1,14 @@
-using Wonder.Infrastructure;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Wonder.Infrastructure.Models;
+using Pgvector;
 using Wonder.Core;
 using Wonder.Host.Features.Emotion;
 using Wonder.Host.Features.Memory;
+using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
+using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.Host;
 
@@ -32,19 +34,25 @@ public sealed class ReflectionWorkflow(
 
         var session = await db.Sessions.AsNoTracking().SingleAsync(x => x.Id == input.SessionId, ct);
         var conv = await db.Conversations.AsNoTracking().SingleAsync(x => x.Id == session.ConversationId, ct);
-        var progress = job.ProgressJson is null ? new ReflectionProgress() : Json.Read<ReflectionProgress>(job.ProgressJson);
+        var progress = job.ProgressJson is null
+            ? new ReflectionProgress()
+            : Json.Read<ReflectionProgress>(job.ProgressJson);
         var processedIds = progress.SourceHashes.Keys.ToArray();
-        var processed = await db.Messages.AsNoTracking().Where(x => processedIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
-        if (processed.Count != processedIds.Length || processed.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
+        var processed = await db.Messages.AsNoTracking()
+            .Where(x => processedIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
+        if (processed.Count != processedIds.Length ||
+            processed.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
         {
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
+
         var source = await db.Messages.AsNoTracking().Where(x =>
                 x.SessionId == session.Id && x.SenderId == user.Id && x.AllowReflection &&
-                !x.ContextInvalidated && x.Sequence <= input.Boundary && (input.Kind != "light" || x.Sequence == input.Boundary) &&
-                (x.Sequence > progress.Sequence || progress.Offset > 0 && x.Sequence == progress.Sequence))
+                !x.ContextInvalidated && x.Sequence <= input.Boundary &&
+                (input.Kind != "light" || x.Sequence == input.Boundary) &&
+                (x.Sequence > progress.Sequence || (progress.Offset > 0 && x.Sequence == progress.Sequence)))
             .OrderBy(x => x.Sequence).Take(100).ToListAsync(ct);
         if (source.Count == 0)
         {
@@ -66,11 +74,22 @@ public sealed class ReflectionWorkflow(
                            Always return a complete JSON object, including when there are no proposals.
                            offset/truncated identify a partial statement. Only extract facts fully supported by the supplied fragment.
                            """;
-        AiMessage[] Request(IReadOnlyList<TextFragment<Core.ChatMessage>> fragments) =>
-            [new AiMessage(ChatRole.System, instructions), new AiMessage(ChatRole.User, Json.ForPrompt(fragments.Select(f => new
-            { id = f.Source.Id, speaker = SpeakerTags.For(conv.Id, f.Source.SenderId, f.Source.Role),
-                text = f.Text, f.Offset, f.Truncated, sentAt = f.Source.CreatedAt.ToString("O") })))];
-        var (batch, proposal) = await ReflectionBatches.GenerateAsync(models, profile, source, progress.Offset, Request, Parse, ct);
+
+        AiMessage[] Request(IReadOnlyList<TextFragment<ChatMessage>> fragments)
+        {
+            return
+            [
+                new AiMessage(ChatRole.System, instructions), new AiMessage(ChatRole.User,
+                    Json.ForPrompt(fragments.Select(f => new
+                    {
+                        id = f.Source.Id, speaker = SpeakerTags.For(conv.Id, f.Source.SenderId, f.Source.Role),
+                        text = f.Text, f.Offset, f.Truncated, sentAt = f.Source.CreatedAt.ToString("O")
+                    })))
+            ];
+        }
+
+        var (batch, proposal) =
+            await ReflectionBatches.GenerateAsync(models, profile, source, progress.Offset, Request, Parse, ct);
         if (proposal.NeedsStrongReview)
         {
             profile = await models.ProfileAsync(job.BotId, TaskKind.StrongReflection, ct);
@@ -82,15 +101,21 @@ public sealed class ReflectionWorkflow(
                 var offset = fragment.Offset;
                 while (remaining.Length > 0)
                 {
-                    var length = ModelContextBudget.PrefixLength(remaining, value => models.Context(profile).Fits(Request([new(part, value, offset, fragment.Truncated || value.Length < remaining.Length)])));
-                    if (length == 0) throw new ContextLimitException("StrongReflection has no room for the review evidence.");
+                    var length = ModelContextBudget.PrefixLength(remaining,
+                        value => models.Context(profile).Fits(Request([
+                            new TextFragment<ChatMessage>(part, value, offset,
+                                fragment.Truncated || value.Length < remaining.Length)
+                        ])));
+                    if (length == 0)
+                        throw new ContextLimitException("StrongReflection has no room for the review evidence.");
                     ReflectionProposal review;
-                    for (var attempt = 0; ; attempt++)
-                    {
+                    for (var attempt = 0;; attempt++)
                         try
                         {
-                            review = Parse((await models.GenerateAsync(profile, Request([new(part, remaining[..length], offset,
-                                fragment.Truncated || length < remaining.Length)]), true, ct)).Text);
+                            review = Parse((await models.GenerateAsync(profile, Request([
+                                new TextFragment<ChatMessage>(part, remaining[..length], offset,
+                                    fragment.Truncated || length < remaining.Length)
+                            ]), true, ct)).Text);
                             break;
                         }
                         catch (OutputLimitException) when (attempt < 2 && length > 32)
@@ -98,12 +123,13 @@ public sealed class ReflectionWorkflow(
                             length /= 2;
                             if (char.IsHighSurrogate(remaining[length - 1])) length--;
                         }
-                    }
+
                     if (!review.NeedsStrongReview) reviews.Add(review);
                     remaining = remaining[length..];
                     offset += length;
                 }
             }
+
             proposal = ReflectionBatches.Merge(reviews);
         }
 
@@ -123,7 +149,8 @@ public sealed class ReflectionWorkflow(
         };
         if (proposal.Emotion is { } emotionProposal) progress.Emotions.Add(emotionProposal);
         progress.Proposal = ReflectionBatches.Merge([progress.Proposal, proposal]) with { Emotion = null };
-        foreach (var fragment in batch) progress.SourceHashes[fragment.Source.Id] = TextBatch.Fingerprint(fragment.Source.Text);
+        foreach (var fragment in batch)
+            progress.SourceHashes[fragment.Source.Id] = TextBatch.Fingerprint(fragment.Source.Text);
         var last = batch[^1];
         progress.Sequence = last.Source.Sequence;
         progress.Offset = last.Offset + last.Text.Length < last.Source.Text.Length ? last.Offset + last.Text.Length : 0;
@@ -137,25 +164,35 @@ public sealed class ReflectionWorkflow(
         }
 
         var sourceIds = progress.SourceHashes.Keys.ToArray();
-        var unchanged = await db.Messages.AsNoTracking().Where(x => sourceIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
-        if (unchanged.Count != sourceIds.Length || unchanged.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
+        var unchanged = await db.Messages.AsNoTracking()
+            .Where(x => sourceIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
+        if (unchanged.Count != sourceIds.Length ||
+            unchanged.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
         {
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             await tx.CommitAsync(ct);
             return;
         }
+
         if (progress.Offset > 0 || await db.Messages.AnyAsync(x => x.SessionId == session.Id && x.SenderId == user.Id &&
-                x.AllowReflection && !x.ContextInvalidated && x.Sequence > progress.Sequence && x.Sequence <= input.Boundary &&
-                (input.Kind != "light" || x.Sequence == input.Boundary), ct))
+                                                                   x.AllowReflection && !x.ContextInvalidated &&
+                                                                   x.Sequence > progress.Sequence &&
+                                                                   x.Sequence <= input.Boundary &&
+                                                                   (input.Kind != "light" ||
+                                                                    x.Sequence == input.Boundary), ct))
         {
             Jobs.Continue(job, progress);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             await tx.CommitAsync(ct);
             return;
         }
-        proposal = progress.Proposal with { Emotion = ReflectionBatches.Merge(progress.Emotions.Select(x =>
-            new ReflectionProposal(false, x, [], []))).Emotion };
+
+        proposal = progress.Proposal with
+        {
+            Emotion = ReflectionBatches.Merge(progress.Emotions.Select(x =>
+                new ReflectionProposal(false, x, [], []))).Emotion
+        };
 
         var result = new ReflectionResult
         {
@@ -304,7 +341,8 @@ public sealed class ReflectionWorkflow(
                              x.ScopeOwnerId == owner && x.FactKeyHash == keyHash, ct)) continue;
                 var hash = Json.Hash(Json.Write(candidate));
                 if (db.MemoryCandidates.Local.Any(x => x.SourceReflectionId == result.Id && x.CandidateHash == hash) ||
-                    await db.MemoryCandidates.AnyAsync(x => x.SourceReflectionId == result.Id && x.CandidateHash == hash, ct)) continue;
+                    await db.MemoryCandidates.AnyAsync(
+                        x => x.SourceReflectionId == result.Id && x.CandidateHash == hash, ct)) continue;
                 var pending = new MemoryMaintenanceCandidate
                 {
                     BotId = job.BotId,
@@ -335,7 +373,8 @@ public sealed class ReflectionWorkflow(
         Jobs.RequireLease(job, expectedLeaseId);
         var memory =
             await db.Memories.SingleOrDefaultAsync(
-                x => x.Id == Json.Read<IdPayload>(job.Payload).Id && x.Status != MemoryStatus.Revoked && x.ArchivedAt == null, ct);
+                x => x.Id == Json.Read<IdPayload>(job.Payload).Id && x.Status != MemoryStatus.Revoked &&
+                     x.ArchivedAt == null, ct);
         if (job.Status == JobStatus.Completed) return;
         if (memory is null)
         {
@@ -376,7 +415,8 @@ public sealed class ReflectionWorkflow(
         }
 
         if (!await db.Embeddings.AnyAsync(x => x.MemoryId == memory.Id && x.ProfileId == space.Id, ct))
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = space.Id, Values = new(values) });
+            db.Embeddings.Add(new MemoryEmbedding
+                { MemoryId = memory.Id, ProfileId = space.Id, Values = new Vector(values) });
         memory.Status = MemoryStatus.Active;
         Jobs.Complete(db, job);
         await db.SaveChangesAsync(ct);

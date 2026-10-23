@@ -1,10 +1,10 @@
-using Wonder.Host;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Wonder.Infrastructure.Models;
 using Wonder.Core;
+using Wonder.Host;
 using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 
 namespace Wonder.IntegrationTests;
 
@@ -34,6 +34,7 @@ public sealed class ReflectionResponseTests
             await Assert.That(error.Message).Contains("FinishReason=length");
             await Assert.That(error.Message).Contains("MaxOutputTokens=1024");
         }
+
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That(await db.Reflections.Where(x => x.BotId == botId).ToListAsync()).IsEmpty();
         await Assert.That(await db.Memories.Where(x => x.BotId == botId).ToListAsync()).IsEmpty();
@@ -49,7 +50,8 @@ public sealed class ReflectionResponseTests
         using var app = new TestApp();
         var (jobId, botId) = await CreateJobAsync(app);
         app.ModelResponses.Enqueue(Response(null, "length"));
-        app.ModelResponses.Enqueue(Response("{\"needsStrongReview\":false,\"emotion\":null,\"relationships\":[],\"memories\":[]}", "stop"));
+        app.ModelResponses.Enqueue(
+            Response("{\"needsStrongReview\":false,\"emotion\":null,\"relationships\":[],\"memories\":[]}", "stop"));
         using var scope = app.Services.CreateScope();
         var workflow = scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>();
         await Assert.That(() => workflow.GenerateAsync(jobId, default)).ThrowsExactly<OutputLimitException>();
@@ -68,12 +70,21 @@ public sealed class ReflectionResponseTests
         await Assert.That(await db.Usage.CountAsync(x => x.BotId == botId)).IsEqualTo(2);
     }
 
-    private static string Response(string? content, string finishReason) => Json.Write(new
+    private static string Response(string? content, string finishReason)
     {
-        choices = new[] { new { finish_reason = finishReason,
-            message = new { content, reasoning_content = "not a final answer" } } },
-        usage = new { prompt_tokens = 20, completion_tokens = 1024 }
-    });
+        return Json.Write(new
+        {
+            choices = new[]
+            {
+                new
+                {
+                    finish_reason = finishReason,
+                    message = new { content, reasoning_content = "not a final answer" }
+                }
+            },
+            usage = new { prompt_tokens = 20, completion_tokens = 1024 }
+        });
+    }
 
     private static async Task<(Guid JobId, Guid BotId)> CreateJobAsync(TestApp app)
     {
@@ -84,17 +95,23 @@ public sealed class ReflectionResponseTests
         var user = new LogicalUser { AllowMemory = true };
         var conversation = new Conversation { BotId = bot.Id };
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
-        var message = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = session.Id,
-            SenderId = user.Id, AllowReflection = true, ExternalMessageId = "1", Text = "我喜欢简短回复。" };
+        var message = new ChatMessage
+        {
+            BotId = bot.Id, ConversationId = conversation.Id, SessionId = session.Id,
+            SenderId = user.Id, AllowReflection = true, ExternalMessageId = "1", Text = "我喜欢简短回复。"
+        };
         db.Users.Add(owner);
         db.Bots.Add(bot);
         db.LogicalUsers.Add(user);
         db.Conversations.Add(conversation);
         db.Sessions.Add(session);
         db.Messages.Add(message);
-        db.Models.Add(new ModelProfile { BotId = bot.Id, TaskKind = TaskKind.LightReflection,
+        db.Models.Add(new ModelProfile
+        {
+            BotId = bot.Id, TaskKind = TaskKind.LightReflection,
             Endpoint = "https://model.example/v1/", Model = "reflection-model", SupportsJson = true,
-            ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key") });
+            ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key")
+        });
         await db.SaveChangesAsync();
         var job = Jobs.Add(db, bot.Id, JobTypes.Reflection,
             new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, "light"));

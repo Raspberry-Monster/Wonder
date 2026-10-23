@@ -89,7 +89,8 @@ public sealed record ContextSnapshot(
     long SummaryRevision,
     IReadOnlyList<Guid> RetrievedMemoryIds,
     string ModelProfileId,
-    IReadOnlyList<Guid>? SourceMessageIds = null, IReadOnlyList<Guid>? SourceUserIds = null);
+    IReadOnlyList<Guid>? SourceMessageIds = null,
+    IReadOnlyList<Guid>? SourceUserIds = null);
 
 public sealed record EmotionProposal(
     double Valence,
@@ -113,8 +114,13 @@ public sealed record ReflectionProposal(
     RelationshipProposal[] Relationships,
     MemoryCandidate[] Memories);
 
-public sealed record MemoryAccess(Guid BotId, Guid UserId, string? GroupId,
-    Guid? ContextSpaceId = null, bool AllowUserShared = false, bool AllowPersonal = true);
+public sealed record MemoryAccess(
+    Guid BotId,
+    Guid UserId,
+    string? GroupId,
+    Guid? ContextSpaceId = null,
+    bool AllowUserShared = false,
+    bool AllowPersonal = true);
 
 public sealed class BotInstance
 {
@@ -337,11 +343,29 @@ public sealed class Memory
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public enum MemoryMaintenanceStatus { Pending, Applied, Deferred, Cancelled }
-public enum MemoryMaintenanceAction { Add, Merge, Supplement, Update, Archive, Defer }
+public enum MemoryMaintenanceStatus
+{
+    Pending,
+    Applied,
+    Deferred,
+    Cancelled
+}
 
-public sealed record MemoryMaintenanceDecision(MemoryMaintenanceAction Action, Guid? TargetId,
-    string? Text, string Reason);
+public enum MemoryMaintenanceAction
+{
+    Add,
+    Merge,
+    Supplement,
+    Update,
+    Archive,
+    Defer
+}
+
+public sealed record MemoryMaintenanceDecision(
+    MemoryMaintenanceAction Action,
+    Guid? TargetId,
+    string? Text,
+    string Reason);
 
 // Candidates are never retrieved as conversational memories. Completed rows also provide an audit trail.
 public sealed class MemoryMaintenanceCandidate

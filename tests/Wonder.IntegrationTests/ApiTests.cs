@@ -1,4 +1,3 @@
-using Wonder.Host;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -6,10 +5,15 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Wonder.Core;
+using Wonder.Host;
+using Wonder.Host.Contracts;
 using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 using Wonder.Platforms;
+using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.IntegrationTests;
 
@@ -24,14 +28,16 @@ public sealed class ApiTests
         bool? requireHttps, string baseAddress, bool secureCookie)
     {
         using var app = new TestApp(environment: "Production", requireHttps: requireHttps);
-        using var client = app.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri(baseAddress) });
+        using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+            { BaseAddress = new Uri(baseAddress) });
         client.DefaultRequestHeaders.Add("X-Wonder", "1");
         var credentials = new { email = "transport@example.com", password = "A-useful-test-password!" };
         await Assert.That((await client.PostAsJsonAsync("/api/v1/auth/register", credentials)).StatusCode)
             .IsEqualTo(HttpStatusCode.Created);
         var login = await client.PostAsJsonAsync("/api/v1/auth/login", credentials);
         await Assert.That(login.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        var cookie = login.Headers.GetValues("Set-Cookie").Single(x => x.StartsWith("wonder.session=", StringComparison.Ordinal));
+        var cookie = login.Headers.GetValues("Set-Cookie")
+            .Single(x => x.StartsWith("wonder.session=", StringComparison.Ordinal));
         await Assert.That(cookie.Contains("; secure", StringComparison.OrdinalIgnoreCase)).IsEqualTo(secureCookie);
         await Assert.That(cookie.Contains("; httponly", StringComparison.OrdinalIgnoreCase)).IsTrue();
         await Assert.That(cookie.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase)).IsTrue();
@@ -62,7 +68,11 @@ public sealed class ApiTests
         await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.Created);
         var bot = await created.Content.ReadFromJsonAsync<JsonElement>();
         var id = bot.GetProperty("id").GetGuid();
-        foreach (var suffix in new[] { "", "/identity", "/binding", "/model-routes", "/model-routes/tokenizers", "/emotion", "/jobs", "/usage" })
+        foreach (var suffix in new[]
+                 {
+                     "", "/identity", "/binding", "/model-routes", "/model-routes/tokenizers", "/emotion", "/jobs",
+                     "/usage"
+                 })
             await Assert.That((await b.GetAsync($"/api/v1/bots/{id}{suffix}")).StatusCode)
                 .IsEqualTo(HttpStatusCode.NotFound);
         await Assert
@@ -81,25 +91,28 @@ public sealed class ApiTests
         var created = await client.PostAsJsonAsync("/api/v1/bots", new { name = "Tokenizer Bot", identity = "Wonder" });
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         var url = $"/api/v1/bots/{id}/model-routes";
-        var available = (await client.GetFromJsonAsync<Wonder.Host.Contracts.TokenizerResponse[]>(url + "/tokenizers"))!;
+        var available = (await client.GetFromJsonAsync<TokenizerResponse[]>(url + "/tokenizers"))!;
         await Assert.That(available.Length > 0).IsTrue();
         var selected = available[0].Id;
-        var route = new Wonder.Host.Contracts.ModelRouteInput(TaskKind.Chat, "https://model.example/v1", selected, "test-key");
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { route })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        var route = new ModelRouteInput(TaskKind.Chat, "https://model.example/v1", selected, "test-key");
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { route })).StatusCode)
+            .IsEqualTo(HttpStatusCode.NoContent);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var profile = await db.Models.AsNoTracking().SingleAsync(x => x.BotId == id);
-        var counter = scope.ServiceProvider.GetRequiredService<Wonder.Infrastructure.Models.TokenCounter>();
+        var counter = scope.ServiceProvider.GetRequiredService<TokenCounter>();
         await Assert.That(profile.TokenizerId).IsEqualTo("auto");
         await Assert.That(counter.Resolve(profile)).IsEqualTo(selected);
         await Assert.That(counter.Text(profile, "Hello world") > 0).IsTrue();
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } })).StatusCode)
+        await Assert
+            .That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } })).StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         var invalid = await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = "not-installed" } });
         await Assert.That(invalid.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         await Assert.That((await invalid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors")
             .GetProperty("x[0].TokenizerId").GetArrayLength() > 0).IsTrue();
-        await Assert.That((await db.Models.AsNoTracking().SingleAsync(x => x.BotId == id)).TokenizerId).IsEqualTo(selected);
+        await Assert.That((await db.Models.AsNoTracking().SingleAsync(x => x.BotId == id)).TokenizerId)
+            .IsEqualTo(selected);
     }
 
     [Test]
@@ -117,7 +130,7 @@ public sealed class ApiTests
         (await db.Users.SingleAsync(x => x.Id == ownerId)).LogicalUserId = ownerSubject.Id;
         var bot = new BotInstance { OwnerId = ownerId };
         db.Bots.Add(bot);
-        var memory = new Core.Memory
+        var memory = new Memory
         {
             BotId = bot.Id, SubjectId = subject.Id, FactKey = "color", Text = "喜欢蓝色",
             ScopeOwnerId = subject.Id.ToString()
@@ -182,7 +195,7 @@ public sealed class ApiTests
             AllowReflection = true, ExternalMessageId = "1", Text = "喜欢蓝色", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
         };
         db.Messages.Add(msg);
-        var memory = new Core.Memory
+        var memory = new Memory
         {
             BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色", ScopeOwnerId = user.Id.ToString()
         };
@@ -321,7 +334,7 @@ public sealed class ApiTests
         var user = new LogicalUser { AllowMemory = true };
         db.Bots.Add(bot);
         db.LogicalUsers.Add(user);
-        var memory = new Core.Memory
+        var memory = new Memory
         {
             BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色", ScopeOwnerId = user.Id.ToString(),
             CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
@@ -400,6 +413,7 @@ public sealed class ApiTests
         await Assert.That(policy.GetProperty("respondToMention").GetBoolean()).IsFalse();
         await Assert.That(policy.GetProperty("commandPrefix").GetString()).IsEqualTo("/wonder");
     }
+
     [Test]
     public async Task FlashTasksShareOneModelWithIndependentThinkingAndKeepEmbeddingSeparate()
     {
@@ -410,8 +424,11 @@ public sealed class ApiTests
         var url = $"/api/v1/bots/{id}/model-routes";
         var embedding = await client.PutAsJsonAsync(url, new[]
         {
-            new { taskKind = "Embedding", endpoint = "https://embedding.example/v1/", model = "vector-model",
-                apiKey = "vector-key", embeddingDimensions = 3 }
+            new
+            {
+                taskKind = "Embedding", endpoint = "https://embedding.example/v1/", model = "vector-model",
+                apiKey = "vector-key", embeddingDimensions = 3
+            }
         });
         await Assert.That(embedding.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding).ToArray();
@@ -435,10 +452,11 @@ public sealed class ApiTests
         foreach (var task in tasks)
         {
             var route = routes.EnumerateArray().Single(x => x.GetProperty("taskKind").GetString() == task.ToString());
-            await Assert.That(route.GetProperty("thinkingEnabled").GetBoolean()).IsEqualTo(task == TaskKind.StrongReflection);
+            await Assert.That(route.GetProperty("thinkingEnabled").GetBoolean())
+                .IsEqualTo(task == TaskKind.StrongReflection);
             var profile = await router.ProfileAsync(id, task, default);
             await router.GenerateAsync(profile,
-                [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "Return JSON.")],
+                [new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, "Return JSON.")],
                 profile.SupportsJson, default);
             using var sent = JsonDocument.Parse(app.ModelRequests[^1]);
             await Assert.That(sent.RootElement.GetProperty("model").GetString()).IsEqualTo("deepseek-flash");
@@ -448,17 +466,22 @@ public sealed class ApiTests
                 .IsEqualTo(task == TaskKind.StrongReflection);
             if (task == TaskKind.StrongReflection) await Assert.That(effort.GetString()).IsEqualTo("high");
         }
+
         // Clearing the options returns to provider defaults and preserves the existing secret.
         var reset = await client.PutAsJsonAsync(url, new[]
         {
-            new { taskKind = "StrongReflection", endpoint = "https://api.deepseek.com", model = "deepseek-flash",
-                apiKey = (string?)null, thinkingEnabled = (bool?)null, reasoningEffort = (string?)null }
+            new
+            {
+                taskKind = "StrongReflection", endpoint = "https://api.deepseek.com", model = "deepseek-flash",
+                apiKey = (string?)null, thinkingEnabled = (bool?)null, reasoningEffort = (string?)null
+            }
         });
         await Assert.That(reset.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         var restored = await router.ProfileAsync(id, TaskKind.StrongReflection, default);
         await Assert.That(restored.ThinkingEnabled).IsNull();
         await Assert.That(restored.ReasoningEffort).IsNull();
-        await Assert.That(scope.ServiceProvider.GetRequiredService<SecretProtector>().Unprotect(restored.ProtectedApiKey))
+        await Assert.That(scope.ServiceProvider.GetRequiredService<SecretProtector>()
+                .Unprotect(restored.ProtectedApiKey))
             .IsEqualTo("shared-key");
     }
 
@@ -476,8 +499,11 @@ public sealed class ApiTests
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         var response = await client.PutAsJsonAsync($"/api/v1/bots/{id}/model-routes", new[]
         {
-            new { taskKind = task, endpoint = "https://api.deepseek.com", model = "deepseek-flash",
-                apiKey = "test-key", thinkingEnabled = enabled, reasoningEffort = effort }
+            new
+            {
+                taskKind = task, endpoint = "https://api.deepseek.com", model = "deepseek-flash",
+                apiKey = "test-key", thinkingEnabled = enabled, reasoningEffort = effort
+            }
         });
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }
@@ -490,16 +516,40 @@ public sealed class ApiTests
         var created = await client.PostAsJsonAsync("/api/v1/bots", new { name = "Tools", identity = "Wonder" });
         var bot = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         var url = $"/api/v1/bots/{bot}/model-routes";
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Chat", endpoint = "https://model.example/v1/",
-            model = "test", apiKey = "test-key", supportsTools = true } })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Chat", endpoint = "https://model.example/v1/",
-            model = "updated", apiKey = "" } })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        await Assert.That((await client.PutAsJsonAsync(url, new[]
+        {
+            new
+            {
+                taskKind = "Chat", endpoint = "https://model.example/v1/",
+                model = "test", apiKey = "test-key", supportsTools = true
+            }
+        })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        await Assert.That((await client.PutAsJsonAsync(url, new[]
+        {
+            new
+            {
+                taskKind = "Chat", endpoint = "https://model.example/v1/",
+                model = "updated", apiKey = ""
+            }
+        })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         var routes = await client.GetFromJsonAsync<JsonElement>(url);
         await Assert.That(routes[0].GetProperty("supportsTools").GetBoolean()).IsTrue();
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Embedding", endpoint = "https://model.example/v1/",
-            model = "vectors", apiKey = "test-key", supportsTools = true } })).StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { new { taskKind = "Chat", endpoint = "https://model.example/v1/",
-            model = "updated", apiKey = "", supportsTools = false } })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        await Assert.That((await client.PutAsJsonAsync(url, new[]
+        {
+            new
+            {
+                taskKind = "Embedding", endpoint = "https://model.example/v1/",
+                model = "vectors", apiKey = "test-key", supportsTools = true
+            }
+        })).StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That((await client.PutAsJsonAsync(url, new[]
+        {
+            new
+            {
+                taskKind = "Chat", endpoint = "https://model.example/v1/",
+                model = "updated", apiKey = "", supportsTools = false
+            }
+        })).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         routes = await client.GetFromJsonAsync<JsonElement>(url);
         await Assert.That(routes[0].GetProperty("supportsTools").GetBoolean()).IsFalse();
     }

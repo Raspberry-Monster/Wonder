@@ -8,12 +8,6 @@ namespace Wonder.IntegrationTests;
 
 public sealed class SchedulingTests
 {
-    private sealed class Clock : TimeProvider
-    {
-        public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-10-21T16:05:00Z");
-        public override DateTimeOffset GetUtcNow() => Now;
-    }
-
     [Test]
     public async Task DailyReconciliationUsesLocalDateAndDoesNotDuplicateAfterRestart()
     {
@@ -36,5 +30,15 @@ public sealed class SchedulingTests
         var jobs = await db.Outbox.AsNoTracking().OrderBy(x => x.ScheduledDate).ToListAsync();
         await Assert.That(jobs.Count).IsEqualTo(2);
         await Assert.That(jobs[1].ScheduledDate).IsEqualTo(new DateOnly(2026, 10, 25));
+    }
+
+    private sealed class Clock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-10-21T16:05:00Z");
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            return Now;
+        }
     }
 }

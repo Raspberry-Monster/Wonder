@@ -14,7 +14,8 @@ public sealed class PromptJsonTests
         await Assert.That(prompt).Contains("树莓：明天讨论笔记本。");
         using var parsed = JsonDocument.Parse(prompt);
         await Assert.That(parsed.RootElement.GetProperty("text").GetString()).IsEqualTo(text);
-        await Assert.That(Encoding.UTF8.GetByteCount(prompt)).IsLessThan(Encoding.UTF8.GetByteCount(Json.Write(new { text })));
+        await Assert.That(Encoding.UTF8.GetByteCount(prompt))
+            .IsLessThan(Encoding.UTF8.GetByteCount(Json.Write(new { text })));
     }
 
     [Test]

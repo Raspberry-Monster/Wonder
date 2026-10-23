@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
-using Pgvector.EntityFrameworkCore;
 using Wonder.Core;
 
 namespace Wonder.Infrastructure;
 
-public class WonderDbContext(DbContextOptions<WonderDbContext> options) : IdentityUserContext<ApplicationUser, Guid>(options)
+public class WonderDbContext(DbContextOptions<WonderDbContext> options)
+    : IdentityUserContext<ApplicationUser, Guid>(options)
 {
     public DbSet<BotInstance> Bots => Set<BotInstance>();
     public DbSet<LogicalUser> LogicalUsers => Set<LogicalUser>();
@@ -25,7 +25,7 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options) : Identi
     public DbSet<DailyNarrative> Narratives => Set<DailyNarrative>();
     public DbSet<RelationshipState> Relationships => Set<RelationshipState>();
     public DbSet<RelationshipObservation> Observations => Set<RelationshipObservation>();
-    public DbSet<Core.Memory> Memories => Set<Core.Memory>();
+    public DbSet<Memory> Memories => Set<Memory>();
     public DbSet<MemoryMaintenanceCandidate> MemoryCandidates => Set<MemoryMaintenanceCandidate>();
     public DbSet<MemoryRevocation> Revocations => Set<MemoryRevocation>();
     public DbSet<EmbeddingProfile> EmbeddingProfiles => Set<EmbeddingProfile>();
@@ -53,6 +53,7 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Won
     {
         return new WonderDbContext(new DbContextOptionsBuilder<WonderDbContext>()
             .UseNpgsql(Environment.GetEnvironmentVariable("ConnectionStrings__Postgres") ??
-                       "Host=localhost;Port=5432;Database=wonder;Username=wonder;Password=wonder", o => o.UseVector()).Options);
+                       "Host=localhost;Port=5432;Database=wonder;Username=wonder;Password=wonder", o => o.UseVector())
+            .Options);
     }
 }

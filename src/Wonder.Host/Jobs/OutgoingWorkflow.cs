@@ -1,7 +1,7 @@
-using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Wonder.Infrastructure.Models;
 using Wonder.Core;
+using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 using Wonder.Platforms;
 
 namespace Wonder.Host;
@@ -22,7 +22,8 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
         // Protect already-queued replies from older versions as well, including markers split across parts.
         if (ToolCallMarkup.Contains(string.Concat(parts.Select(x => x.Text))))
         {
-            foreach (var part in parts.Where(x => x.Status == DeliveryStatus.Pending)) part.Status = DeliveryStatus.Failed;
+            foreach (var part in parts.Where(x => x.Status == DeliveryStatus.Pending))
+                part.Status = DeliveryStatus.Failed;
             var externalId = "generated:" + batch.SourceJobId;
             await db.Messages.Where(x => x.BotId == job.BotId && x.ExternalMessageId == externalId)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true), ct);
@@ -31,10 +32,12 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
                 await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 throw new DeliveryUnknownException("Unconfirmed delivery contains tool markup and requires review.");
             }
+
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
+
         foreach (var part in parts)
         {
             await db.Entry(part).ReloadAsync(ct);

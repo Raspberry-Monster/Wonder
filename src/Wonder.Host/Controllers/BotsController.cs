@@ -13,7 +13,8 @@ public sealed class BotsController(WonderDbContext db) : WonderControllerBase(db
     [ProducesResponseType<BotResponse[]>(200)]
     public async Task<IActionResult> List(CancellationToken ct)
     {
-        return Ok((await Db.Bots.AsNoTracking().Where(x => x.OwnerId == CurrentUserId).OrderBy(x => x.Name).ThenBy(x => x.Id).Take(100)
+        return Ok((await Db.Bots.AsNoTracking().Where(x => x.OwnerId == CurrentUserId).OrderBy(x => x.Name)
+            .ThenBy(x => x.Id).Take(100)
             .ToListAsync(ct)).Select(BotResponse.From));
     }
 

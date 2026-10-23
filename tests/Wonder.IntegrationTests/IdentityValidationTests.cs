@@ -1,4 +1,3 @@
-using Wonder.Host;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -21,7 +20,8 @@ public sealed class IdentityValidationTests
             .IsEqualTo(HttpStatusCode.Created);
         for (var i = 0; i < 5; i++)
             await Assert.That((await client.PostAsJsonAsync("/api/v1/auth/login",
-                new { credentials.email, password = "The-wrong-password!" })).StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
+                    new { credentials.email, password = "The-wrong-password!" })).StatusCode)
+                .IsEqualTo(HttpStatusCode.Unauthorized);
         await Assert.That((await client.PostAsJsonAsync("/api/v1/auth/login", credentials)).StatusCode)
             .IsEqualTo(HttpStatusCode.Unauthorized);
         using var scope = app.Services.CreateScope();
@@ -35,7 +35,8 @@ public sealed class IdentityValidationTests
             new { email = "LOCKED@EXAMPLE.COM", credentials.password })).StatusCode).IsEqualTo(HttpStatusCode.OK);
         await db.Entry(user).ReloadAsync();
         await Assert.That(user.AccessFailedCount).IsEqualTo(0);
-        await Assert.That((await client.PostAsync("/api/v1/auth/logout", null)).StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        await Assert.That((await client.PostAsync("/api/v1/auth/logout", null)).StatusCode)
+            .IsEqualTo(HttpStatusCode.NoContent);
         await Assert.That((await client.GetAsync("/api/v1/me")).StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
     }
 
@@ -49,8 +50,10 @@ public sealed class IdentityValidationTests
         await Assert.That((await client.PostAsJsonAsync("/api/v1/auth/register", credentials)).StatusCode)
             .IsEqualTo(HttpStatusCode.Created);
         await Assert.That((await client.PostAsJsonAsync("/api/v1/auth/register",
-            new { email = " DUPLICATE@EXAMPLE.COM ", credentials.password })).StatusCode).IsEqualTo(HttpStatusCode.Conflict);
-        var invalid = await client.PostAsJsonAsync("/api/v1/auth/register", new { email = "invalid", password = "short" });
+                new { email = " DUPLICATE@EXAMPLE.COM ", credentials.password })).StatusCode)
+            .IsEqualTo(HttpStatusCode.Conflict);
+        var invalid =
+            await client.PostAsJsonAsync("/api/v1/auth/register", new { email = "invalid", password = "short" });
         await Assert.That(invalid.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         var problem = await invalid.Content.ReadFromJsonAsync<JsonElement>();
         await Assert.That(problem.GetProperty("errors").TryGetProperty("Email", out _)).IsTrue();
@@ -66,13 +69,15 @@ public sealed class IdentityValidationTests
         var credentials = new { email = "validation@example.com", password = "A-valid-password!" };
         await client.PostAsJsonAsync("/api/v1/auth/register", credentials);
         await client.PostAsJsonAsync("/api/v1/auth/login", credentials);
-        await Assert.That((await client.PostAsJsonAsync("/api/v1/bots", new { name = "  ", identity = "ok" })).StatusCode)
+        await Assert.That((await client.PostAsJsonAsync("/api/v1/bots", new { name = "  ", identity = "ok" }))
+                .StatusCode)
             .IsEqualTo(HttpStatusCode.BadRequest);
         var created = await client.PostAsJsonAsync("/api/v1/bots", new { name = "Valid", identity = "Identity" });
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         await Assert.That((await client.PatchAsJsonAsync($"/api/v1/bots/{id}",
             new { privateIdleMinutes = 0, name = "  " })).StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        await Assert.That((await client.PutAsJsonAsync($"/api/v1/bots/{id}/model-routes", new object?[] { null })).StatusCode)
+        await Assert.That((await client.PutAsJsonAsync($"/api/v1/bots/{id}/model-routes", new object?[] { null }))
+                .StatusCode)
             .IsEqualTo(HttpStatusCode.BadRequest);
         await Assert.That((await client.PutAsJsonAsync($"/api/v1/bots/{id}/model-routes", new object[]
         {

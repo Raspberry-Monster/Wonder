@@ -26,7 +26,8 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
         var since = DateTimeOffset.UtcNow.AddDays(-30);
-        return Ok(await Db.Usage.AsNoTracking().Where(x => x.BotId == id && x.CreatedAt >= since && x.ReservationExpiresAt == null)
+        return Ok(await Db.Usage.AsNoTracking()
+            .Where(x => x.BotId == id && x.CreatedAt >= since && x.ReservationExpiresAt == null)
             .GroupBy(x => x.TaskKind)
             .Select(g => new
             {
@@ -43,8 +44,10 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
             : Ok(await Db.Outbox.AsNoTracking().Where(x => x.BotId == id).OrderByDescending(x => x.Sequence)
                 .Skip(Math.Clamp(skip ?? 0, 0, 100000)).Take(100)
                 .Select(x => new
-                    { x.Id, x.Type, x.Status, x.Attempts, x.ErrorCode, x.CreatedAt, x.NextAttemptAt, x.CorrelationId,
-                        hasProgress = x.ProgressJson != null })
+                {
+                    x.Id, x.Type, x.Status, x.Attempts, x.ErrorCode, x.CreatedAt, x.NextAttemptAt, x.CorrelationId,
+                    hasProgress = x.ProgressJson != null
+                })
                 .ToListAsync(ct));
     }
 

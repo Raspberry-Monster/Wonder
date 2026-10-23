@@ -1,4 +1,3 @@
-using Wonder.Host;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -13,9 +12,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Wonder.Core;
 using Pgvector;
-using Pgvector.EntityFrameworkCore;
+using Wonder.Core;
 using Wonder.Infrastructure;
 using Wonder.Platforms;
 
@@ -24,10 +22,10 @@ namespace Wonder.IntegrationTests;
 public sealed class TestApp : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection? connection;
-    private readonly TimeProvider? time;
     private readonly string environment;
-    private readonly bool? requireHttps;
     private readonly string? postgresConnection;
+    private readonly bool? requireHttps;
+    private readonly TimeProvider? time;
 
     public TestApp(TimeProvider? time = null, string? databaseFile = null,
         string environment = "Development", bool? requireHttps = null, string? postgresConnection = null)
@@ -70,6 +68,7 @@ public sealed class TestApp : WebApplicationFactory<Program>
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton(time);
             }
+
             services.AddSingleton<IHttpClientFactory>(new FakeHttpFactory(ModelRequests, ModelResponses,
                 request => BeforeModelResponse?.Invoke(request) ?? Task.CompletedTask));
             services.AddSingleton<IPlatformConnection>(Sender);
@@ -79,13 +78,15 @@ public sealed class TestApp : WebApplicationFactory<Program>
             var optionsBuilder = new DbContextOptionsBuilder<WonderDbContext>();
             if (postgresConnection is null) optionsBuilder.UseSqlite(connection!);
             else optionsBuilder.UseNpgsql(postgresConnection, pg => pg.UseVector());
-            var options = optionsBuilder.ConfigureWarnings(w => w.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)).Options;
+            var options = optionsBuilder
+                .ConfigureWarnings(w => w.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)).Options;
             if (postgresConnection is not null)
             {
                 services.AddSingleton<IDbContextFactory<WonderDbContext>>(new PostgresFactory(options));
                 services.AddScoped<WonderDbContext>(_ => new WonderDbContext(options));
                 return;
             }
+
             services.AddSingleton<IDbContextFactory<WonderDbContext>>(new TestFactory(options));
             services.AddScoped<WonderDbContext>(_ => new TestDb(options));
             using var db = new TestDb(options);
@@ -113,7 +114,10 @@ public sealed class TestApp : WebApplicationFactory<Program>
         }
     }
 
-    private sealed class FakeHttpFactory(List<string> requests, Queue<string> responses, Func<string, Task> beforeResponse) : IHttpClientFactory
+    private sealed class FakeHttpFactory(
+        List<string> requests,
+        Queue<string> responses,
+        Func<string, Task> beforeResponse) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name)
         {
@@ -121,22 +125,26 @@ public sealed class TestApp : WebApplicationFactory<Program>
         }
     }
 
-    private sealed class FakeHandler(List<string> requests, Queue<string> responses, Func<string, Task> beforeResponse) : HttpMessageHandler
+    private sealed class FakeHandler(List<string> requests, Queue<string> responses, Func<string, Task> beforeResponse)
+        : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var body = await request.Content!.ReadAsStringAsync(ct);
             requests.Add(body);
             await beforeResponse(body);
-            var payload = responses.Count > 0 ? responses.Dequeue() :
-                "{\"choices\":[{\"message\":{\"content\":\"这是上一轮的回复。\"}}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":8}}";
+            var payload = responses.Count > 0
+                ? responses.Dequeue()
+                : "{\"choices\":[{\"message\":{\"content\":\"这是上一轮的回复。\"}}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":8}}";
             // Real compatible APIs include the assistant role; the SDK deliberately does not invent it.
             if (JsonNode.Parse(payload) is JsonObject wire && wire["choices"] is JsonArray choices)
             {
                 foreach (var choice in choices)
-                    if (choice?["message"] is JsonObject message) message["role"] ??= "assistant";
+                    if (choice?["message"] is JsonObject message)
+                        message["role"] ??= "assistant";
                 payload = wire.ToJsonString();
             }
+
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(payload, Encoding.UTF8, "application/json")
@@ -154,7 +162,10 @@ public sealed class TestApp : WebApplicationFactory<Program>
 
     private sealed class PostgresFactory(DbContextOptions<WonderDbContext> options) : IDbContextFactory<WonderDbContext>
     {
-        public WonderDbContext CreateDbContext() => new(options);
+        public WonderDbContext CreateDbContext()
+        {
+            return new WonderDbContext(options);
+        }
     }
 
     private sealed class TestDb(DbContextOptions<WonderDbContext> options) : WonderDbContext(options)
@@ -167,9 +178,12 @@ public sealed class TestApp : WebApplicationFactory<Program>
             b.Entity<ChatMessage>().Property(x => x.Sequence).ValueGeneratedNever();
             b.Entity<OutboxMessage>().Property(x => x.Sequence).ValueGeneratedNever();
             var vector = b.Entity<MemoryEmbedding>().Property(x => x.Values)
-                .HasConversion(v => Json.Write(v.ToArray()), v => new Vector(Json.Read<float[]>(v))).HasColumnType("text");
-            vector.Metadata.SetValueComparer(new ValueComparer<Vector>((a, b) => a!.ToArray().SequenceEqual(b!.ToArray()),
-                a => a.ToArray().Aggregate(0, (x, y) => HashCode.Combine(x, y.GetHashCode())), a => new Vector(a.ToArray())));
+                .HasConversion(v => Json.Write(v.ToArray()), v => new Vector(Json.Read<float[]>(v)))
+                .HasColumnType("text");
+            vector.Metadata.SetValueComparer(new ValueComparer<Vector>(
+                (a, b) => a!.ToArray().SequenceEqual(b!.ToArray()),
+                a => a.ToArray().Aggregate(0, (x, y) => HashCode.Combine(x, y.GetHashCode())),
+                a => new Vector(a.ToArray())));
             foreach (var entity in b.Model.GetEntityTypes())
             foreach (var property in entity.GetProperties())
                 if (property.ClrType == typeof(DateTimeOffset) || property.ClrType == typeof(DateTimeOffset?))

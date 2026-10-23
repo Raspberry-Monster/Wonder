@@ -1,9 +1,6 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.AI;
-
 using Wonder.Core;
-using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.Infrastructure;
 
@@ -31,7 +28,8 @@ public static class Jobs
     }
 
     // Sending persists several intermediate states before completing the job. Fence each of those writes too.
-    public static Task<int> SaveAsync(WonderDbContext db, OutboxMessage job, Guid? expectedLeaseId, CancellationToken ct)
+    public static Task<int> SaveAsync(WonderDbContext db, OutboxMessage job, Guid? expectedLeaseId,
+        CancellationToken ct)
     {
         if (expectedLeaseId is { } lease)
         {
@@ -40,6 +38,7 @@ public static class Jobs
                 throw new DbUpdateConcurrencyException("The task lease changed during processing.");
             token.IsModified = true;
         }
+
         return db.SaveChangesAsync(ct);
     }
 
@@ -81,4 +80,3 @@ public static class Jobs
         job.Attempts = Math.Max(0, job.Attempts - 1);
     }
 }
-

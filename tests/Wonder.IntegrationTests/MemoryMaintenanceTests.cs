@@ -1,11 +1,13 @@
-using Wonder.Host;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Pgvector;
 using Wonder.Core;
+using Wonder.Host;
 using Wonder.Infrastructure;
+using Wonder.Infrastructure.Models;
 
 namespace Wonder.IntegrationTests;
 
@@ -15,13 +17,13 @@ public sealed class MemoryMaintenanceTests
     public async Task CandidateIsIsolatedUntilAdmissionAndReusesItsEmbedding()
     {
         using var app = new TestApp();
-        var f = await SeedAsync(app, existing: false);
+        var f = await SeedAsync(app, false);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That(await db.Memories.CountAsync()).IsEqualTo(0);
         await Assert.That((await db.MemoryCandidates.SingleAsync()).Status).IsEqualTo(MemoryMaintenanceStatus.Pending);
         await Assert.That(await scope.ServiceProvider.GetRequiredService<MemoryService>()
-            .RetrieveAsync(new(f.Bot, f.User, null), "住哪里", default)).IsEmpty();
+            .RetrieveAsync(new MemoryAccess(f.Bot, f.User, null), "住哪里", default)).IsEmpty();
         app.ModelResponses.Enqueue(Vector());
         await RunAsync(app, f.Job);
         await RunAsync(app, f.Job); // Retrying a committed job cannot duplicate either evidence or jobs.
@@ -49,9 +51,13 @@ public sealed class MemoryMaintenanceTests
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
         var share = await service.ShareAsync(f.User, f.Old!.Value, MemoryScope.UserShared, default);
         // A reply using the old fact must stop contributing to future context after a replacement.
-        db.Messages.Add(new ChatMessage { BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session,
+        db.Messages.Add(new ChatMessage
+        {
+            BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session,
             ExternalMessageId = "reply", Role = "assistant", Text = "你住杭州。",
-            ContextSnapshotJson = Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, null, 0, 0, [f.Old.Value], "model")) });
+            ContextSnapshotJson =
+                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, null, 0, 0, [f.Old.Value], "model"))
+        });
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(Decision(action, action == MemoryMaintenanceAction.Defer ? null : f.Old,
@@ -72,10 +78,13 @@ public sealed class MemoryMaintenanceTests
         else
         {
             await Assert.That(old.ArchivedAt).IsNotNull();
-            await Assert.That((await db.Memories.SingleAsync(x => x.Id == share)).Status).IsEqualTo(MemoryStatus.Revoked);
-            await Assert.That((await db.Messages.SingleAsync(x => x.ExternalMessageId == "reply")).ContextInvalidated).IsTrue();
+            await Assert.That((await db.Memories.SingleAsync(x => x.Id == share)).Status)
+                .IsEqualTo(MemoryStatus.Revoked);
+            await Assert.That((await db.Messages.SingleAsync(x => x.ExternalMessageId == "reply")).ContextInvalidated)
+                .IsTrue();
             await Assert.That(await db.Embeddings.AnyAsync(x => x.MemoryId == old.Id)).IsFalse();
-            await Assert.That(await MemoryQueries.Authorized(db, new(f.Bot, f.User, null)).AnyAsync(x => x.Id == old.Id)).IsFalse();
+            await Assert.That(await MemoryQueries.Authorized(db, new MemoryAccess(f.Bot, f.User, null))
+                .AnyAsync(x => x.Id == old.Id)).IsFalse();
             if (action != MemoryMaintenanceAction.Archive)
             {
                 var current = await db.Memories.SingleAsync(x => x.SharedFromMemoryId == null && x.ArchivedAt == null);
@@ -84,6 +93,7 @@ public sealed class MemoryMaintenanceTests
                 await Assert.That(await db.Embeddings.AnyAsync(x => x.MemoryId == current.Id)).IsTrue();
             }
         }
+
         using var request = JsonDocument.Parse(app.ModelRequests[1]);
         var data = request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
         await Assert.That(data).Contains(f.Old!.Value.ToString());
@@ -137,14 +147,24 @@ public sealed class MemoryMaintenanceTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var other = new LogicalUser { AllowMemory = true };
         db.LogicalUsers.Add(other);
-        var foreign = new Core.Memory { BotId = f.Bot, SubjectId = other.Id, ScopeOwnerId = other.Id.ToString(),
-            Text = "FOREIGN_AUTHOR_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active };
-        var group = new Core.Memory { BotId = f.Bot, SubjectId = f.User, Scope = MemoryScope.GroupUser,
-            ScopeOwnerId = "other-group", Text = "FOREIGN_SCOPE_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active };
+        var foreign = new Memory
+        {
+            BotId = f.Bot, SubjectId = other.Id, ScopeOwnerId = other.Id.ToString(),
+            Text = "FOREIGN_AUTHOR_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active
+        };
+        var group = new Memory
+        {
+            BotId = f.Bot, SubjectId = f.User, Scope = MemoryScope.GroupUser,
+            ScopeOwnerId = "other-group", Text = "FOREIGN_SCOPE_SECRET", FactKey = "new-home-key",
+            Status = MemoryStatus.Active
+        };
         db.Memories.AddRange(foreign, group);
         var profile = await db.EmbeddingProfiles.SingleAsync();
-        db.Embeddings.AddRange(new MemoryEmbedding { MemoryId = foreign.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) },
-            new MemoryEmbedding { MemoryId = group.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
+        db.Embeddings.AddRange(
+            new MemoryEmbedding
+                { MemoryId = foreign.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 1, 0, 0 }) },
+            new MemoryEmbedding
+                { MemoryId = group.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 1, 0, 0 }) });
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(Decision(MemoryMaintenanceAction.Merge, foreign.Id));
@@ -170,7 +190,9 @@ public sealed class MemoryMaintenanceTests
         db.ChangeTracker.Clear();
         await Assert.That(await db.Memories.AnyAsync(x => x.Text != "" || x.Status != MemoryStatus.Revoked)).IsFalse();
         await Assert.That(await db.Embeddings.AnyAsync()).IsFalse();
-        await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.Text != "" || x.Reason != "" || x.EvidenceJson != "[]")).IsFalse();
+        await Assert
+            .That(await db.MemoryCandidates.AnyAsync(x => x.Text != "" || x.Reason != "" || x.EvidenceJson != "[]"))
+            .IsFalse();
     }
 
     [Test]
@@ -207,7 +229,7 @@ public sealed class MemoryMaintenanceTests
         using var app = new TestApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue("""{"data":[{"index":0,"embedding":[0,0,0]}]}""");
-        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<Wonder.Infrastructure.Models.ModelResponseException>();
+        await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<ModelResponseException>();
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That((await db.Memories.SingleAsync()).Text).IsEqualTo("我住杭州。");
@@ -221,7 +243,8 @@ public sealed class MemoryMaintenanceTests
         using var app = new TestApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue(Vector());
-        app.ModelResponses.Enqueue("""{"choices":[{"finish_reason":"length","message":{"content":"{}"}}],"usage":{"prompt_tokens":20,"completion_tokens":1024}}""");
+        app.ModelResponses.Enqueue(
+            """{"choices":[{"finish_reason":"length","message":{"content":"{}"}}],"usage":{"prompt_tokens":20,"completion_tokens":1024}}""");
         await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<OutputLimitException>();
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -251,7 +274,8 @@ public sealed class MemoryMaintenanceTests
         using var verify = app.Services.CreateScope();
         var db = verify.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That(await db.Memories.AnyAsync(x => x.Text == "我现在住上海。")).IsFalse();
-        await Assert.That((await db.MemoryCandidates.SingleAsync()).Status).IsEqualTo(MemoryMaintenanceStatus.Cancelled);
+        await Assert.That((await db.MemoryCandidates.SingleAsync()).Status)
+            .IsEqualTo(MemoryMaintenanceStatus.Cancelled);
         await Assert.That((await db.MemoryCandidates.SingleAsync()).Text).IsEqualTo("");
     }
 
@@ -259,14 +283,17 @@ public sealed class MemoryMaintenanceTests
     public async Task ConcurrentNewFactForcesReevaluationInsteadOfDuplicateAdmission()
     {
         using var app = new TestApp();
-        var f = await SeedAsync(app, existing: false);
+        var f = await SeedAsync(app, false);
         app.ModelResponses.Enqueue(Vector());
         app.BeforeModelResponse = async _ =>
         {
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-            db.Memories.Add(new Core.Memory { BotId = f.Bot, SubjectId = f.User, ScopeOwnerId = f.User.ToString(),
-                Text = "我现在住上海。", FactKey = "concurrently-added", Status = MemoryStatus.Active });
+            db.Memories.Add(new Memory
+            {
+                BotId = f.Bot, SubjectId = f.User, ScopeOwnerId = f.User.ToString(),
+                Text = "我现在住上海。", FactKey = "concurrently-added", Status = MemoryStatus.Active
+            });
             await db.SaveChangesAsync();
         };
         await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<DbUpdateConcurrencyException>();
@@ -306,7 +333,8 @@ public sealed class MemoryMaintenanceTests
         await db.SaveChangesAsync();
         await RunAsync(app, f.Job);
         await Assert.That(app.ModelRequests).IsEmpty();
-        await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == f.Job)).Status).IsEqualTo(JobStatus.Pending);
+        await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == f.Job)).Status)
+            .IsEqualTo(JobStatus.Pending);
         var backfill = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Embedding);
         app.ModelResponses.Enqueue(Vector());
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().EmbedAsync(backfill.Id, default);
@@ -323,6 +351,7 @@ public sealed class MemoryMaintenanceTests
     {
         using var app = new TestApp();
         var f = await SeedAsync(app);
+
         async Task<HttpClient> Login(string name, Guid user)
         {
             var client = app.CreateClient();
@@ -336,6 +365,7 @@ public sealed class MemoryMaintenanceTests
             await db.SaveChangesAsync();
             return client;
         }
+
         using var own = await Login("self", f.User);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -348,17 +378,27 @@ public sealed class MemoryMaintenanceTests
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(Decision(MemoryMaintenanceAction.Update, f.Old, "我现在住上海。"));
         await RunAsync(app, f.Job);
-        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memories")).GetArrayLength()).IsEqualTo(1);
-        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memories?includeArchived=true")).GetArrayLength()).IsEqualTo(2);
-        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memory-maintenance")).GetArrayLength()).IsEqualTo(1);
-        await Assert.That((await stranger.GetFromJsonAsync<JsonElement>("/api/v1/me/memory-maintenance")).GetArrayLength()).IsEqualTo(0);
-        await Assert.That((await own.PutAsJsonAsync("/api/v1/me/memory-settings", new { allowMemory = true,
-            allowMemoryMerge = false, allowMemoryUpdate = false, allowMemoryArchive = false, retainMemoryHistory = false })).StatusCode)
+        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memories")).GetArrayLength())
+            .IsEqualTo(1);
+        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memories?includeArchived=true"))
+            .GetArrayLength()).IsEqualTo(2);
+        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memory-maintenance")).GetArrayLength())
+            .IsEqualTo(1);
+        await Assert
+            .That((await stranger.GetFromJsonAsync<JsonElement>("/api/v1/me/memory-maintenance")).GetArrayLength())
+            .IsEqualTo(0);
+        await Assert.That((await own.PutAsJsonAsync("/api/v1/me/memory-settings", new
+            {
+                allowMemory = true,
+                allowMemoryMerge = false, allowMemoryUpdate = false, allowMemoryArchive = false,
+                retainMemoryHistory = false
+            })).StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         var settings = await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memory-settings");
         await Assert.That(settings.GetProperty("allowMemoryUpdate").GetBoolean()).IsFalse();
         await Assert.That(settings.GetProperty("retainMemoryHistory").GetBoolean()).IsFalse();
-        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memories?includeArchived=true")).GetArrayLength()).IsEqualTo(1);
+        await Assert.That((await own.GetFromJsonAsync<JsonElement>("/api/v1/me/memories?includeArchived=true"))
+            .GetArrayLength()).IsEqualTo(1);
     }
 
     internal static async Task RunAsync(TestApp app, Guid job)
@@ -367,13 +407,29 @@ public sealed class MemoryMaintenanceTests
         await scope.ServiceProvider.GetRequiredService<MemoryMaintenanceWorkflow>().RunAsync(job, default);
     }
 
-    internal static string Vector() => """{"data":[{"index":0,"embedding":[1,0,0]}]}""";
-    internal static string Decision(MemoryMaintenanceAction action, Guid? target, string? text = null) => Json.Write(new
+    internal static string Vector()
     {
-        choices = new[] { new { finish_reason = "stop", message = new
-            { content = Json.Write(new MemoryMaintenanceDecision(action, target, text, "Based on explicit evidence.")) } } },
-        usage = new { prompt_tokens = 20, completion_tokens = 20 }
-    });
+        return """{"data":[{"index":0,"embedding":[1,0,0]}]}""";
+    }
+
+    internal static string Decision(MemoryMaintenanceAction action, Guid? target, string? text = null)
+    {
+        return Json.Write(new
+        {
+            choices = new[]
+            {
+                new
+                {
+                    finish_reason = "stop", message = new
+                    {
+                        content = Json.Write(new MemoryMaintenanceDecision(action, target, text,
+                            "Based on explicit evidence."))
+                    }
+                }
+            },
+            usage = new { prompt_tokens = 20, completion_tokens = 20 }
+        });
+    }
 
     internal static async Task<Fixture> SeedAsync(TestApp app, bool existing = true, string text = "我现在住上海。")
     {
@@ -384,37 +440,65 @@ public sealed class MemoryMaintenanceTests
         var user = new LogicalUser { AllowMemory = true, AllowCrossGroupMemory = true };
         var conversation = new Conversation { BotId = bot.Id };
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
-        var message = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = session.Id,
+        var message = new ChatMessage
+        {
+            BotId = bot.Id, ConversationId = conversation.Id, SessionId = session.Id,
             SenderId = user.Id, AllowReflection = true, ExternalMessageId = "source", Text = text,
-            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1) };
-        db.Users.Add(owner); db.Bots.Add(bot); db.LogicalUsers.Add(user);
-        db.Conversations.Add(conversation); db.Sessions.Add(session); db.Messages.Add(message);
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        db.Users.Add(owner);
+        db.Bots.Add(bot);
+        db.LogicalUsers.Add(user);
+        db.Conversations.Add(conversation);
+        db.Sessions.Add(session);
+        db.Messages.Add(message);
         var secret = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key");
         foreach (var kind in new[] { TaskKind.Embedding, TaskKind.StrongReflection })
-            db.Models.Add(new ModelProfile { BotId = bot.Id, TaskKind = kind, Endpoint = "https://model.example/v1/",
-                Model = kind.ToString(), EmbeddingDimensions = 3, ProtectedApiKey = secret, SupportsJson = true });
-        Core.Memory? memory = null;
+            db.Models.Add(new ModelProfile
+            {
+                BotId = bot.Id, TaskKind = kind, Endpoint = "https://model.example/v1/",
+                Model = kind.ToString(), EmbeddingDimensions = 3, ProtectedApiKey = secret, SupportsJson = true
+            });
+        Memory? memory = null;
         if (existing)
         {
-            memory = new Core.Memory { BotId = bot.Id, SubjectId = user.Id, ScopeOwnerId = user.Id.ToString(),
-                FactKey = "old-home-key", Text = "我住杭州。", Status = MemoryStatus.Active, CreatedAt = DateTimeOffset.UtcNow.AddDays(-2) };
-            var profile = new EmbeddingProfile { BotId = bot.Id, Provider = "https://model.example/v1/", Model = "Embedding", Dimensions = 3 };
-            db.Memories.Add(memory); db.EmbeddingProfiles.Add(profile);
-            db.Embeddings.Add(new MemoryEmbedding { MemoryId = memory.Id, ProfileId = profile.Id, Values = new(new float[] { 1, 0, 0 }) });
+            memory = new Memory
+            {
+                BotId = bot.Id, SubjectId = user.Id, ScopeOwnerId = user.Id.ToString(),
+                FactKey = "old-home-key", Text = "我住杭州。", Status = MemoryStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow.AddDays(-2)
+            };
+            var profile = new EmbeddingProfile
+                { BotId = bot.Id, Provider = "https://model.example/v1/", Model = "Embedding", Dimensions = 3 };
+            db.Memories.Add(memory);
+            db.EmbeddingProfiles.Add(profile);
+            db.Embeddings.Add(new MemoryEmbedding
+                { MemoryId = memory.Id, ProfileId = profile.Id, Values = new Vector(new float[] { 1, 0, 0 }) });
         }
+
         await db.SaveChangesAsync();
         var proposal = new MemoryCandidate("new-home-key", text, true, false, [message.Id]);
-        var reflection = new ReflectionResult { BotId = bot.Id, SubjectId = user.Id, SessionId = session.Id,
+        var reflection = new ReflectionResult
+        {
+            BotId = bot.Id, SubjectId = user.Id, SessionId = session.Id,
             Boundary = message.Sequence, RevocationEpoch = user.RevocationEpoch,
-            Payload = Json.Write(new ReflectionProposal(false, null, [], [proposal, proposal])) };
+            Payload = Json.Write(new ReflectionProposal(false, null, [], [proposal, proposal]))
+        };
         db.Reflections.Add(reflection);
         var job = Jobs.Add(db, bot.Id, JobTypes.Memory, new IdPayload(reflection.Id));
         await db.SaveChangesAsync();
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, default);
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, default);
         var maintenance = await db.Outbox.SingleAsync(x => x.Type == JobTypes.MemoryMaintenance);
-        return new(bot.Id, user.Id, conversation.Id, session.Id, message.Id, memory?.Id, maintenance.Id);
+        return new Fixture(bot.Id, user.Id, conversation.Id, session.Id, message.Id, memory?.Id, maintenance.Id);
     }
 
-    internal sealed record Fixture(Guid Bot, Guid User, Guid Conversation, Guid Session, Guid Evidence, Guid? Old, Guid Job);
+    internal sealed record Fixture(
+        Guid Bot,
+        Guid User,
+        Guid Conversation,
+        Guid Session,
+        Guid Evidence,
+        Guid? Old,
+        Guid Job);
 }

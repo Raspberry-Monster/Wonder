@@ -8,6 +8,7 @@ namespace Wonder.Core;
 public static class EventContracts
 {
     public const int Version = 2;
+
     public static IReadOnlyDictionary<string, Type> PayloadTypes { get; } = new Dictionary<string, Type>
     {
         [JobTypes.Chat] = typeof(IdPayload), [JobTypes.Outgoing] = typeof(IdPayload),
@@ -39,9 +40,15 @@ public static class EventContracts
                 ["type"] = "string", ["contentMediaType"] = "application/json",
                 ["contentSchema"] = options.GetJsonSchemaAsNode(payload)
             };
-            schema["required"] = new JsonArray("id", "botId", "type", "schemaVersion", "payload", "correlationId", "createdAt");
+            schema["required"] = new JsonArray("id", "botId", "type", "schemaVersion", "payload", "correlationId",
+                "createdAt");
             branches.Add(schema);
         }
-        return new JsonObject { ["$schema"] = "https://json-schema.org/draft/2020-12/schema", ["title"] = "Wonder durable events v2", ["oneOf"] = branches };
+
+        return new JsonObject
+        {
+            ["$schema"] = "https://json-schema.org/draft/2020-12/schema", ["title"] = "Wonder durable events v2",
+            ["oneOf"] = branches
+        };
     }
 }

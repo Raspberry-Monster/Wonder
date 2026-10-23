@@ -8,7 +8,8 @@ using Wonder.Infrastructure.Models;
 namespace Wonder.Host.Controllers;
 
 [Route("/api/v1/bots/{id:guid}/model-routes")]
-public sealed class ModelRoutesController(WonderDbContext db, SecretProtector secrets, TokenCounter tokenizers) : WonderControllerBase(db)
+public sealed class ModelRoutesController(WonderDbContext db, SecretProtector secrets, TokenCounter tokenizers)
+    : WonderControllerBase(db)
 {
     [HttpGet("tokenizers")]
     [ProducesResponseType<TokenizerResponse[]>(200)]
@@ -28,7 +29,8 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
             new ModelRouteResponse(
                 x.Id, x.TaskKind, x.Endpoint, x.Model, x.ContextWindow, x.MaxOutputTokens, x.SupportsImages,
                 x.SupportsJson, x.SupportsTools, x.ThinkingEnabled, x.ReasoningEffort, x.EmbeddingDimensions,
-                x.InputCostPerMillion, x.OutputCostPerMillion, x.TokenizerId, x.MessageTokenOverhead, x.ImageTokenBudget,
+                x.InputCostPerMillion, x.OutputCostPerMillion, x.TokenizerId, x.MessageTokenOverhead,
+                x.ImageTokenBudget,
                 x.ProtectedApiKey != "", tokenizers.Resolve(x)
             )).ToArray());
     }

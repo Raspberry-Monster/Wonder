@@ -1,8 +1,8 @@
-using Wonder.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Wonder.Core;
 using Wonder.Host.Features.Emotion;
+using Wonder.Infrastructure;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.Host;
@@ -80,10 +80,12 @@ public sealed class MaintenanceWorkflow(
         foreach (var bot in bots)
         {
             // Catch up the latest missed day, not an unbounded backlog of stale AI generations.
-            if (await db.Outbox.AnyAsync(x => x.BotId == bot && x.Type == JobTypes.Maintenance && x.ScheduledDate == today, ct)) continue;
+            if (await db.Outbox.AnyAsync(
+                    x => x.BotId == bot && x.Type == JobTypes.Maintenance && x.ScheduledDate == today, ct)) continue;
             var job = Jobs.Add(db, bot, JobTypes.Maintenance, new DailyJob(today));
             job.ScheduledDate = today;
         }
+
         await db.SaveChangesAsync(ct);
     }
 
@@ -91,7 +93,8 @@ public sealed class MaintenanceWorkflow(
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = clock.UtcNow;
-        var expiredIds = await db.Messages.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id).Select(x => x.Id)
+        var expiredIds = await db.Messages.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id)
+            .Select(x => x.Id)
             .Take(250).ToListAsync(ct);
         await db.Messages.Where(x => expiredIds.Contains(x.Id)).ExecuteDeleteAsync(ct);
         var assets = await db.Media.Where(x => x.ExpiresAt <= now || !db.Messages.Any(m => m.Id == x.MessageId))
@@ -165,6 +168,7 @@ public sealed class MaintenanceWorkflow(
             await summaries.RunAsync(jobId, ct, expectedLeaseId);
             return;
         }
+
         Jobs.Complete(db, job);
         await db.SaveChangesAsync(ct);
     }

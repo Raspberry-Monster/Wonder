@@ -10,7 +10,7 @@ public sealed class MemoryEmbeddingConfiguration : IEntityTypeConfiguration<Memo
     {
         builder.HasKey(x => new { x.MemoryId, x.ProfileId });
         builder.Property(x => x.Values).HasColumnType("vector");
-        builder.HasOne<Core.Memory>().WithMany().HasForeignKey(x => x.MemoryId);
+        builder.HasOne<Memory>().WithMany().HasForeignKey(x => x.MemoryId);
         builder.HasOne<EmbeddingProfile>().WithMany().HasForeignKey(x => x.ProfileId);
     }
 }

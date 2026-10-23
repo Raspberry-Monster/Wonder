@@ -12,11 +12,9 @@ public sealed record TokenizerDefinition(string Id, IReadOnlyList<string> Models
 
 public sealed class TokenCounter : IDisposable
 {
-    private readonly Dictionary<string, string> paths;
     private readonly Dictionary<string, string> modelTokenizers;
+    private readonly Dictionary<string, string> paths;
     private readonly ConcurrentDictionary<string, Lazy<Tokenizer>> tokenizers = new();
-
-    public IReadOnlyList<TokenizerDefinition> Available { get; }
 
     public TokenCounter(string directory)
     {
@@ -28,20 +26,37 @@ public sealed class TokenCounter : IDisposable
         Available = paths.Select(entry =>
         {
             var aliases = Path.Combine(Path.GetDirectoryName(entry.Value)!, "models.json");
-            return new TokenizerDefinition(entry.Key, File.Exists(aliases) ? Json.Read<string[]>(File.ReadAllText(aliases)) : []);
+            return new TokenizerDefinition(entry.Key,
+                File.Exists(aliases) ? Json.Read<string[]>(File.ReadAllText(aliases)) : []);
         }).ToArray();
         modelTokenizers = Available.SelectMany(item => item.Models.Prepend(item.Id)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Select(model => (Model: model, item.Id)))
             .ToDictionary(item => item.Model, item => item.Id, StringComparer.OrdinalIgnoreCase);
     }
 
-    public bool Contains(string id) => id is "auto" or "estimate" || paths.ContainsKey(id);
+    public IReadOnlyList<TokenizerDefinition> Available { get; }
 
-    public string Resolve(ModelProfile profile) => profile.TokenizerId == "auto"
-        ? modelTokenizers.GetValueOrDefault(profile.Model, "estimate")
-        : profile.TokenizerId;
+    public void Dispose()
+    {
+        foreach (var item in tokenizers.Values.Where(x => x.IsValueCreated)) item.Value.Dispose();
+    }
 
-    public static int Estimate(string text) => Encoding.UTF8.GetByteCount(text);
+    public bool Contains(string id)
+    {
+        return id is "auto" or "estimate" || paths.ContainsKey(id);
+    }
+
+    public string Resolve(ModelProfile profile)
+    {
+        return profile.TokenizerId == "auto"
+            ? modelTokenizers.GetValueOrDefault(profile.Model, "estimate")
+            : profile.TokenizerId;
+    }
+
+    public static int Estimate(string text)
+    {
+        return Encoding.UTF8.GetByteCount(text);
+    }
 
     public int Text(ModelProfile profile, string text)
     {
@@ -71,19 +86,16 @@ public sealed class TokenCounter : IDisposable
                 count += content switch
                 {
                     FunctionCallContent call => Text(profile, call.Name + Json.ForPrompt(call.Arguments)) + 32,
-                    FunctionResultContent result => Text(profile, result.Result is string text ? text : Json.ForPrompt(result.Result)) + 32,
+                    FunctionResultContent result => Text(profile,
+                        result.Result is string text ? text : Json.ForPrompt(result.Result)) + 32,
                     TextReasoningContent thought => Text(profile, thought.Text ?? ""),
                     DataContent or UriContent => profile.ImageTokenBudget,
                     _ => 0
                 };
         }
+
         foreach (var tool in tools?.OfType<AIFunctionDeclaration>() ?? [])
             count += Text(profile, tool.JsonSchema.GetRawText() + tool.Description + tool.Name) + 128;
         return count;
-    }
-
-    public void Dispose()
-    {
-        foreach (var item in tokenizers.Values.Where(x => x.IsValueCreated)) item.Value.Dispose();
     }
 }

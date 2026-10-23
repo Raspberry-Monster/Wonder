@@ -30,6 +30,7 @@ public sealed class RequestValidationFilter : IAsyncActionFilter
             });
             return;
         }
+
         await next();
     }
 }

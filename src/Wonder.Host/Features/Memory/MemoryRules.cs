@@ -9,15 +9,20 @@ public static class MemoryRules
     {
         var space = access.ContextSpaceId?.ToString();
         var user = access.UserId.ToString();
-        return memory => memory.BotId == access.BotId && memory.Status != MemoryStatus.Revoked && memory.ArchivedAt == null &&
-            ((access.GroupId == null
-                ? access.AllowPersonal && memory.SubjectId == access.UserId && memory.Scope == MemoryScope.Private
-                : (access.AllowPersonal && memory.Scope == MemoryScope.GroupUser && memory.SubjectId == access.UserId && memory.ScopeOwnerId == access.GroupId)
-                  || (memory.Scope == MemoryScope.GroupShared && memory.ScopeOwnerId == access.GroupId)
-                  || memory.Scope == MemoryScope.GlobalPublic)
-             || (access.AllowPersonal && access.AllowUserShared && memory.Scope == MemoryScope.UserShared &&
-                 memory.SubjectId == access.UserId && memory.ScopeOwnerId == user)
-             || (access.GroupId != null && space != null && memory.Scope == MemoryScope.SpaceShared && memory.ScopeOwnerId == space));
+        return memory => memory.BotId == access.BotId && memory.Status != MemoryStatus.Revoked &&
+                         memory.ArchivedAt == null &&
+                         ((access.GroupId == null
+                              ? access.AllowPersonal && memory.SubjectId == access.UserId &&
+                                memory.Scope == MemoryScope.Private
+                              : (access.AllowPersonal && memory.Scope == MemoryScope.GroupUser &&
+                                 memory.SubjectId == access.UserId && memory.ScopeOwnerId == access.GroupId)
+                                || (memory.Scope == MemoryScope.GroupShared && memory.ScopeOwnerId == access.GroupId)
+                                || memory.Scope == MemoryScope.GlobalPublic)
+                          || (access.AllowPersonal && access.AllowUserShared &&
+                              memory.Scope == MemoryScope.UserShared &&
+                              memory.SubjectId == access.UserId && memory.ScopeOwnerId == user)
+                          || (access.GroupId != null && space != null && memory.Scope == MemoryScope.SpaceShared &&
+                              memory.ScopeOwnerId == space));
     }
 
     public static bool CanAdmit(MemoryCandidate candidate, bool consent, long sourceEpoch, long currentEpoch,
