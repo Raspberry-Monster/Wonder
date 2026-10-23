@@ -8,7 +8,7 @@ public sealed record ContextTurn(
 {
     public string ModelText => (SpeakerTag is null || Role == "assistant" ? "" :
         $"[Message author: {SpeakerTag}]\n" +
-        (string.IsNullOrWhiteSpace(PreferredName) ? "" : $"[Preferred form of address: {Json.Write(PreferredName)}]\n")) +
+        (string.IsNullOrWhiteSpace(PreferredName) ? "" : $"[Preferred form of address: {Json.ForPrompt(PreferredName)}]\n")) +
         (SentAt is { } at ? $"[Message time: {at:O}]\n" : "") + Text;
 }
 
@@ -84,7 +84,7 @@ public sealed class ContextBuilder(PromptComposer composer)
             var author = input.ConversationId is { } conversationId ? SpeakerTags.For(conversationId, memory.SubjectId) : "unknown";
             var name = input.AuthorNames?.GetValueOrDefault(memory.SubjectId);
             var label = $"Memory; scope={memory.Scope}; author={author}" +
-                        (string.IsNullOrWhiteSpace(name) ? "" : $"; preferredName={Json.Write(name)}");
+                        (string.IsNullOrWhiteSpace(name) ? "" : $"; preferredName={Json.ForPrompt(name)}");
             Add(label, memory.Text);
             if (references.Count > before) ids.Add(memory.Id);
         }

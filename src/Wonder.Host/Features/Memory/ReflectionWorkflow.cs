@@ -56,7 +56,7 @@ public sealed class ReflectionWorkflow(
                            """;
         var sourceData = source.Select(x => new { id = x.Id, speaker = SpeakerTags.For(conv.Id, x.SenderId, x.Role), text = x.Text }).ToArray();
         var request = new[]
-            { new AiMessage(ChatRole.System, instructions), new AiMessage(ChatRole.User, Json.Write(sourceData)) };
+            { new AiMessage(ChatRole.System, instructions), new AiMessage(ChatRole.User, Json.ForPrompt(sourceData)) };
         var response = await models.GenerateAsync(profile, request, true, ct);
         var proposal = Parse(response.Text);
         if (proposal.NeedsStrongReview)

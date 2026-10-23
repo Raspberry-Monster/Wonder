@@ -160,8 +160,8 @@ public sealed class SharedContextTests
         using var request = JsonDocument.Parse(app.ModelRequests[0]);
         var messages = request.RootElement.GetProperty("messages").EnumerateArray().ToArray();
         var current = messages[^1].GetProperty("content").GetString()!;
-        await Assert.That(current).Contains(Json.Write("小李"));
-        await Assert.That(current).DoesNotContain(Json.Write("小明"));
+        await Assert.That(current).Contains("\"小李\"");
+        await Assert.That(current).DoesNotContain("小明");
         await Assert.That(current).DoesNotContain("树莓");
         var reference = messages[1].GetProperty("content").GetString()!;
         var conversation = await db.Conversations.AsNoTracking().SingleAsync(x => x.BotId == f.BotId && x.ExternalId == "10002");
@@ -171,7 +171,7 @@ public sealed class SharedContextTests
         await Send("alice-1", "11111", "10003", "请简短些");
         using var otherRequest = JsonDocument.Parse(app.ModelRequests[1]);
         var other = otherRequest.RootElement.GetProperty("messages").EnumerateArray().ToArray();
-        await Assert.That(other[^1].GetProperty("content").GetString()!).Contains(Json.Write("小明"));
+        await Assert.That(other[^1].GetProperty("content").GetString()!).Contains("\"小明\"");
         await Assert.That(other[1].GetProperty("content").GetString()!).Contains("scope=UserShared");
         await Assert.That(app.ModelRequests[1]).DoesNotContain("继续讨论部署");
         await Assert.That(app.ModelRequests[1]).DoesNotContain(f.AliceId.ToString());

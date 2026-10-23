@@ -1,4 +1,5 @@
 using Wonder.Host;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Wonder.Infrastructure.Models;
@@ -53,6 +54,10 @@ public sealed class ReflectionResponseTests
         var workflow = scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>();
         await Assert.That(() => workflow.GenerateAsync(jobId, default)).ThrowsExactly<ModelResponseException>();
         await workflow.GenerateAsync(jobId, default);
+        using var request = JsonDocument.Parse(app.ModelRequests[^1]);
+        var content = request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        await Assert.That(content).Contains("我喜欢简短回复。");
+        await Assert.That(content).DoesNotContain("\\u6211");
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var result = await db.Reflections.SingleAsync(x => x.BotId == botId);
         var proposal = Json.Read<ReflectionProposal>(result.Payload);
@@ -80,7 +85,7 @@ public sealed class ReflectionResponseTests
         var conversation = new Conversation { BotId = bot.Id };
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
         var message = new ChatMessage { BotId = bot.Id, ConversationId = conversation.Id, SessionId = session.Id,
-            SenderId = user.Id, AllowReflection = true, ExternalMessageId = "1", Text = "I prefer short answers." };
+            SenderId = user.Id, AllowReflection = true, ExternalMessageId = "1", Text = "我喜欢简短回复。" };
         db.Users.Add(owner);
         db.Bots.Add(bot);
         db.LogicalUsers.Add(user);

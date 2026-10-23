@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -9,6 +10,12 @@ public static class Json
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
+
+    // Model message text is data, never inline HTML. Keep storage serialization stable for payload hashes.
+    private static readonly JsonSerializerOptions PromptOptions = new(Options)
+        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    public static string ForPrompt<T>(T value) => JsonSerializer.Serialize(value, PromptOptions);
 
     public static string Write<T>(T value)
     {

@@ -43,6 +43,7 @@ public sealed class SpeakerContextTests
         await Assert.That(current.StartsWith($"[Message author: {secondTag}]", StringComparison.Ordinal)).IsTrue();
         await Assert.That(current).Contains("我也叫小明");
         await Assert.That(current).Contains($"\"speaker\":\"{firstTag}\"");
+        await Assert.That(current).Contains("我叫小明，我喜欢蓝色。");
         await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "user" &&
             m.GetProperty("content").GetString()!.StartsWith($"[Message author: {firstTag}]", StringComparison.Ordinal))).IsTrue();
         await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "assistant" &&

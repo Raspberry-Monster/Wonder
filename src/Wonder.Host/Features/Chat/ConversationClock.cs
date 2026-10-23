@@ -14,7 +14,7 @@ public sealed class ConversationClock(TimeProvider time, IConfiguration configur
     public string Context(DateTimeOffset currentMessageAt, DateTimeOffset? previousMessageAt, bool continued)
     {
         var now = UtcNow;
-        return Json.Write(new
+        return Json.ForPrompt(new
         {
             currentTime = Local(now).ToString("O", CultureInfo.InvariantCulture),
             utcTime = now.ToString("O", CultureInfo.InvariantCulture),

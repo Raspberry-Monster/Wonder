@@ -114,7 +114,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                         Respect policy: allowMemoryMerge controls Merge; allowMemoryUpdate controls Supplement and Update; allowMemoryArchive controls Archive.
                         Do not change consent, policy, scope or sharing. If uncertain use Defer.
                         """),
-                    new AiMessage(ChatRole.User, Json.Write(new
+                    new AiMessage(ChatRole.User, Json.ForPrompt(new
                     {
                         policy = new { user.AllowMemoryMerge, user.AllowMemoryUpdate, user.AllowMemoryArchive, user.RetainMemoryHistory },
                         candidate = new { candidate.FactKey, candidate.Text, evidenceIds = Json.Read<Guid[]>(candidate.EvidenceJson) },

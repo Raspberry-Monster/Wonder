@@ -253,11 +253,37 @@ public sealed class ConversationContinuityTests
         await finalDb.SaveChangesAsync();
         await finalScope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, default);
         using var summaryRequest = JsonDocument.Parse(app.ModelRequests[1]);
-        using var summaryInput = JsonDocument.Parse(summaryRequest.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        var summaryContent = summaryRequest.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        await Assert.That(summaryContent).Contains("小屋配色仍待确定。");
+        await Assert.That(summaryContent).Contains("配色细节");
+        await Assert.That(summaryContent).DoesNotContain("\\u5C0F");
+        using var summaryInput = JsonDocument.Parse(summaryContent);
         await Assert.That(summaryInput.RootElement.GetProperty("previous").GetString()).IsEqualTo("小屋配色仍待确定。");
         var saved = await finalDb.Summaries.AsNoTracking().SingleAsync(x => x.SessionId == next.Message.SessionId);
         await Assert.That(Json.Read<Guid[]>(saved.MemoryIdsJson)).Contains(memoryId);
         await Assert.That(Json.Read<Guid[]>(saved.MessageIdsJson)).Contains(first.Message.Id);
+    }
+
+    [Test]
+    public async Task ExistingEscapedRelationshipPreferencesReachTheModelAsChineseWithoutRewritingStorage()
+    {
+        using var app = new TestApp(new Clock(Start));
+        var f = await SeedAsync(app);
+        var next = await QueueAsync(app, f.Binding, "preferences", "你好");
+        const string stored = "[\"\\u559C\\u6B22\\u7B80\\u77ED\\u56DE\\u590D\"]";
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var user = await db.LogicalUsers.SingleAsync(x => x.Id == next.Message.SenderId);
+        user.AllowMemory = true;
+        db.Relationships.Add(new RelationshipState { BotId = f.Bot, UserId = user.Id, PreferencesJson = stored });
+        await db.SaveChangesAsync();
+        await RunAsync(app, next.Job);
+        using var request = JsonDocument.Parse(app.ModelRequests.Single());
+        var content = string.Join("\n", request.RootElement.GetProperty("messages").EnumerateArray()
+            .Select(x => x.GetProperty("content").GetString()));
+        await Assert.That(content).Contains("喜欢简短回复");
+        await Assert.That(content).DoesNotContain("\\u559C");
+        await Assert.That((await db.Relationships.AsNoTracking().SingleAsync()).PreferencesJson).IsEqualTo(stored);
     }
 
     [Test]

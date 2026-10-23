@@ -1,7 +1,5 @@
 using Wonder.Infrastructure;
 using System.Globalization;
-using System.Text.Encodings.Web;
-using System.Text.Unicode;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -34,7 +32,7 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
                 var zone = zoneName.Length == 0 ? clock.Zone : TimeZoneInfo.FindSystemTimeZoneById(zoneName);
                 var now = clock.UtcNow;
                 var local = TimeZoneInfo.ConvertTime(now, zone);
-                return new(Json.Write(new { currentTime = local.ToString("O"), utcTime = now.ToString("O"),
+                return new(Json.ForPrompt(new { currentTime = local.ToString("O"), utcTime = now.ToString("O"),
                     timeZone = zone.Id, weekday = local.DayOfWeek.ToString() }), []);
             }
             if (call.Name != "search_conversation_history") return Error("Unknown or unavailable tool.");
@@ -82,9 +80,9 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
                 }).ToArray();
                 var hasMore = rows.Count == 5 || sentRows.Count < visible.Length;
                 var next = sentRows.LastOrDefault()?.Sequence ?? rows.LastOrDefault()?.Sequence;
-                var result = JsonSerializer.Serialize(new { records, nextBeforeSequence = hasMore ? next : null,
+                var result = Json.ForPrompt(new { records, nextBeforeSequence = hasMore ? next : null,
                     note = records.Length == 0 ? "No matching retained record on this page. Do not invent earlier details." :
-                        "Original historical statements; timestamps and authors are preserved. Content marked truncated is incomplete." }, ToolJson);
+                        "Original historical statements; timestamps and authors are preserved. Content marked truncated is incomplete." });
                 if (result.Length <= maxCharacters)
                 {
                     var ids = sentRows.SelectMany(x =>
@@ -106,10 +104,7 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
         }
     }
 
-    private static readonly JsonSerializerOptions ToolJson = new(Json.Options)
-        { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
-
-    private static ConversationToolResult Error(string message) => new(Json.Write(new { error = message }), []);
+    private static ConversationToolResult Error(string message) => new(Json.ForPrompt(new { error = message }), []);
     private static string Text(IDictionary<string, object?> args, string name)
     {
         if (!args.TryGetValue(name, out var value) || value is null) return "";

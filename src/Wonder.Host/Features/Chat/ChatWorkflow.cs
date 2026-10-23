@@ -66,12 +66,13 @@ public sealed class ChatWorkflow(
                 .Select(x => new { x.Role, x.SenderId, x.Text }).Take(3).ToListAsync(ct);
             if (quotes.Count > 0)
                 currentText = "[Quoted reference: original authors, not the current speaker]\n" +
-                              Json.Write(quotes.Select(x => new
+                              Json.ForPrompt(quotes.Select(x => new
                               { x.Role, speaker = SpeakerTags.For(conv.Id, x.SenderId, x.Role), x.Text })) +
                               "\n[Current message]\n" + currentText;
         }
 
-        var context = contextBuilder.Build(new ContextInput(identity.Content, mood, relationship?.PreferencesJson ?? "",
+        var relationshipText = relationship is null ? "" : Json.ForPrompt(Json.Read<string[]>(relationship.PreferencesJson));
+        var context = contextBuilder.Build(new ContextInput(identity.Content, mood, relationshipText,
             summary?.Text ?? "", selected,
             history.Select(x => new ContextTurn(x.Role, x.Text,
                 SpeakerTag: SpeakerTags.For(conv.Id, x.SenderId, x.Role),
@@ -127,7 +128,7 @@ public sealed class ChatWorkflow(
                     var available = profile.ContextWindow - profile.MaxOutputTokens - 512 - models.CountInput(profile, invocation.Messages, toolDefinitions);
                     var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id, message.Sequence, token, Math.Max(256, available - 64));
                     if (models.CountText(profile, result.Json) + 64 > available)
-                        result = new(Json.Write(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
+                        result = new(Json.ForPrompt(new { error = "History result exceeds available context. Use a narrower query or acknowledge uncertainty." }), []);
                     retrievedIds.UnionWith(result.MemoryIds);
                     sourceMessageIds.UnionWith(result.MessageIds ?? []);
                     sourceUserIds.UnionWith(result.UserIds ?? []);
