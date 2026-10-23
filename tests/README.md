@@ -11,7 +11,7 @@ dotnet test --solution Wonder.slnx --configuration Release
 dotnet test --project tests/Wonder.IntegrationTests/Wonder.IntegrationTests.csproj
 ~~~
 
-参数化测试使用 Test + Arguments，异步断言必须 await。TUnit 默认并行，每个 HTTP 测试独立创建 TestApp 和 SQLite 数据库。报告输出到 TestResults。
+参数化测试使用 Test + Arguments，异步断言必须 await。TUnit 默认并行，普通 HTTP 测试独立创建 TestApp 和 SQLite 数据库；记忆维护及其分批预算测试使用独立的临时 PostgreSQL 数据库。报告输出到 TestResults。
 
 ## 覆盖范围
 
@@ -34,7 +34,7 @@ dotnet test --project tests/Wonder.IntegrationTests/Wonder.IntegrationTests.cspr
 
 ## 真实 PostgreSQL / pgvector
 
-设置 WONDER_TEST_POSTGRES 后运行集成测试；未设置时仅跳过该基础设施用例。测试创建 / 删除随机临时数据库，PostgreSQL 账号需要 CREATEDB 权限，实例须支持 pgvector。使用专用测试服务。
+设置 WONDER_TEST_POSTGRES 后运行集成测试；未设置时跳过依赖 PostgreSQL 的基础设施、记忆维护及相关分批预算用例。测试创建 / 删除随机临时数据库，PostgreSQL 账号需要 CREATEDB 权限，实例须支持 pgvector。使用专用测试服务。记忆维护直接验证生产使用的向量查询，不在业务代码中提供 SQLite 替代算法。
 
 该用例覆盖完整迁移、旧 real[] 向量和旧账号密码的升级兼容、共享空间授权下的向量查询与距离排序、作者关闭共享后的检索、真实 pgvector 上的自主维护更新与版本链删除，以及并发领取、任务顺序、租约续期与恢复、旧租约写入拦截、重试退避和死信。CI 配置对应基础设施服务。
 

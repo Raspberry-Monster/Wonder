@@ -881,10 +881,6 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("ReasoningEffort")
                         .HasColumnType("text");
 

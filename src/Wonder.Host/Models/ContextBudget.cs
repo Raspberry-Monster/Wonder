@@ -14,15 +14,6 @@ public sealed class TokenQuotaException(DateTimeOffset retryAt, string message) 
     public DateTimeOffset RetryAt { get; } = retryAt;
 }
 
-// Stateless factory; each request owns its budget and uses the route's tokenizer.
-public sealed class ContextBudget(TokenCounter tokens)
-{
-    public ModelContextBudget For(ModelProfile profile)
-    {
-        return new ModelContextBudget(tokens, profile);
-    }
-}
-
 public sealed class ModelContextBudget(TokenCounter tokens, ModelProfile profile, int? outputOverride = null)
 {
     public const int Margin = 512;
@@ -62,19 +53,22 @@ public sealed class ModelContextBudget(TokenCounter tokens, ModelProfile profile
         return Remaining(messages, tools, reserved) >= 0;
     }
 
-    public void Require(IEnumerable<AiMessage> messages, IList<AITool>? tools = null)
+    public int Require(IEnumerable<AiMessage> messages, IList<AITool>? tools = null)
     {
         var count = Count(messages, tools);
         if (count > InputLimit)
             throw new ContextLimitException($"Task={profile.TaskKind}; Input={count}; Available={InputLimit}; " +
                                             $"Output={OutputTokens}; Window={profile.ContextWindow}; Tokenizer={Tokenizer}. Required content does not fit.");
+        return count;
     }
 
-    public void RequireEmbedding(string text)
+    public int RequireEmbedding(string text)
     {
-        if (Text(text) > InputLimit)
+        var count = Text(text);
+        if (count > InputLimit)
             throw new ContextLimitException(
                 $"Embedding input exceeds {InputLimit} tokens. Split the text into smaller facts.");
+        return count;
     }
 
     public IEnumerable<string> Split(string text)

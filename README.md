@@ -143,7 +143,7 @@ dotnet test --solution Wonder.slnx
 
 日常测试使用 SQLite 测试适配器和模拟供应商，覆盖真实 HTTP 登录、Owner 资源隔离、个人记忆隔离、入站去重、完整聊天流程、排队消息上下文、删除防回写、DeliveryUnknown，以及协议和领域规则。
 
-真实 PostgreSQL 测试需要显式设置 WONDER_TEST_POSTGRES；未设置时只跳过此项。该测试会创建 / 删除一个随机命名的临时数据库，连接账号需要 CREATEDB 权限。CI 已配置相应服务。
+真实 PostgreSQL / pgvector 基础设施、记忆维护及相关分批预算测试需要显式设置 WONDER_TEST_POSTGRES；未设置时跳过这些用例。测试会创建 / 删除随机命名的临时数据库，连接账号需要 CREATEDB 权限。CI 已配置相应服务。
 
 健康端点：/health/live（进程）、/health/ready（数据库）。登录后可访问 /openapi/v1.json。所有有副作用的 API 请求都需要 X-Wonder: 1 请求头。控制台已自动携带。
 

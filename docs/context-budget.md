@@ -1,6 +1,6 @@
 # 统一上下文与 Token 预算
 
-所有模型调用使用 `ContextBudget` 创建当前模型的预算，通过 `TokenCounter` 使用已发现的词表或估算器计数。组件之间传递同一个请求的预算对象；不同模型仍各自使用对应词表、窗口和输出设置。它不是跨用户共享的可变余额，也没有新增全局锁。
+所有模型调用通过 `ModelRouter.Context` 创建当前模型的 `ModelContextBudget`，通过 `TokenCounter` 使用已发现的词表或估算器计数。组件之间传递同一个请求的预算对象；不同模型仍各自使用对应词表、窗口和输出设置。最终检查返回的输入计数同时用于额度预留和日志，避免重复分词。它不是跨用户共享的可变余额，也没有新增全局锁。
 
 ## 一次请求如何装入上下文
 
@@ -49,6 +49,8 @@ Embedding 的 ContextWindow 表示单次输入上限，无输出预留，同样�
 ## 升级
 
 新增迁移 `20261023034400_ContextBudgetProgress`，仅增加 `Outbox.ProgressJson` 和 `Usage.Estimated` 两列。旧记录无需重写，旧任务可以从头执行。历史 Usage 的默认 false 表示没有新版本估算标记，不证明旧记录都是供应商精确计量。
+
+清理迁移 `20261023145954_RemoveUnusedModelProvider` 移除未使用的 `Models.Provider` 列；模型传输仍使用统一的兼容协议，EmbeddingProfile 的 Provider 字段保留。
 
 停止旧 Host，在仓库根目录运行：
 

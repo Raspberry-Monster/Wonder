@@ -1,22 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.0" />
-        <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
-        <PackageReference Include="SkiaSharp" Version="3.119.2" />
-        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
-        <PackageReference Include="Tokenizers.HuggingFace" Version="3.23.1" />
-        <ProjectReference Include="../Wonder.Core/Wonder.Core.csproj" />
-        <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0" />
-        <FrameworkReference Include="Microsoft.AspNetCore.App" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
-        <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" PrivateAssets="all" />
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-        <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.0"/>
+        <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0"/>
+        <PackageReference Include="SkiaSharp" Version="3.119.2"/>
+        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2"/>
+        <PackageReference Include="Tokenizers.HuggingFace" Version="3.23.1"/>
+        <ProjectReference Include="../Wonder.Core/Wonder.Core.csproj"/>
+        <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0"/>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13"/>
+        <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" PrivateAssets="all"/>
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3"/>
+        <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13"/>
     </ItemGroup>
     <ItemGroup>
-        <EmbeddedResource Include="Persistence/quartz-postgres.sql" />
+        <EmbeddedResource Include="Persistence/quartz-postgres.sql"/>
     </ItemGroup>
 </Project>

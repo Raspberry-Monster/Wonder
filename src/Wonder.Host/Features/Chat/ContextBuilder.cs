@@ -57,7 +57,6 @@ public sealed record BuiltContext(
     string System,
     IReadOnlyList<ContextTurn> Turns,
     IReadOnlyList<Guid> MemoryIds,
-    int EstimatedTokens,
     IReadOnlyList<Guid> MessageIds,
     List<AiMessage> Messages,
     IReadOnlyList<AiMessage[]> OptionalGroups,
@@ -150,7 +149,7 @@ public sealed class ContextBuilder(PromptComposer composer)
                        budget.Count(fullHistory) > budget.InputLimit * .55 ||
                        selected.Count(x => x.Priority is 40 or 90) < input.History.Count;
         return new BuiltContext(system, turns, turns.SelectMany(x => x.MemoryIds ?? []).Distinct().ToArray(),
-            budget.Count(messages, input.Tools), turns.SelectMany(x => x.MessageIds ?? []).Distinct().ToArray(),
+            turns.SelectMany(x => x.MessageIds ?? []).Distinct().ToArray(),
             messages, optional, pressure);
     }
 }

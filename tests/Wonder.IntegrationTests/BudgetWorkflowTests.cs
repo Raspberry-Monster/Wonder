@@ -201,7 +201,8 @@ public sealed class BudgetWorkflowTests
     [Test]
     public async Task MemoryMaintenanceGroupsRelatedFactsAndCommitsOnlyAfterAllGroups()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await MemoryMaintenanceTests.SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -258,7 +259,8 @@ public sealed class BudgetWorkflowTests
     [Test]
     public async Task IncompleteOrOversizeEvidenceDefersMaintenanceWithoutArchivingFacts()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await MemoryMaintenanceTests.SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();

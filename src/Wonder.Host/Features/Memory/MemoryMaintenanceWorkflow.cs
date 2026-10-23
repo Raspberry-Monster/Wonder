@@ -105,20 +105,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             Guid[] nearest = [];
             if (space is not null && snapshot.Count > 0)
             {
-                if (db.Database.IsNpgsql())
-                {
-                    nearest = await MemoryQueries.Ranked(db, Scope(db, candidate), space.Id, values)
-                        .Take(10).Select(x => x.MemoryId).ToArrayAsync(ct);
-                }
-                else
-                {
-                    // SQLite integration tests use the same scoped candidates and exact cosine metric.
-                    var vectors = await db.Embeddings.Where(x => x.ProfileId == space.Id &&
-                                                                 Scope(db, candidate).Any(m => m.Id == x.MemoryId))
-                        .ToListAsync(ct);
-                    nearest = vectors.OrderByDescending(x => Cosine(values, x.Values.ToArray())).ThenBy(x => x.MemoryId)
-                        .Take(10).Select(x => x.MemoryId).ToArray();
-                }
+                nearest = await MemoryQueries.Ranked(db, Scope(db, candidate), space.Id, values)
+                    .Take(10).Select(x => x.MemoryId).ToArrayAsync(ct);
             }
 
             related = snapshot.Where(x => nearest.Contains(x.Id) || x.FactKey == candidate.FactKey).ToArray();
@@ -483,20 +471,6 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                                                (x.ResultMemoryId != null && ids.Contains(x.ResultMemoryId.Value))))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, "").SetProperty(x => x.FactKey, "")
                 .SetProperty(x => x.EvidenceJson, "[]").SetProperty(x => x.Reason, ""), ct);
-    }
-
-    private static double Cosine(float[] a, float[] b)
-    {
-        if (a.Length != b.Length) throw new InvalidOperationException("Embedding profiles must not mix dimensions.");
-        double dot = 0, aa = 0, bb = 0;
-        for (var i = 0; i < a.Length; i++)
-        {
-            dot += (double)a[i] * b[i];
-            aa += (double)a[i] * a[i];
-            bb += (double)b[i] * b[i];
-        }
-
-        return aa == 0 || bb == 0 ? -1 : dot / Math.Sqrt(aa * bb);
     }
 
     private sealed record MaintenanceEvidence(Guid Id, string Text, DateTimeOffset CreatedAt);

@@ -518,7 +518,7 @@ public sealed class ConversationContinuityTests
         var clipped = await tools.ExecuteAsync(new FunctionCallContent("dense", "search_conversation_history",
                 new Dictionary<string, object?> { ["query"] = "关键词" }), f.Bot, dense.Message.ConversationId,
             dense.Message.Sequence, default,
-            value => app.Services.GetRequiredService<ContextBudget>().For(new ModelProfile { TokenizerId = "estimate" })
+            value => app.Services.GetRequiredService<ModelRouter>().Context(new ModelProfile { TokenizerId = "estimate" })
                 .Text(value) <= 900);
         await Assert.That(Encoding.UTF8.GetByteCount(clipped.Json)).IsLessThanOrEqualTo(900);
         using var excerpts = JsonDocument.Parse(clipped.Json);

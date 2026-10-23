@@ -16,7 +16,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task CandidateIsIsolatedUntilAdmissionAndReusesItsEmbedding()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app, false);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -44,7 +45,8 @@ public sealed class MemoryMaintenanceTests
     [Arguments(MemoryMaintenanceAction.Defer)]
     public async Task SemanticDecisionsMaintainVersionsEvidenceAndSharing(MemoryMaintenanceAction action)
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -103,7 +105,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task IdenticalTextMergesWithoutProviderCallsEvenWithDifferentFactKeys()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app, text: "我住杭州。");
         await RunAsync(app, f.Job);
         await RunAsync(app, f.Job);
@@ -122,7 +125,8 @@ public sealed class MemoryMaintenanceTests
     [Arguments(MemoryMaintenanceAction.Archive)]
     public async Task ServerEnforcesDisabledOperationsDespiteModelDecision(MemoryMaintenanceAction action)
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -141,7 +145,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task VectorRecallCannotCrossAuthorOrScopeAndForeignTargetsAreRejected()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -177,7 +182,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task ExplicitDeletionPurgesEveryVersionAuditAndPendingCandidate()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(Decision(MemoryMaintenanceAction.Update, f.Old, "我现在住上海。"));
@@ -198,7 +204,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task NoHistoryPolicyErasesArchivedTextAndReenablingDoesNotRestoreIt()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -226,7 +233,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task InvalidEmbeddingDoesNotArchiveOrPartiallyRewriteFacts()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue("""{"data":[{"index":0,"embedding":[0,0,0]}]}""");
         await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<ModelResponseException>();
@@ -240,7 +248,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task TruncatedMaintenanceResponsePreservesFactsAndRecordsUsage()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(
@@ -258,7 +267,8 @@ public sealed class MemoryMaintenanceTests
     [Arguments(true)]
     public async Task DeletionOrPolicyChangeDuringProviderCallPreventsCommit(bool policyChange)
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         app.ModelResponses.Enqueue(Vector());
         app.ModelResponses.Enqueue(Decision(MemoryMaintenanceAction.Update, f.Old, "我现在住上海。"));
@@ -282,7 +292,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task ConcurrentNewFactForcesReevaluationInsteadOfDuplicateAdmission()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app, false);
         app.ModelResponses.Enqueue(Vector());
         app.BeforeModelResponse = async _ =>
@@ -308,7 +319,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task OlderEvidenceCannotOverwriteANewerCurrentFact()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -325,7 +337,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task ChangedEmbeddingProfileBackfillsBeforeMakingSemanticDecisions()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -349,7 +362,8 @@ public sealed class MemoryMaintenanceTests
     [Test]
     public async Task OwnPolicyHistoryAndAuditAreAvailableWithoutGrantingOwnerAccess()
     {
-        using var app = new TestApp();
+        await using var database = await TestPostgres.CreateAsync();
+        using var app = database.CreateApp();
         var f = await SeedAsync(app);
 
         async Task<HttpClient> Login(string name, Guid user)

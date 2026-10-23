@@ -105,7 +105,6 @@ builder.Services.AddSingleton<MessageIngestor>();
 builder.Services.AddSingleton<ModelRouter>();
 builder.Services.AddSingleton(_ => new TokenCounter(Path.Combine(builder.Environment.ContentRootPath, "Tokenizer")));
 builder.Services.AddSingleton<TokenBudget>();
-builder.Services.AddSingleton<ContextBudget>();
 builder.Services.AddSingleton<MemoryService>();
 builder.Services.AddSingleton<MediaStore>();
 builder.Services.AddScoped<ChatWorkflow>();

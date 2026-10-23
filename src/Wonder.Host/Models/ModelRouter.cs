@@ -11,20 +11,15 @@ public sealed class ModelRouter(
     IDbContextFactory<WonderDbContext> factory,
     IHttpClientFactory http,
     SecretProtector secrets,
-    ContextBudget contexts,
+    TokenCounter tokens,
     TokenBudget budget,
     ILogger<ModelRouter> logger)
 {
     public async Task<ModelProfile> ProfileAsync(Guid botId, TaskKind kind, CancellationToken ct)
     {
-        return await ReadProfileAsync(botId, kind, ct) ??
-               throw new ModelConfigurationException($"No route configured for {kind}.");
-    }
-
-    private async Task<ModelProfile?> ReadProfileAsync(Guid botId, TaskKind kind, CancellationToken ct)
-    {
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await db.Models.AsNoTracking().SingleOrDefaultAsync(x => x.BotId == botId && x.TaskKind == kind, ct);
+        return await db.Models.AsNoTracking().SingleOrDefaultAsync(x => x.BotId == botId && x.TaskKind == kind, ct) ??
+               throw new ModelConfigurationException($"No route configured for {kind}.");
     }
 
     public async Task<ChatResponse> GenerateAsync(ModelProfile profile, IEnumerable<ChatMessage> messages, bool json,
@@ -36,7 +31,7 @@ public sealed class ModelRouter(
 
     public ModelContextBudget Context(ModelProfile profile)
     {
-        return contexts.For(profile);
+        return new ModelContextBudget(tokens, profile);
     }
 
     public IChatClient CreateToolClient(ModelProfile profile, Action<List<ChatMessage>>? prepare = null)
@@ -58,12 +53,11 @@ public sealed class ModelRouter(
     {
         var input = messages.ToArray();
         var context = outputTokens is { } output ? Context(profile).WithOutput(output) : Context(profile);
-        context.Require(input, tools);
-        var inputTokens = context.Count(input, tools);
+        var inputTokens = context.Require(input, tools);
         logger.LogInformation(
             "Model budget: Task={Task}, Model={Model}, Tokenizer={Tokenizer}, Input={Input}, Output={Output}, Remaining={Remaining}",
             profile.TaskKind, profile.Model, context.Tokenizer, inputTokens, context.OutputTokens,
-            context.Remaining(input, tools));
+            context.InputLimit - inputTokens);
         var reservation = await budget.ReserveAsync(profile, inputTokens + context.OutputTokens, ct);
         ChatResponse result;
         try
@@ -91,7 +85,7 @@ public sealed class ModelRouter(
         }
 
         var i = result.Usage?.InputTokenCount ?? inputTokens;
-        var o = result.Usage?.OutputTokenCount ?? CountInput(profile, result.Messages, null);
+        var o = result.Usage?.OutputTokenCount ?? context.Count(result.Messages);
         await budget.SettleAsync(reservation, profile, i, o, CancellationToken.None,
             result.Usage?.InputTokenCount is null || result.Usage?.OutputTokenCount is null);
         logger.LogInformation("Model usage: Task={Task}, Input={Input}, Output={Output}", profile.TaskKind, i, o);
@@ -114,20 +108,10 @@ public sealed class ModelRouter(
         return result;
     }
 
-    public int CountText(ModelProfile profile, string text)
-    {
-        return Context(profile).Text(text);
-    }
-
-    public int CountInput(ModelProfile profile, IEnumerable<ChatMessage> messages, IList<AITool>? tools)
-    {
-        return Context(profile).Count(messages, tools);
-    }
-
     public async Task<float[]> EmbedAsync(ModelProfile profile, string text, CancellationToken ct)
     {
-        Context(profile).RequireEmbedding(text);
-        var reservation = await budget.ReserveAsync(profile, CountText(profile, text), ct);
+        var inputTokens = Context(profile).RequireEmbedding(text);
+        var reservation = await budget.ReserveAsync(profile, inputTokens, ct);
         using var client = CompatibleHttp.Configure(http.CreateClient("models"), profile.Endpoint,
             secrets.Unprotect(profile.ProtectedApiKey));
         using IEmbeddingGenerator<string, Embedding<float>> generator =
@@ -144,11 +128,11 @@ public sealed class ModelRouter(
         }
         catch
         {
-            await budget.SettleAsync(reservation, profile, CountText(profile, text), 0, CancellationToken.None, true);
+            await budget.SettleAsync(reservation, profile, inputTokens, 0, CancellationToken.None, true);
             throw;
         }
 
-        await budget.SettleAsync(reservation, profile, result.Usage?.InputTokenCount ?? CountText(profile, text), 0,
+        await budget.SettleAsync(reservation, profile, result.Usage?.InputTokenCount ?? inputTokens, 0,
             CancellationToken.None,
             result.Usage?.InputTokenCount is null);
         return result[0].Vector.ToArray();

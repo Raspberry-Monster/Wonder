@@ -12,7 +12,7 @@ public sealed class ContextBudgetTests
     public async Task FragmentsFitTheFormattedRequestAndReassembleWithoutLosingUnicode()
     {
         using var counter = new TokenCounter(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
-        var budget = new ContextBudget(counter).For(new ModelProfile
+        var budget = new ModelContextBudget(counter, new ModelProfile
             { TokenizerId = "estimate", ContextWindow = 2048, MaxOutputTokens = 256 });
         var original = string.Concat(Enumerable.Repeat("中文😀 quoted \\\"\n", 800));
 
@@ -46,7 +46,7 @@ public sealed class ContextBudgetTests
     public async Task SeveralToolResultsShareTheBudgetAndOnlyOptionalHistoryIsDropped()
     {
         using var counter = new TokenCounter(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
-        var budget = new ContextBudget(counter).For(new ModelProfile
+        var budget = new ModelContextBudget(counter, new ModelProfile
             { TokenizerId = "estimate", ContextWindow = 4096, MaxOutputTokens = 512 });
         var system = new AiMessage(ChatRole.System, "Required system instructions");
         var current = new AiMessage(ChatRole.User, "Required current question");
