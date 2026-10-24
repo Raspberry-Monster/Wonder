@@ -141,10 +141,11 @@ public sealed class ConversationContinuityTests
         using var time =
             JsonDocument.Parse(
                 messages[0].GetProperty("content").GetString()!.Split("[Application time context]\n")[1]);
-        await Assert.That(time.RootElement.GetProperty("currentTime").GetString())
-            .IsEqualTo("2026-10-20T09:00:00.0000000+08:00");
+        await Assert.That(time.RootElement.TryGetProperty("currentTime", out _)).IsFalse();
+        await Assert.That(time.RootElement.TryGetProperty("utcTime", out _)).IsFalse();
+        await Assert.That(time.RootElement.TryGetProperty("weekday", out _)).IsFalse();
         await Assert.That(time.RootElement.GetProperty("continuingPreviousSession").GetBoolean()).IsTrue();
-        await Assert.That(time.RootElement.GetProperty("elapsedSeconds").GetInt64()).IsGreaterThan(0);
+        await Assert.That(time.RootElement.TryGetProperty("elapsedSeconds", out _)).IsFalse();
     }
 
     [Test]
@@ -187,7 +188,7 @@ public sealed class ConversationContinuityTests
         var clock = new Clock(Start);
         using var app = new TestApp(clock);
         var f = await SeedAsync(app, true, 8192);
-        var old = await QueueAsync(app, f.Binding, "old", "小屋暗号是蒲公英742", "group-one");
+        var old = await QueueAsync(app, f.Binding, "old", "小屋暗号是蒲公英742");
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -214,9 +215,9 @@ public sealed class ConversationContinuityTests
         }
 
         await QueueAsync(app, f.Binding, "other-group", "暗号OTHER_GROUP", "group-two");
-        await QueueAsync(app, f.Binding, "private", "暗号PRIVATE");
-        var next = await QueueAsync(app, f.Binding, "ask", "之前小屋暗号是什么？", "group-one");
-        await QueueAsync(app, f.Binding, "future", "暗号FUTURE", "group-one");
+        await QueueAsync(app, f.Binding, "private", "暗号PRIVATE", sender: "444");
+        var next = await QueueAsync(app, f.Binding, "ask", "之前小屋暗号是什么？");
+        await QueueAsync(app, f.Binding, "future", "暗号FUTURE");
         app.ModelResponses.Enqueue(Json.Write(new
         {
             choices = new[]
@@ -362,15 +363,15 @@ public sealed class ConversationContinuityTests
     {
         using var app = new TestApp(new Clock(Start));
         var f = await SeedAsync(app);
-        var first = await QueueAsync(app, f.Binding, "alice", "项目代号为纸飞机", "group-one");
+        var first = await QueueAsync(app, f.Binding, "alice", "项目代号为纸飞机");
         Guid memoryId;
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
             var memory = new Memory
             {
-                BotId = f.Bot, SubjectId = first.Message.SenderId!.Value, Scope = MemoryScope.GroupUser,
-                ScopeOwnerId = "group-one", Text = "项目代号为纸飞机", FactKey = "project-code"
+                BotId = f.Bot, SubjectId = first.Message.SenderId!.Value, Scope = MemoryScope.Private,
+                ScopeOwnerId = first.Message.SenderId.Value.ToString(), Text = "项目代号为纸飞机", FactKey = "project-code"
             };
             memoryId = memory.Id;
             db.Memories.Add(memory);
@@ -379,7 +380,7 @@ public sealed class ConversationContinuityTests
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, SessionStatus.Closed));
         }
 
-        var next = await QueueAsync(app, f.Binding, "bob", "刚才的项目呢", "group-one", "222");
+        var next = await QueueAsync(app, f.Binding, "bob", "刚才的项目呢");
         await RunAsync(app, next.Job);
         using var scope2 = app.Services.CreateScope();
         var db2 = scope2.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -396,8 +397,7 @@ public sealed class ConversationContinuityTests
             .RevokeAsync(first.Message.SenderId.Value, memoryId, null, default);
         await Assert.That((await db2.Messages.AsNoTracking().SingleAsync(x => x.Id == reply.Id)).ContextInvalidated)
             .IsTrue();
-        await Assert.That((await db2.Summaries.AsNoTracking().SingleAsync(x => x.SessionId == next.Message.SessionId))
-            .ContextInvalidated).IsTrue();
+        await Assert.That(await db2.Summaries.AsNoTracking().AnyAsync(x => x.SessionId == next.Message.SessionId && !x.ContextInvalidated)).IsFalse();
         await Assert.That((await db2.Parts.SingleAsync()).Status).IsEqualTo(DeliveryStatus.Failed);
         var (summary, history) = await scope2.ServiceProvider.GetRequiredService<ConversationHistory>()
             .LoadAsync(f.Bot, next.Message.ConversationId, long.MaxValue, default);
@@ -446,7 +446,7 @@ public sealed class ConversationContinuityTests
     }
 
     [Test]
-    public async Task SavedNonTriggerGroupMessagesAreAvailableToTheNextReply()
+    public async Task SavedNonTriggerGroupMessagesDoNotEnterBasicGroupChat()
     {
         using var app = new TestApp(new Clock(Start));
         var f = await SeedAsync(app);
@@ -465,7 +465,7 @@ public sealed class ConversationContinuityTests
         await RunAsync(app, next.Job);
         using var sent = JsonDocument.Parse(app.ModelRequests.Single());
         await Assert.That(string.Join("\n", sent.RootElement.GetProperty("messages").EnumerateArray()
-            .Select(x => x.GetProperty("content").GetString()))).Contains("窗帘候选是米白色");
+            .Select(x => x.GetProperty("content").GetString()))).DoesNotContain("窗帘候选是米白色");
     }
 
     [Test]

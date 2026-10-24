@@ -141,6 +141,8 @@ public sealed class LogicalUser
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public bool AllowMemory { get; set; }
+    public bool AllowNotes { get; set; }
+    public long NotesEpoch { get; set; }
     public bool AllowCrossGroupMemory { get; set; }
     public bool AllowMemoryMerge { get; set; } = true;
     public bool AllowMemoryUpdate { get; set; } = true;
@@ -392,6 +394,10 @@ public sealed class MemoryMaintenanceCandidate
 
 public sealed class MemoryRevocation
 {
+    public int RecordVersion { get; set; } = 1;
+    public string ResourceKind { get; set; } = "Memory";
+    public Guid? ResourceId { get; set; }
+    public long? ResourceVersion { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }

@@ -11,8 +11,12 @@ public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> facto
     public static IQueryable<ChatMessage> Visible(WonderDbContext db, Guid botId, Guid conversationId,
         long beforeSequence, DateTimeOffset now)
     {
+        var retired = MemoryQueries.RetiredGroupSources(db);
         return db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.ConversationId == conversationId &&
+                                                     db.Conversations.Any(c => c.Id == conversationId && c.Kind == ConversationKind.Private) &&
                                                      !x.ContextInvalidated && x.ExpiresAt > now &&
+                                                     !(x.ContextSnapshotJson != null && retired.Any(m =>
+                                                         x.ContextSnapshotJson.ToLower().Contains(m.Id.ToString().ToLower()))) &&
                                                      (x.InReplyToSequence ?? x.Sequence) < beforeSequence);
     }
 
@@ -53,10 +57,13 @@ public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> facto
     public static async Task<ConversationSummary?> LatestSummaryAsync(WonderDbContext db, Guid botId,
         Guid conversationId, long beforeSequence, CancellationToken ct)
     {
+        var retired = MemoryQueries.RetiredGroupSources(db);
         var candidates = await (from summary in db.Summaries.AsNoTracking()
             join session in db.Sessions on summary.SessionId equals session.Id
             where summary.BotId == botId && session.BotId == botId && session.ConversationId == conversationId &&
                   !summary.ContextInvalidated && summary.ThroughSequence < beforeSequence
+                  && !retired.Any(m => summary.MemoryIdsJson.ToLower().Contains(m.Id.ToString().ToLower()))
+                  && session.ConversationId != Guid.Empty && db.Conversations.Any(c => c.Id == session.ConversationId && c.Kind == ConversationKind.Private)
             orderby summary.ThroughSequence descending, summary.Id
             select summary).Take(20).ToListAsync(ct);
         return candidates.FirstOrDefault(x => TryMemoryIds(x.MemoryIdsJson, false, out _) &&

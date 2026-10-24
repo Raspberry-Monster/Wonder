@@ -12,112 +12,17 @@ namespace Wonder.IntegrationTests;
 public sealed class SharedContextTests
 {
     [Test]
-    public async Task PersonalSharingIsExplicitAndLimitedToTheSameUserAndBot()
+    public async Task GroupMemoryAndNewSharingAreUnavailableWhilePrivateMemorySurvives()
     {
         using var app = new TestApp();
         var f = await SeedAsync(app);
-        var url = $"/api/v1/me/memories/{f.PersonalId}/sharing";
-        await Assert.That((await f.Alice.PostAsJsonAsync(url, new { scope = "UserShared" })).StatusCode)
-            .IsEqualTo(HttpStatusCode.BadRequest);
-        await Assert.That((await f.Owner.PostAsJsonAsync(url, new { scope = "UserShared" })).StatusCode)
-            .IsEqualTo(HttpStatusCode.NotFound);
-        await EnableAsync(f.Alice, "小明");
-        var shared = await ShareAsync(f.Alice, f.PersonalId, "UserShared");
-        await Assert.That(await ShareAsync(f.Alice, f.PersonalId, "UserShared")).IsEqualTo(shared);
         using var scope = app.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        foreach (var group in new[] { "10002", "10003", "10004" })
-            await Assert
-                .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, group), "偏好", default)).Any(x =>
-                    x.Id == shared)).IsTrue();
-        await Assert
-            .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10002"), "偏好", default)).Any(x =>
-                x.Id == shared)).IsFalse();
-        await Assert
-            .That(await service.RetrieveAsync(new MemoryAccess(Guid.NewGuid(), f.AliceId, "10002"), "偏好", default))
-            .IsEmpty();
-        await f.Alice.PutAsJsonAsync("/api/v1/me/memory-settings",
-            new { allowMemory = true, allowCrossGroupMemory = false });
-        await Assert
-            .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, "10002"), "偏好", default)).Any(x =>
-                x.Id == shared)).IsFalse();
-        await EnableAsync(f.Alice, "小明");
-        await Assert
-            .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, "10002"), "偏好", default)).Any(x =>
-                x.Id == shared)).IsFalse();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        await Assert.That((await db.Memories.AsNoTracking().SingleAsync(x => x.Id == f.PersonalId)).Status)
-            .IsNotEqualTo(MemoryStatus.Revoked);
-        var list = await f.Alice.GetFromJsonAsync<JsonElement>("/api/v1/me/memories");
-        await Assert.That(list.EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == f.PersonalId)
-            .GetProperty("sharing").GetArrayLength()).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task SharedSpaceRespectsSourceMembershipAndOtherGroupsRemainSeparate()
-    {
-        using var app = new TestApp();
-        var f = await SeedAsync(app);
-        await EnableAsync(f.Alice, "小明");
-        using var scope = app.Services.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10002"), "项目", default))
-            .IsEmpty();
-        var wrong = await f.Alice.PostAsJsonAsync($"/api/v1/me/memories/{f.SourceId}/sharing",
-            new { scope = "SpaceShared", contextSpaceId = f.OtherSpaceId });
-        await Assert.That(wrong.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        var shared = await ShareAsync(f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
-        await f.Bob.PutAsJsonAsync("/api/v1/me/memory-settings", new { allowMemory = false });
-        await Assert
-            .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10002"), "项目", default)).Any(x =>
-                x.Id == shared)).IsTrue();
-        foreach (var group in new[] { "10003", "10004", null })
-            await Assert
-                .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, group), "项目", default)).Any(x =>
-                    x.Id == shared)).IsFalse();
-        var secondBot = await f.Owner.PostAsJsonAsync("/api/v1/bots", new { name = "Other", identity = "Other" });
-        var otherBotId = (await secondBot.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-        var crossBot = await f.Owner.PutAsJsonAsync($"/api/v1/bots/{otherBotId}/groups/10002/policy",
-            new { contextSpaceId = f.SpaceId });
-        await Assert.That(crossBot.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        await Assert.That((await f.Alice.GetAsync($"/api/v1/bots/{f.BotId}/context-spaces")).StatusCode)
-            .IsEqualTo(HttpStatusCode.NotFound);
-        await Assert
-            .That((await f.Alice.PostAsJsonAsync($"/api/v1/bots/{f.BotId}/context-spaces",
-                new { name = "Unauthorized" })).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert
-            .That((await f.Alice.PutAsJsonAsync($"/api/v1/bots/{f.BotId}/context-spaces/{f.SpaceId}",
-                new { name = "Unauthorized" })).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That((await f.Alice.DeleteAsync($"/api/v1/bots/{f.BotId}/context-spaces/{f.SpaceId}")).StatusCode)
-            .IsEqualTo(HttpStatusCode.NotFound);
-        await Assert
-            .That((await f.Owner.PostAsJsonAsync($"/api/v1/bots/{f.BotId}/context-spaces", new { name = " " }))
-                .StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        await Assert.That((await f.Owner.GetAsync($"/api/v1/bots/{f.BotId}/groups")).StatusCode)
-            .IsEqualTo(HttpStatusCode.OK);
-        await Assert.That((await f.Owner.GetAsync($"/api/v1/bots/{f.BotId}/deliveries")).StatusCode)
-            .IsEqualTo(HttpStatusCode.OK);
-        var move = await f.Owner.PutAsJsonAsync($"/api/v1/bots/{f.BotId}/groups/10001/policy",
-            new { contextSpaceId = f.OtherSpaceId });
-        await Assert.That(move.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert
-            .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10002"), "项目", default)).Any(x =>
-                x.Id == shared)).IsFalse();
-        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10003"), "项目", default))
-            .IsEmpty();
-        var ownMemories = await f.Alice.GetFromJsonAsync<JsonElement>("/api/v1/me/memories");
-        var unavailable = ownMemories.EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == f.SourceId)
-            .GetProperty("sharing").EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == shared);
-        await Assert.That(unavailable.GetProperty("available").GetBoolean()).IsFalse();
-        var reshared = await ShareAsync(f.Alice, f.SourceId, "SpaceShared", f.OtherSpaceId);
-        await Assert
-            .That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10003"), "项目", default)).Any(x =>
-                x.Id == reshared)).IsTrue();
-        await Assert
-            .That((await f.Owner.DeleteAsync($"/api/v1/bots/{f.BotId}/context-spaces/{f.OtherSpaceId}")).StatusCode)
-            .IsEqualTo(HttpStatusCode.NoContent);
-        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10003"), "项目", default))
-            .IsEmpty();
+        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, "10001"), "??", default)).IsEmpty();
+        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10002"), "??", default)).IsEmpty();
+        await Assert.That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, null), "??", default)).Any(x => x.Id == f.PersonalId)).IsTrue();
+        await Assert.That(() => service.ShareAsync(f.AliceId, f.SourceId, MemoryScope.SpaceShared, default))
+            .ThrowsExactly<ArgumentException>();
     }
 
     [Test]
@@ -126,8 +31,8 @@ public sealed class SharedContextTests
         using var app = new TestApp();
         var f = await SeedAsync(app);
         await EnableAsync(f.Alice, "小明");
-        var shared = await ShareAsync(f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
-        var personal = await ShareAsync(f.Alice, f.SourceId, "UserShared");
+        var shared = await LegacyShareAsync(app, f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
+        var personal = await LegacyShareAsync(app, f.Alice, f.SourceId, "UserShared");
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var conversation = new Conversation
@@ -216,8 +121,8 @@ public sealed class SharedContextTests
         var f = await SeedAsync(app);
         await EnableAsync(f.Alice, "小明");
         await f.Bob.PutAsJsonAsync("/api/v1/me/memory-settings", new { allowMemory = false, preferredName = "小李" });
-        await ShareAsync(f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
-        await ShareAsync(f.Alice, f.PersonalId, "UserShared");
+        await LegacyShareAsync(app, f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
+        await LegacyShareAsync(app, f.Alice, f.PersonalId, "UserShared");
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var ingestor = scope.ServiceProvider.GetRequiredService<MessageIngestor>();
@@ -246,14 +151,14 @@ public sealed class SharedContextTests
         var reference = messages[1].GetProperty("content").GetString()!;
         var conversation = await db.Conversations.AsNoTracking()
             .SingleAsync(x => x.BotId == f.BotId && x.ExternalId == "10002");
-        await Assert.That(reference).Contains(SpeakerTags.For(conversation.Id, f.AliceId));
-        await Assert.That(reference).Contains("scope=SpaceShared");
+        await Assert.That(reference).DoesNotContain(SpeakerTags.For(conversation.Id, f.AliceId));
+        await Assert.That(reference).DoesNotContain("scope=SpaceShared");
         await Assert.That(reference).DoesNotContain("偏好简洁");
         await Send("alice-1", "11111", "10003", "请简短些");
         using var otherRequest = JsonDocument.Parse(app.ModelRequests[1]);
         var other = otherRequest.RootElement.GetProperty("messages").EnumerateArray().ToArray();
         await Assert.That(other[^1].GetProperty("content").GetString()!).Contains("\"小明\"");
-        await Assert.That(other[1].GetProperty("content").GetString()!).Contains("scope=UserShared");
+        await Assert.That(other[1].GetProperty("content").GetString()!).DoesNotContain("scope=UserShared");
         await Assert.That(app.ModelRequests[1]).DoesNotContain("继续讨论部署");
         await Assert.That(app.ModelRequests[1]).DoesNotContain(f.AliceId.ToString());
         await Assert.That(app.ModelRequests[1]).DoesNotContain(f.BobId.ToString());
@@ -392,12 +297,18 @@ public sealed class SharedContextTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
     }
 
-    private static async Task<Guid> ShareAsync(HttpClient client, Guid source, string scope, Guid? space = null)
+    private static async Task<Guid> LegacyShareAsync(TestApp app, HttpClient client, Guid source, string scope, Guid? space = null)
     {
-        var response = await client.PostAsJsonAsync($"/api/v1/me/memories/{source}/sharing",
-            new { scope, contextSpaceId = space });
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        // Seed an old backup row directly: production no longer permits new sharing.
+        using var serviceScope = app.Services.CreateScope();
+        var db = serviceScope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var original = await db.Memories.SingleAsync(x => x.Id == source);
+        var copy = new Memory { BotId = original.BotId, SubjectId = original.SubjectId,
+            Scope = Enum.Parse<MemoryScope>(scope), ScopeOwnerId = space?.ToString() ?? original.SubjectId.ToString(),
+            SharedFromMemoryId = source, Text = original.Text, FactKey = original.FactKey, Status = MemoryStatus.Active };
+        db.Memories.Add(copy);
+        await db.SaveChangesAsync();
+        return copy.Id;
     }
 
     private static async Task<(HttpClient Client, Guid Id)> AccountAsync(TestApp app, string name)

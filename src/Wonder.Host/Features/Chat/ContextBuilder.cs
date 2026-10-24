@@ -68,6 +68,8 @@ public sealed class ContextBuilder(PromptComposer composer)
     {
         var budget = input.Budget;
         var system = composer.Compile(input.Identity, input.Mood);
+        if (input.Tools is not { Count: > 0 })
+            system += "\nLive time and action tools are unavailable. Do not invent the current time or claim tool actions.";
         if (input.TimeContext is { } time) system += "\n\n[Application time context]\n" + time;
         var toolMode = input.Tools is { Count: > 0 };
         var current = input.Current.ToMessage(toolMode, input.SupportsImages);

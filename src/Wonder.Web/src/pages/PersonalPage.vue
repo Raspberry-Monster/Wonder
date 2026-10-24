@@ -16,11 +16,13 @@ const route = useRoute(),
   sharing = ref<any>(),
   archived = ref(false),
   skip = ref(0);
+const noteEditor = ref<any>(),
+  noteBots = ref<any[]>([]),
+  noteHistory = ref<any>();
 const tab = computed(() => String(route.params.tab || "settings"));
 const fields: Field[] = [
   { key: "preferredName", label: "希望如何称呼你" },
   { key: "allowMemory", label: "允许记忆", type: "switch" },
-  { key: "allowCrossGroupMemory", label: "允许跨群共享", type: "switch" },
   { key: "allowMemoryMerge", label: "允许合并记忆", type: "switch" },
   { key: "allowMemoryUpdate", label: "允许更新记忆", type: "switch" },
   { key: "allowMemoryArchive", label: "允许归档记忆", type: "switch" },
@@ -35,10 +37,18 @@ async function load() {
       "/me/" +
         (tab.value === "settings"
           ? "memory-settings"
-          : tab.value === "maintenance"
-            ? "memory-maintenance?skip=" + skip.value
-            : `memories?skip=${skip.value}&includeArchived=${archived.value}`),
+          : tab.value === "notes"
+            ? "notes/settings"
+            : tab.value === "user-notes"
+              ? "notes"
+              : tab.value === "reflection"
+                ? "reflection-runs?skip=" + skip.value
+                : tab.value === "maintenance"
+                  ? "memory-maintenance?skip=" + skip.value
+                  : `memories?skip=${skip.value}&includeArchived=${archived.value}`),
     );
+    if (tab.value === "user-notes")
+      noteBots.value = await api("/me/notes/bots");
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -80,6 +90,16 @@ async function refreshBinding() {
   await session.load();
   await load();
 }
+async function loadNoteHistory(note: any) {
+  try {
+    noteHistory.value = {
+      currentVersion: note.version,
+      revisions: await api("/me/notes/" + note.id + "/history"),
+    };
+  } catch (e) {
+    Message.error((e as Error).message);
+  }
+}
 </script>
 <template>
   <div class="page-heading">
@@ -107,7 +127,13 @@ async function refreshBinding() {
       @change="(key: string | number) => router.push('/me/' + key)"
       ><a-tab-pane key="settings" title="记忆偏好" /><a-tab-pane
         key="memories"
-        title="我的记忆" /><a-tab-pane key="maintenance" title="维护记录"
+        title="我的记忆" /><a-tab-pane
+        key="maintenance"
+        title="维护记录" /><a-tab-pane
+        key="notes"
+        title="Notes 授权" /><a-tab-pane
+        key="user-notes"
+        title="我的笔记" /><a-tab-pane key="reflection" title="整理记录"
     /></a-tabs>
     <a-alert v-if="error" type="error" :title="error" show-icon /><a-spin
       :loading="loading"
@@ -119,6 +145,105 @@ async function refreshBinding() {
           path="/me/memory-settings"
           @saved="load"
       /></a-card>
+      <a-card v-if="data && tab === 'notes'" title="独立 Notes 授权">
+        <p>
+          Miku
+          的笔记可以包含观察和猜测，可能过时或不准确，与正式记忆冲突时需要确认。Miku
+          自写笔记不直接展示。
+        </p>
+        <EditorForm
+          :value="data"
+          :fields="[
+            { key: 'allowNotes', label: '允许关联我的 Notes', type: 'switch' },
+          ]"
+          path="/me/notes/settings"
+          @saved="load"
+        />
+        <a-popconfirm
+          content="彻底删除所有与我相关的 Notes、旧版本和衍生内容？"
+          @ok="action('/me/notes/personal-data', 'DELETE')"
+        >
+          <a-button status="danger">彻底删除关联 Notes</a-button>
+        </a-popconfirm>
+      </a-card>
+      <a-card v-if="data && tab === 'reflection'" title="后台整理记录">
+        <a-list :data="data"
+          ><template #item="{ item }"
+            ><a-list-item
+              ><div>
+                <p>
+                  {{ new Date(item.createdAt).toLocaleString() }} · 反思：{{
+                    item.status
+                  }}
+                  · 任务：{{ item.taskStatus }}
+                </p>
+                <p v-for="(r, i) in item.requests" :key="i">
+                  {{ r.priority }}：{{ r.reason }}
+                </p>
+                <a-popconfirm
+                  v-if="item.requests?.some((r: any) => r.reason)"
+                  content="仅清除这条整理原因正文，保留整理结果、次数和任务记录？"
+                  @ok="
+                    action(
+                      '/me/reflection-runs/' + item.id + '/reason',
+                      'DELETE',
+                    )
+                  "
+                  ><a-button type="text">清除本条原因</a-button></a-popconfirm
+                >
+                <p v-for="(d, i) in item.downstream" :key="i">
+                  {{ d.type }}：{{ d.status }}
+                </p>
+                <p v-for="(m, i) in item.memoryMaintenance" :key="i">
+                  记忆维护：{{ m.status }}（{{ m.count }}）
+                </p>
+                <p v-if="item.cancellationReason">
+                  {{ item.cancellationReason }}
+                </p>
+              </div></a-list-item
+            ></template
+          ></a-list
+        >
+      </a-card>
+      <a-card v-if="data && tab === 'user-notes'" title="我明确保存的笔记">
+        <p>这里只展示你自己保存的笔记。Miku 自写的 Notes 不直接展示。</p>
+        <a-button
+          type="primary"
+          :disabled="noteBots.length === 0"
+          @click="noteEditor = { botId: noteBots[0]?.id, content: '' }"
+          >新建笔记</a-button
+        >
+        <a-list :data="data"
+          ><template #item="{ item }"
+            ><a-list-item
+              ><div>
+                <p class="preserve">{{ item.content }}</p>
+                <a-space
+                  ><a-button
+                    @click="
+                      noteEditor = { ...item, expectedVersion: item.version }
+                    "
+                    >修改</a-button
+                  ><a-button @click="loadNoteHistory(item)">修订历史</a-button>
+                  <a-popconfirm
+                    content="移除这条用户笔记？保留修订历史。"
+                    @ok="
+                      action(
+                        '/me/notes/' +
+                          item.id +
+                          '?expectedVersion=' +
+                          item.version,
+                        'DELETE',
+                      )
+                    "
+                    ><a-button status="danger">移除</a-button></a-popconfirm
+                  ></a-space
+                >
+              </div></a-list-item
+            ></template
+          ></a-list
+        >
+      </a-card>
       <a-card v-if="data && tab === 'memories'" title="我的记忆"
         ><template #extra
           ><a-checkbox
@@ -144,11 +269,6 @@ async function refreshBinding() {
                 <a-space wrap
                   ><a-button size="small" @click="editing = { ...item }"
                     >纠正</a-button
-                  ><a-button
-                    size="small"
-                    :disabled="!!item.archivedAt"
-                    @click="share(item)"
-                    >共享</a-button
                   ><a-popconfirm
                     content="删除此记忆及关联版本？"
                     @ok="action('/me/memories/' + item.id, 'DELETE')"
@@ -195,7 +315,10 @@ async function refreshBinding() {
           ]"
           :scroll="{ x: 700 }"
       /></a-card>
-      <div v-if="data && tab !== 'settings'" class="pager">
+      <div
+        v-if="data && ['memories', 'maintenance', 'reflection'].includes(tab)"
+        class="pager"
+      >
         <a-button
           :disabled="skip === 0"
           @click="
@@ -236,6 +359,67 @@ async function refreshBinding() {
         load();
       "
   /></a-modal>
+  <a-modal
+    :visible="!!noteEditor"
+    role="dialog"
+    aria-modal="true"
+    title="用户笔记"
+    :footer="false"
+    @cancel="noteEditor = undefined"
+    unmount-on-close
+  >
+    <EditorForm
+      v-if="noteEditor"
+      :value="noteEditor"
+      :fields="[
+        {
+          key: 'botId',
+          label: '对话角色',
+          type: 'select',
+          options: noteBots.map((b) => ({ label: b.name, value: b.id })),
+          required: true,
+        },
+        { key: 'content', label: '笔记内容', type: 'textarea', required: true },
+        { key: 'reason', label: '修订原因' },
+      ]"
+      :path="'/me/notes' + (noteEditor.id ? '/' + noteEditor.id : '')"
+      :method="noteEditor.id ? 'PUT' : 'POST'"
+      @saved="
+        noteEditor = undefined;
+        load();
+      "
+    />
+  </a-modal>
+  <a-modal
+    :visible="!!noteHistory"
+    role="dialog"
+    aria-modal="true"
+    title="用户笔记修订历史"
+    :footer="false"
+    @cancel="noteHistory = undefined"
+    unmount-on-close
+  >
+    <a-list v-if="noteHistory" :data="noteHistory.revisions"
+      ><template #item="{ item }"
+        ><a-list-item
+          ><div>
+            <a-tag>{{
+              item.version === noteHistory.currentVersion
+                ? "当前版本"
+                : "旧版 · 不再用于当前判断"
+            }}</a-tag>
+            <p class="preserve">
+              <del v-if="item.version !== noteHistory.currentVersion">{{
+                item.content
+              }}</del
+              ><span v-else>{{ item.content }}</span>
+            </p>
+            <p class="muted">{{ item.reason }}</p>
+          </div></a-list-item
+        ></template
+      ></a-list
+    >
+  </a-modal>
   <a-modal
     role="dialog"
     aria-modal="true"

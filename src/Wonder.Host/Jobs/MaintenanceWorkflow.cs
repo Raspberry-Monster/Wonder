@@ -13,7 +13,8 @@ public sealed class MaintenanceWorkflow(
     EmotionEngine engine,
     BackupService backups,
     ConversationClock clock,
-    SummaryWorkflow summaries)
+    SummaryWorkflow summaries,
+    InteractionBoundary interaction)
 {
     public async Task SweepSessionsAsync(CancellationToken ct)
     {
@@ -33,15 +34,16 @@ public sealed class MaintenanceWorkflow(
             session.ClosingBoundary =
                 await db.Messages.Where(x => x.SessionId == session.Id).MaxAsync(x => (long?)x.Sequence, ct) ?? 0;
             var subjects = await db.Messages
-                .Where(x => x.SessionId == session.Id && x.SenderId != null && x.AllowReflection)
+                .Where(x => x.SessionId == session.Id && x.SenderId != null && x.AllowReflection && !x.ContextInvalidated &&
+                            db.Conversations.Any(c => c.Id == session.ConversationId && c.Kind == ConversationKind.Private))
                 .Select(x => x.SenderId!.Value).Distinct().ToListAsync(ct);
             foreach (var subject in subjects)
             {
                 var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == subject, ct);
-                if (user.AllowMemory)
-                    Jobs.Add(db, session.BotId, JobTypes.Reflection,
+                if (user.AllowMemory && await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
+                    await ReflectionRuns.AdmitAsync(db, session.BotId, session.ConversationId,
                         new ReflectionJob(session.Id, subject, session.ClosingBoundary.Value, user.RevocationEpoch,
-                            "full"), session.ConversationId);
+                            "full"), ct);
             }
 
             if (subjects.Count == 0) session.Status = SessionStatus.Closed;
@@ -70,6 +72,11 @@ public sealed class MaintenanceWorkflow(
         }
 
         await db.SaveChangesAsync(ct);
+        // Recover a crash after a permanent Chat failure committed but before its refund was recorded.
+        var uncompensated = await db.ForceReceipts.Where(x => x.CompensationStatus == null &&
+                db.Outbox.Any(j => j.Id == x.ChatJobId && j.Status == JobStatus.DeadLetter))
+            .OrderBy(x => x.AcceptedAt).ThenBy(x => x.Id).Select(x => x.ChatJobId).Take(50).ToArrayAsync(ct);
+        foreach (var chat in uncompensated) await interaction.CompensateAsync(chat, ct);
     }
 
     public async Task ScheduleDailyAsync(CancellationToken ct)

@@ -90,6 +90,13 @@ public sealed class JobProcessor(
         var failed = await db.Outbox.SingleOrDefaultAsync(x => x.Id == job.Id && x.Status == JobStatus.Running &&
                                                                x.LeaseId == job.LeaseId, ct);
         if (failed is null) return;
+        if (job.Type == JobTypes.Chat && await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
+        {
+            Jobs.Complete(db, failed);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return;
+        }
         var deferredQuota = ex is TokenQuotaException && job.Type != JobTypes.Chat;
         var terminal = !deferredQuota && (failed.Attempts >= MaxAttempts(job.Type) ||
                                           ex is ModelConfigurationException or DeliveryUnknownException
@@ -124,6 +131,11 @@ public sealed class JobProcessor(
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        if (terminal && job.Type == JobTypes.Chat)
+        {
+            using var scope = scopes.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<InteractionBoundary>().CompensateAsync(job.Id, ct);
+        }
         logger.LogWarning(ex, "Task {EventId} ({Type}) failed: {ErrorType}, terminal={Terminal}",
             job.Id, job.Type, ex.GetType().Name, terminal);
     }

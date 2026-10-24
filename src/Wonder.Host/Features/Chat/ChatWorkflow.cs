@@ -17,7 +17,8 @@ public sealed class ChatWorkflow(
     MediaStore media,
     ConversationHistory conversations,
     ConversationClock clock,
-    ConversationTools conversationTools)
+    ConversationTools conversationTools,
+    InteractionBoundary interaction)
 {
     public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
@@ -25,15 +26,38 @@ public sealed class ChatWorkflow(
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
         if (await db.Inbox.AnyAsync(x => x.EventId == job.Id && x.HandlerName == job.Type, ct)) return;
+        if (await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
+        {
+            Jobs.Complete(db, job);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            return;
+        }
         var id = Json.Read<IdPayload>(job.Payload).Id;
         var message = await db.Messages.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (message?.SessionId is null || message.SenderId is null)
+        if (message?.SessionId is null || message.SenderId is null || message.ContextInvalidated)
         {
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             return;
         }
+        var force = await db.ForceReceipts.AsNoTracking().SingleOrDefaultAsync(x => x.ChatJobId == job.Id, ct);
+        if (force?.CompensationStatus == "Refunded")
+        {
+            Jobs.Complete(db, job);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            return;
+        }
 
+        await using (var resetSources = await db.Database.BeginTransactionAsync(ct))
+        {
+            var leaseNow = await InteractionBoundary.DatabaseNowAsync(db, clock.UtcNow, ct);
+            if (expectedLeaseId is { } lease && await db.Outbox.Where(x => x.Id == job.Id &&
+                    x.Status == JobStatus.Running && x.LeaseId == lease && x.LeaseUntil > leaseNow)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.LeaseId, lease), ct) != 1)
+                throw new DbUpdateConcurrencyException("Chat lease expired before source recovery.");
+            await db.NoteDependencies.Where(x => x.TargetKind == "Chat" && x.TargetId == job.Id).ExecuteDeleteAsync(ct);
+            await resetSources.CommitAsync(ct);
+        }
         var bot = await db.Bots.AsNoTracking().SingleAsync(x => x.Id == message.BotId, ct);
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == message.SenderId, ct);
         var conv = await db.Conversations.AsNoTracking().SingleAsync(x => x.Id == message.ConversationId, ct);
@@ -41,14 +65,23 @@ public sealed class ChatWorkflow(
         var identity = await db.Identities.AsNoTracking().Where(x => x.BotId == bot.Id)
             .OrderByDescending(x => x.Revision).FirstAsync(ct);
         var mood = await db.Emotions.AsNoTracking().SingleAsync(x => x.BotId == bot.Id, ct);
-        var relationship = user.AllowMemory
+        var basicGroup = conv.Kind == ConversationKind.Group;
+        var relationship = user.AllowMemory && !basicGroup
             ? await db.Relationships.AsNoTracking().SingleOrDefaultAsync(
                 x => x.BotId == bot.Id && x.UserId == user.Id &&
                      x.GroupId == (conv.Kind == ConversationKind.Group ? conv.ExternalId : null), ct)
             : null;
-        var (summary, history) = await conversations.LoadAsync(bot.Id, conv.Id, message.Sequence, ct);
-        var toolDefinitions = profile.SupportsTools ? ConversationTools.Definitions : null;
-        var selected = await memories.RetrieveAsync(
+        var (summary, history) = basicGroup ? (null, (IReadOnlyList<ChatMessage>)[]) :
+            await conversations.LoadAsync(bot.Id, conv.Id, message.Sequence, ct);
+        var canWrite = !basicGroup && (interaction.Enabled || interaction.ReflectionEnabled || interaction.NotesEnabled) && expectedLeaseId is not null &&
+                       await db.Users.AnyAsync(x => x.LogicalUserId == user.Id, ct);
+        IList<AITool>? toolDefinitions = profile.SupportsTools
+            ? (basicGroup ? ConversationTools.Definitions.Take(1) : ConversationTools.Definitions)
+                .Concat(canWrite && interaction.Enabled ? InteractionBoundary.Definitions : [])
+                .Concat(canWrite && interaction.ReflectionEnabled ? InteractionBoundary.ReflectionDefinitions : []).ToList() : null;
+        if (canWrite && profile.SupportsTools && interaction.NotesEnabled && user.AllowNotes)
+            toolDefinitions = toolDefinitions!.Concat(InteractionBoundary.NotesDefinitions).ToList();
+        var selected = basicGroup ? new List<Core.Memory>() : await memories.RetrieveAsync(
             new MemoryAccess(bot.Id, user.Id, conv.Kind == ConversationKind.Group ? conv.ExternalId : null),
             message.Text, ct);
         var authorIds = history.Where(x => x.SenderId != null).Select(x => x.SenderId!.Value)
@@ -57,9 +90,12 @@ public sealed class ChatWorkflow(
             .ToDictionaryAsync(x => x.Id, x => x.PreferredName, ct);
         var segments = Json.Read<MessageSegment[]>(message.SegmentsJson);
         var currentText = message.Text;
+        if (force is not null)
+            currentText = $"[Server: authorized Force input; remaining at admission={force.RemainingAfter}. " +
+                          "Replying does not unmute. You may explicitly choose interaction_no_reply.]\n" + currentText;
         // Resolve quotes only inside the same bot and conversation, and only from stored messages.
         var quoteIds = segments.Where(x => x.Kind == SegmentKind.ReplyReference).Select(x => x.Value).ToArray();
-        if (quoteIds.Length > 0)
+        if (quoteIds.Length > 0 && !basicGroup)
         {
             var quotes = await db.Messages.AsNoTracking()
                 .Where(x => x.BotId == bot.Id && x.ConversationId == conv.Id && !x.ContextInvalidated &&
@@ -120,10 +156,25 @@ public sealed class ChatWorkflow(
         var sourceMessageIds = context.MessageIds.ToHashSet();
         var sourceUserIds = history.SelectMany(ConversationHistory.SubjectIds).Append(user.Id)
             .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
+        await NoteSources.InheritAsync(db, "Chat", job.Id, sourceMessageIds.ToArray(), summary?.Id, ct);
+        await db.SaveChangesAsync(ct);
+        async Task ValidateSources(CancellationToken token)
+        {
+            if (!await NoteSources.ValidAsync(db, "Chat", job.Id, token))
+                throw new DbUpdateConcurrencyException("Note source changed; rebuild the conversation.");
+        }
+        await ValidateSources(ct);
+        // Mark processing immediately before handing content to the external model, never refund uncertain calls.
+        models.Context(profile).Require(request, toolDefinitions);
+        if (force is not null)
+            await db.ForceReceipts.Where(x => x.Id == force.Id && x.ProcessingStartedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.ProcessingStartedAt, clock.UtcNow), ct);
+        var ordinal = 0;
+        var terminated = false;
         if (profile.SupportsTools)
         {
             var toolBudget = new ToolContextBudget(models.Context(profile), toolDefinitions!, context.OptionalGroups);
-            using var client = new FunctionInvokingChatClient(models.CreateToolClient(profile, toolBudget.Prepare))
+            using var client = new FunctionInvokingChatClient(models.CreateToolClient(profile, toolBudget.Prepare, ValidateSources))
             {
                 MaximumIterationsPerRequest = 4,
                 MaximumConsecutiveErrorsPerRequest = 0,
@@ -131,7 +182,25 @@ public sealed class ChatWorkflow(
                 FunctionInvoker = async (invocation, token) =>
                 {
                     var fits = toolBudget.ResultFits(invocation.Messages, invocation.CallContent.CallId);
-                    var result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id,
+                    if (terminated) throw new InvalidOperationException("Turn already terminated.");
+                    ConversationToolResult result;
+                    if (invocation.CallContent.Name.StartsWith("interaction_", StringComparison.Ordinal) ||
+                        invocation.CallContent.Name.StartsWith("reflection_", StringComparison.Ordinal) ||
+                        invocation.CallContent.Name.StartsWith("notes_", StringComparison.Ordinal))
+                    {
+                        var json = !canWrite ? "{\"error\":\"UnavailableTool\"}" :
+                            await interaction.ExecuteAsync(new AgentExecution(job.Id, expectedLeaseId!.Value,
+                                bot.Id, conv.Id, user.Id, message.Id, user.RevocationEpoch, bot.SettingsRevision, user.NotesEpoch,
+                                retrievedIds.ToArray(), sourceMessageIds.ToArray()),
+                                ordinal++, invocation.CallContent, token);
+                        result = new ConversationToolResult(json, []);
+                        if (await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, token))
+                        {
+                            terminated = true;
+                            invocation.Terminate = true;
+                        }
+                    }
+                    else result = await conversationTools.ExecuteAsync(invocation.CallContent, bot.Id, conv.Id,
                         message.Sequence, token, fits);
                     if (!fits(result.Json)) result = new ConversationToolResult("{\"error\":\"context_full\"}", []);
                     if (!fits(result.Json))
@@ -144,13 +213,26 @@ public sealed class ChatWorkflow(
                     return result.Json;
                 }
             };
-            response = await client.GetResponseAsync(request, new ChatOptions { Tools = toolDefinitions }, ct);
+            try { response = await client.GetResponseAsync(request, new ChatOptions { Tools = toolDefinitions }, ct); }
+            catch
+            {
+                if (!await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, CancellationToken.None)) throw;
+                Jobs.Complete(db, job);
+                await Jobs.SaveAsync(db, job, expectedLeaseId, CancellationToken.None);
+                return;
+            }
         }
         else
         {
             response = await models.GenerateAsync(profile, request, false, ct);
         }
 
+        if (terminated || await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
+        {
+            Jobs.Complete(db, job);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            return;
+        }
         var final = response.Messages.LastOrDefault(x => x.Role == ChatRole.Assistant);
         if (final is null || final.Contents.OfType<FunctionCallContent>().Any())
             throw new ModelResponseException("Model did not return a final answer after tool use.");
@@ -167,11 +249,12 @@ public sealed class ChatWorkflow(
             await tx.CommitAsync(ct);
             return;
         }
+        await ValidateSources(ct);
 
         if (!await db.Bots.AnyAsync(x => x.Id == bot.Id && x.SettingsRevision == bot.SettingsRevision, ct))
             throw new InvalidOperationException("Shared context settings changed during generation; retry.");
         var current = await db.Messages.AsNoTracking().SingleOrDefaultAsync(x => x.Id == message.Id, ct);
-        if (current is null || current.Text != message.Text)
+        if (current is null || current.ContextInvalidated || current.Text != message.Text)
         {
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
@@ -179,7 +262,7 @@ public sealed class ChatWorkflow(
             return;
         }
 
-        db.Messages.Add(new ChatMessage
+        var generated = new ChatMessage
         {
             BotId = bot.Id,
             ConversationId = conv.Id,
@@ -192,10 +275,12 @@ public sealed class ChatWorkflow(
             SegmentsJson = Json.Write(new[] { new MessageSegment(SegmentKind.Text, text) }),
             ContextSnapshotJson = Json.Write(snapshot),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(bot.MessageRetentionDays)
-        });
+        };
+        db.Messages.Add(generated);
+        await NoteSources.CopyChatAsync(db, job.Id, generated.Id, ct);
         QueueReply(db, job, message.SessionId.Value, text);
         Jobs.Complete(db, job);
-        if (context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id && x.ConversationId == conv.Id &&
+        if (!basicGroup && context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id && x.ConversationId == conv.Id &&
                                                                    x.Type == JobTypes.Summary &&
                                                                    x.Status == JobStatus.Pending, ct))
             Jobs.Add(db, bot.Id, JobTypes.Summary, new SummaryJob(message.SessionId.Value, message.Sequence), conv.Id,

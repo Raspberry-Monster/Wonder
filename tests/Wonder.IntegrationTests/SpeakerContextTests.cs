@@ -10,7 +10,7 @@ namespace Wonder.IntegrationTests;
 public sealed class SpeakerContextTests
 {
     [Test]
-    public async Task GroupMessagesKeepDistinctAuthorsAcrossHistoryQuotesAndNameChanges()
+    public async Task BasicGroupChatKeepsDistinctAuthorsWithoutHistoryOrQuotedMemory()
     {
         using var app = new TestApp();
         var (botId, bindingId) = await CreateBotAsync(app);
@@ -52,14 +52,8 @@ public sealed class SpeakerContextTests
         var current = messages[^1].GetProperty("content").GetString()!;
         await Assert.That(current.StartsWith($"[Message author: {secondTag}]", StringComparison.Ordinal)).IsTrue();
         await Assert.That(current).Contains("我也叫小明");
-        await Assert.That(current).Contains($"\"speaker\":\"{firstTag}\"");
-        await Assert.That(current).Contains("我叫小明，我喜欢蓝色。");
-        await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "user" &&
-                                            m.GetProperty("content").GetString()!.StartsWith(
-                                                $"[Message author: {firstTag}]", StringComparison.Ordinal))).IsTrue();
-        await Assert.That(messages.Any(m => m.GetProperty("role").GetString() == "assistant" &&
-                                            m.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。",
-                                                StringComparison.Ordinal))).IsTrue();
+        await Assert.That(current).DoesNotContain("???????????");
+        await Assert.That(messages.Length).IsEqualTo(2);
         await Assert.That(app.ModelRequests[1]).DoesNotContain(first.SenderId!.Value.ToString());
         await Assert.That(app.ModelRequests[1]).DoesNotContain(second.SenderId!.Value.ToString());
         await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing &&
@@ -78,7 +72,7 @@ public sealed class SpeakerContextTests
     }
 
     [Test]
-    public async Task RollingSummaryReceivesSpeakerLabelsWithoutLocalUserIds()
+    public async Task LegacyGroupSummaryJobCompletesWithoutCallingModel()
     {
         using var app = new TestApp();
         var (botId, _) = await CreateBotAsync(app);
@@ -103,16 +97,9 @@ public sealed class SpeakerContextTests
         var job = Jobs.Add(db, botId, JobTypes.Summary, new SummaryJob(session.Id, rows.Max(x => x.Sequence)));
         await db.SaveChangesAsync();
         await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, default);
-        using var request = JsonDocument.Parse(app.ModelRequests.Single());
-        var data = request.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
-        using var summaryInput = JsonDocument.Parse(data);
-        var speakers = summaryInput.RootElement.GetProperty("messages").EnumerateArray()
-            .Select(m => m.GetProperty("speaker").GetString()).Distinct().ToArray();
-        await Assert.That(speakers.Length).IsEqualTo(2);
-        await Assert.That(speakers).Contains(SpeakerTags.For(conversation.Id, a.Id));
-        await Assert.That(speakers).Contains(SpeakerTags.For(conversation.Id, b.Id));
-        await Assert.That(data).DoesNotContain(a.Id.ToString());
-        await Assert.That(data).DoesNotContain(b.Id.ToString());
+        await Assert.That(app.ModelRequests).IsEmpty();
+        await Assert.That(await db.Summaries.CountAsync()).IsEqualTo(0);
+
     }
 
     private static async Task<(Guid BotId, Guid BindingId)> CreateBotAsync(TestApp app)

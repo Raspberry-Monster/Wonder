@@ -52,12 +52,12 @@ public sealed class GroupsController(WonderDbContext db) : WonderControllerBase(
             await MemoryService.InvalidateSharedContextAsync(Db, id, ids, ct);
         }
 
-        policy.ContextSpaceId = input.ContextSpaceId;
+        policy.ContextSpaceId = null;
         policy.RespondToMention = input.RespondToMention;
         policy.RespondToReply = input.RespondToReply;
         policy.CommandPrefix = input.CommandPrefix;
         policy.PersistMessages = input.PersistMessages;
-        policy.AllowReflection = input.AllowReflection;
+        policy.AllowReflection = false;
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return Ok(policy);

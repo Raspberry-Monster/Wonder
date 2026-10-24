@@ -53,6 +53,12 @@ public sealed class SummaryWorkflow(
         }
 
         var session = await db.Sessions.AsNoTracking().SingleAsync(x => x.Id == input.SessionId, ct);
+        if (await db.Conversations.AnyAsync(x => x.Id == session.ConversationId && x.Kind == ConversationKind.Group, ct))
+        {
+            Jobs.Complete(db, job);
+            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
+            return;
+        }
         var profile = await models.ProfileAsync(job.BotId, TaskKind.RollingSummary, ct);
         var budget = models.Context(profile);
         var visible = ConversationHistory.Visible(db, job.BotId, session.ConversationId, input.ThroughSequence + 1,
@@ -207,6 +213,7 @@ public sealed class SummaryWorkflow(
             target.MessageIdsJson = Json.Write(progress.MessageIds);
             target.ContextInvalidated = false;
             target.Revision++;
+            await NoteSources.InheritAsync(db, "Summary", target.Id, progress.MessageIds.ToArray(), progress.BaseId, ct);
             progress.BaseId = target.Id;
             progress.BaseRevision = target.Revision;
         }

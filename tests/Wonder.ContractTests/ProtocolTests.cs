@@ -149,13 +149,13 @@ public sealed class ProtocolTests
         var botId = Guid.NewGuid();
         var userId = Guid.NewGuid();
         var profileId = Guid.NewGuid();
-        var sql = MemoryQueries.Nearest(db, new MemoryAccess(botId, userId, "group-123"), profileId, [1, 0, 0])
+        var sql = MemoryQueries.Nearest(db, new MemoryAccess(botId, userId, null), profileId, [1, 0, 0])
             .ToQueryString();
         await Assert.That(sql).Contains("INNER JOIN");
         await Assert.That(sql).Contains("<=>");
         await Assert.That(sql).Contains("SubjectId");
         await Assert.That(sql).Contains("ScopeOwnerId");
-        await Assert.That(sql).Contains("group-123");
+        await Assert.That(sql).Contains("SubjectId");
         await Assert.That(sql).Contains("ORDER BY");
         await Assert.That(sql).Contains("LIMIT");
         await Assert.That(sql.IndexOf("WHERE", StringComparison.Ordinal) <

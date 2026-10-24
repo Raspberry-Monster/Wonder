@@ -100,6 +100,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ConversationClock>();
 builder.Services.AddSingleton<ConversationHistory>();
 builder.Services.AddSingleton<ConversationTools>();
+builder.Services.AddSingleton<InteractionBoundary>();
 builder.Services.AddSingleton<EmotionEngine>();
 builder.Services.AddSingleton<MessageIngestor>();
 builder.Services.AddSingleton<ModelRouter>();

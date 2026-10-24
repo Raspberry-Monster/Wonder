@@ -58,7 +58,7 @@ public static class OneBotProtocol
                                                                    StringComparison.Ordinal))));
         var persist = bot.PersistMessages && (e.Kind == ConversationKind.Private || policy?.PersistMessages == true);
         return new TriggerDecision(persist, respond && persist,
-            respond && persist && consent && (e.Kind == ConversationKind.Private || policy?.AllowReflection == true));
+            respond && persist && consent && e.Kind == ConversationKind.Private);
     }
 
     public static IReadOnlyList<string> Split(string text, int maxLength = 1200)

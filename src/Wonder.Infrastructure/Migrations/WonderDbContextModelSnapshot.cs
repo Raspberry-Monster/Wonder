@@ -88,6 +88,127 @@ namespace Wonder.Infrastructure.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("Wonder.Core.AgentOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ArgumentsHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ChatJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CommittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ExecutorLeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReceiptJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatJobId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("AgentOperations");
+                });
+
+            modelBuilder.Entity("Wonder.Core.AgentReflectionQuota", b =>
+                {
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UsedImportant")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UsedNormal")
+                        .HasColumnType("integer");
+
+                    b.HasKey("BotId", "Date");
+
+                    b.ToTable("AgentReflectionQuotas", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reflection_Quota", "\"UsedNormal\" BETWEEN 0 AND 2 AND \"UsedImportant\" BETWEEN 0 AND 1");
+                        });
+                });
+
+            modelBuilder.Entity("Wonder.Core.AgentReflectionRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("GenerationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("RawBoundary")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId")
+                        .IsUnique();
+
+                    b.HasIndex("BotId", "UserId", "CreatedAt");
+
+                    b.ToTable("AgentReflectionRequests");
+                });
+
             modelBuilder.Entity("Wonder.Core.BindingChallenge", b =>
                 {
                     b.Property<Guid>("Id")
@@ -158,6 +279,33 @@ namespace Wonder.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Bot_Settings", "\"MessageRetentionDays\" BETWEEN 1 AND 3650 AND \"PrivateIdleMinutes\" BETWEEN 1 AND 1440 AND \"GroupIdleMinutes\" BETWEEN 1 AND 1440 AND \"DailyTokenLimit\" > 0 AND \"MonthlyTokenLimit\" > 0");
                         });
+                });
+
+            modelBuilder.Entity("Wonder.Core.ChatDisposition", b =>
+                {
+                    b.Property<Guid>("ChatJobId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CommittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ForceReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("ChatJobId");
+
+                    b.HasIndex("OperationId")
+                        .IsUnique();
+
+                    b.ToTable("ChatDispositions");
                 });
 
             modelBuilder.Entity("Wonder.Core.ChatMessage", b =>
@@ -483,6 +631,59 @@ namespace Wonder.Infrastructure.Migrations
                     b.ToTable("EmotionEvents");
                 });
 
+            modelBuilder.Entity("Wonder.Core.ForceReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ChargeGeneration")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ChatJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CompensationStatus")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MuteSessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlatformEventKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("ProcessingStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RemainingAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatJobId")
+                        .IsUnique();
+
+                    b.HasIndex("MuteSessionId");
+
+                    b.HasIndex("BotId", "PlatformEventKey")
+                        .IsUnique();
+
+                    b.ToTable("ForceReceipts");
+                });
+
             modelBuilder.Entity("Wonder.Core.GlobalEmotionState", b =>
                 {
                     b.Property<Guid>("BotId")
@@ -593,6 +794,13 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<bool>("AllowMemoryUpdate")
                         .HasColumnType("boolean");
+
+                    b.Property<bool>("AllowNotes")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("NotesEpoch")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
 
                     b.Property<string>("PreferredName")
                         .IsRequired()
@@ -822,6 +1030,19 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("RecordVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ResourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResourceKind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long?>("ResourceVersion")
+                        .HasColumnType("bigint");
+
                     b.Property<int>("Scope")
                         .HasColumnType("integer");
 
@@ -909,6 +1130,158 @@ namespace Wonder.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Models");
+                });
+
+            modelBuilder.Entity("Wonder.Core.MuteSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ForceRemaining")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<long>("ResetGeneration")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "ExpiresAt");
+
+                    b.ToTable("Mutes", t =>
+                        {
+                            t.HasCheckConstraint("CK_Mute_ForceRemaining", "\"ForceRemaining\" >= 0 AND \"ForceRemaining\" <= 3");
+                        });
+                });
+
+            modelBuilder.Entity("Wonder.Core.Note", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AuthorKind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClaimKind")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("PrivacyDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("SourceInvalidated")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SourceMemoryIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceMessageIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BotId", "UserId", "ConversationId");
+
+                    b.ToTable("Notes");
+                });
+
+            modelBuilder.Entity("Wonder.Core.NoteDependency", b =>
+                {
+                    b.Property<Guid>("NoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TargetKind")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TargetId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("NoteId", "Version", "TargetKind", "TargetId");
+
+                    b.HasIndex("TargetKind", "TargetId");
+
+                    b.ToTable("NoteDependencies");
+                });
+
+            modelBuilder.Entity("Wonder.Core.NoteRevision", b =>
+                {
+                    b.Property<Guid>("NoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("NoteId", "Version");
+
+                    b.ToTable("NoteRevisions");
                 });
 
             modelBuilder.Entity("Wonder.Core.OutboxMessage", b =>
@@ -1134,6 +1507,58 @@ namespace Wonder.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("PlatformIdentities");
+                });
+
+            modelBuilder.Entity("Wonder.Core.ReflectionGeneration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Epoch")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RawBoundary")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ResultId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceSignature")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId")
+                        .IsUnique();
+
+                    b.HasIndex("BotId", "SessionId", "SubjectId", "SourceSignature")
+                        .IsUnique();
+
+                    b.ToTable("ReflectionGenerations");
                 });
 
             modelBuilder.Entity("Wonder.Core.ReflectionResult", b =>
@@ -1517,6 +1942,15 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Wonder.Core.ForceReceipt", b =>
+                {
+                    b.HasOne("Wonder.Core.MuteSession", null)
+                        .WithMany()
+                        .HasForeignKey("MuteSessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Wonder.Core.GlobalEmotionState", b =>
                 {
                     b.HasOne("Wonder.Core.BotInstance", null)
@@ -1586,6 +2020,15 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasOne("Wonder.Core.BotInstance", null)
                         .WithMany()
                         .HasForeignKey("BotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wonder.Core.MuteSession", b =>
+                {
+                    b.HasOne("Wonder.Core.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -10,5 +10,6 @@ public sealed class LogicalUserConfiguration : IEntityTypeConfiguration<LogicalU
     {
         builder.Property(x => x.PreferredName).HasMaxLength(100);
         builder.Property(x => x.RevocationEpoch).IsConcurrencyToken();
+        builder.Property(x => x.NotesEpoch).IsConcurrencyToken();
     }
 }

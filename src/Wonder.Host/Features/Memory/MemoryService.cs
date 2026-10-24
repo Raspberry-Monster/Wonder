@@ -14,6 +14,7 @@ public sealed class MemoryService(
 {
     public async Task<IReadOnlyList<Memory>> RetrieveAsync(MemoryAccess access, string query, CancellationToken ct)
     {
+        if (access.GroupId is not null) return [];
         await using var db = await factory.CreateDbContextAsync(ct);
         var resolved = await ResolveAccessAsync(db, access, ct);
         if (resolved is null) return [];
@@ -75,6 +76,7 @@ public sealed class MemoryService(
     public async Task<Guid> ShareAsync(Guid subjectId, Guid memoryId, MemoryScope scope, CancellationToken ct,
         Guid? expectedSpaceId = null)
     {
+        if (scope != MemoryScope.UserShared) throw new ArgumentException("Group memory sharing is no longer supported.");
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var source = await db.Memories.SingleOrDefaultAsync(x => x.Id == memoryId && x.SubjectId == subjectId &&
@@ -90,7 +92,7 @@ public sealed class MemoryService(
         await db.Entry(source).ReloadAsync(ct);
         if (source.Status == MemoryStatus.Revoked || source.ArchivedAt != null)
             throw new ArgumentException("Only current active memories can be shared.");
-        if (source.Scope is not (MemoryScope.Private or MemoryScope.GroupUser))
+        if (source.Scope != MemoryScope.Private)
             throw new ArgumentException("Only personal source memories can be shared.");
         string owner;
         if (scope == MemoryScope.UserShared)
@@ -239,6 +241,13 @@ public sealed class MemoryService(
         IReadOnlyCollection<Guid> memoryIds, CancellationToken ct)
     {
         if (memoryIds.Count == 0) return;
+        var noteSources = await db.Notes.AsNoTracking().Where(x => x.BotId == botId && !x.PrivacyDeleted)
+            .Select(x => new { x.Id, x.SourceMemoryIdsJson }).ToArrayAsync(ct);
+        var invalidNotes = noteSources.Where(x =>
+            !ConversationHistory.TryMemoryIds(x.SourceMemoryIdsJson, false, out var ids) || ids.Any(memoryIds.Contains))
+            .Select(x => x.Id).ToArray();
+        await db.Notes.Where(x => invalidNotes.Contains(x.Id)).ExecuteUpdateAsync(s => s.SetProperty(x => x.SourceInvalidated, true), ct);
+        await NoteSources.InvalidateAsync(db, invalidNotes, false, ct);
         await db.Bots.Where(x => x.Id == botId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.SettingsRevision, x => x.SettingsRevision + 1), ct);
         var candidates = await db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.Role == "assistant" &&
@@ -357,6 +366,10 @@ public sealed class MemoryService(
 
     public static async Task ClearDerivedAsync(WonderDbContext db, Guid botId, Guid userId, CancellationToken ct)
     {
+        await db.AgentReflectionRequests.Where(x => x.BotId == botId && x.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Reason, ""), ct);
+        await db.ReflectionGenerations.Where(x => x.BotId == botId && x.SubjectId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, "Cancelled").SetProperty(x => x.CancellationReason, "PrivacyRevocation"), ct);
         await db.MemoryCandidates.Where(x => x.BotId == botId && x.SubjectId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, "").SetProperty(x => x.FactKey, "")
                 .SetProperty(x => x.EvidenceJson, "[]").SetProperty(x => x.Reason, "")
@@ -448,6 +461,19 @@ public sealed class MemoryService(
             if (user is null || !await db.Bots.AnyAsync(x => x.Id == item.BotId, ct)) continue;
             if (!await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
                 throw new DbUpdateConcurrencyException("User changed during ledger replay; retry.");
+            if (item.ResourceKind == "Note")
+            {
+                if (item.RecordVersion != 2 || item.ResourceId is null)
+                    throw new InvalidOperationException("Unsupported Notes deletion ledger target.");
+                user.NotesEpoch = Math.Max(user.NotesEpoch, item.Epoch);
+                if (!await db.Revocations.AnyAsync(x => x.Id == item.Id, ct)) db.Revocations.Add(item);
+                await NoteSources.PurgeAsync(db, item.ResourceId.Value, ct);
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                continue;
+            }
+            if (item.ResourceKind != "Memory" || item.RecordVersion != 1)
+                throw new InvalidOperationException("Unsupported deletion ledger version.");
             user.RevocationEpoch = Math.Max(user.RevocationEpoch, item.Epoch);
             if (!await db.Revocations.AnyAsync(x => x.Id == item.Id, ct)) db.Revocations.Add(item);
             var candidates = await db.Memories.Where(x =>

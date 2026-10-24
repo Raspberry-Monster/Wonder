@@ -36,7 +36,7 @@ public sealed class DomainTests
             new Memory { BotId = bot, SubjectId = other, Scope = MemoryScope.GroupShared, ScopeOwnerId = "g1" }
         };
         var allowed = rows.Where(MemoryRules.Authorized(new MemoryAccess(bot, user, "g1")).Compile()).ToArray();
-        await Assert.That(allowed.Select(x => x.Id).SequenceEqual(new[] { rows[1].Id, rows[5].Id })).IsTrue();
+        await Assert.That(allowed.Length == 0).IsTrue();
         rows[1].Status = MemoryStatus.Revoked;
         await Assert.That(rows.Where(MemoryRules.Authorized(new MemoryAccess(bot, user, "g1")).Compile()))
             .DoesNotContain(rows[1]);

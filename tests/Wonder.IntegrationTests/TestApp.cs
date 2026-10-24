@@ -55,7 +55,8 @@ public sealed class TestApp : WebApplicationFactory<Program>
             var settings = new Dictionary<string, string?>
             {
                 ["Workers:Enabled"] = "false", ["Storage:KeysPath"] = Path.GetFullPath(".local/test-keys"),
-                ["Authentication:AllowRegistration"] = "true"
+                ["Authentication:AllowRegistration"] = "true", ["Chat:InteractionToolsEnabled"] = "true",
+                ["Chat:ReflectionToolsEnabled"] = "true", ["Chat:NotesToolsEnabled"] = "true"
             };
             if (requireHttps.HasValue) settings["Authentication:RequireHttps"] = requireHttps.Value.ToString();
             c.AddInMemoryCollection(settings);

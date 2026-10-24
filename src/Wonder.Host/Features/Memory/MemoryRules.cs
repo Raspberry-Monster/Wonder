@@ -7,22 +7,10 @@ public static class MemoryRules
 {
     public static Expression<Func<Core.Memory, bool>> Authorized(MemoryAccess access)
     {
-        var space = access.ContextSpaceId?.ToString();
-        var user = access.UserId.ToString();
-        return memory => memory.BotId == access.BotId && memory.Status != MemoryStatus.Revoked &&
-                         memory.ArchivedAt == null &&
-                         ((access.GroupId == null
-                              ? access.AllowPersonal && memory.SubjectId == access.UserId &&
-                                memory.Scope == MemoryScope.Private
-                              : (access.AllowPersonal && memory.Scope == MemoryScope.GroupUser &&
-                                 memory.SubjectId == access.UserId && memory.ScopeOwnerId == access.GroupId)
-                                || (memory.Scope == MemoryScope.GroupShared && memory.ScopeOwnerId == access.GroupId)
-                                || memory.Scope == MemoryScope.GlobalPublic)
-                          || (access.AllowPersonal && access.AllowUserShared &&
-                              memory.Scope == MemoryScope.UserShared &&
-                              memory.SubjectId == access.UserId && memory.ScopeOwnerId == user)
-                          || (access.GroupId != null && space != null && memory.Scope == MemoryScope.SpaceShared &&
-                              memory.ScopeOwnerId == space));
+        return memory => access.GroupId == null && access.AllowPersonal && memory.BotId == access.BotId &&
+                         memory.SubjectId == access.UserId &&
+                         (memory.Scope == MemoryScope.Private || (access.AllowUserShared && memory.Scope == MemoryScope.UserShared)) &&
+                         memory.Status != MemoryStatus.Revoked && memory.ArchivedAt == null;
     }
 
     public static bool CanAdmit(MemoryCandidate candidate, bool consent, long sourceEpoch, long currentEpoch,

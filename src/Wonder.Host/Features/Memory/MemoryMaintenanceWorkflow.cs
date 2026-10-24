@@ -409,7 +409,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
         CancellationToken ct)
     {
         if (!u.AllowMemory || u.RevocationEpoch != c.RevocationEpoch ||
-            c.Scope is not (MemoryScope.Private or MemoryScope.GroupUser)) return false;
+            c.Scope != MemoryScope.Private) return false;
         var key = Json.Hash(c.FactKey);
         if (await db.Revocations.AnyAsync(x => x.BotId == c.BotId && x.UserId == c.SubjectId &&
                                                x.Scope == c.Scope && x.ScopeOwnerId == c.ScopeOwnerId &&

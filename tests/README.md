@@ -62,4 +62,8 @@ npm --prefix src/Wonder.Web run test:dev
 
 浏览器测试需要 Playwright 浏览器，首次运行在 Wonder.Web 目录执行 `npx playwright install`；服务器和运行参数见该目录的 Playwright 配置。真实 SnowLuma / OneBot 回执与断线行为、模型供应商的 JSON / 图片 / 用量兼容性、容器部署、备份恢复与目标机器负载仍需分别验收。
 
+ADR-013 的 `InteractionTests` 和 `AgentAutonomyTests` 覆盖 Force 并发、结构化写操作重放、NoReply 恢复、Notes 版本隔离和账本升级/恢复、规范 Full 竞争、配额和本人权限。依赖 PG 的用例仍使用随机临时数据库，禁止将应用库作为迁移测试目标。Windows 若遇到 .NET 10 `dotnet test` 参数解析异常，可在构建后直接运行 `dotnet tests/Wonder.IntegrationTests/bin/Debug/net10.0/Wonder.IntegrationTests.dll --report-trx`；该进程同样读取 `WONDER_TEST_POSTGRES`。
+
+浏览器测试通过 `tests/server.setup.ts` 启停专用测试子进程，拒绝占用已有测试端口，不接触运行中的应用服务。dev 与构建产物测试分别保存结果，避免同时清理同一输出目录。完整本地验收记录和未覆盖的真实设备边界见 [实施附录](../docs/adr-013-implementation.md)。
+
 参考：[TUnit 安装说明](https://tunit.dev/docs/getting-started/installation/)、[运行测试](https://tunit.dev/docs/getting-started/running-your-tests/)。

@@ -51,7 +51,12 @@ public sealed class MemoryMaintenanceTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        var share = await service.ShareAsync(f.User, f.Old!.Value, MemoryScope.UserShared, default);
+        // A legacy copy from a backup; production no longer allows creating new shares.
+        var legacy = new Memory { BotId = f.Bot, SubjectId = f.User, Scope = MemoryScope.UserShared,
+            ScopeOwnerId = f.User.ToString(), SharedFromMemoryId = f.Old!.Value, Text = "旧共享副本", Status = MemoryStatus.Active };
+        db.Memories.Add(legacy);
+        await db.SaveChangesAsync();
+        var share = legacy.Id;
         // A reply using the old fact must stop contributing to future context after a replacement.
         db.Messages.Add(new ChatMessage
         {

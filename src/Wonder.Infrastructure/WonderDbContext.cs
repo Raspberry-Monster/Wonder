@@ -38,6 +38,16 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options)
     public DbSet<ModelProfile> Models => Set<ModelProfile>();
     public DbSet<UsageRecord> Usage => Set<UsageRecord>();
     public DbSet<MediaAsset> Media => Set<MediaAsset>();
+    public DbSet<MuteSession> Mutes => Set<MuteSession>();
+    public DbSet<ForceReceipt> ForceReceipts => Set<ForceReceipt>();
+    public DbSet<AgentOperation> AgentOperations => Set<AgentOperation>();
+    public DbSet<ChatDisposition> ChatDispositions => Set<ChatDisposition>();
+    public DbSet<ReflectionGeneration> ReflectionGenerations => Set<ReflectionGeneration>();
+    public DbSet<AgentReflectionQuota> AgentReflectionQuotas => Set<AgentReflectionQuota>();
+    public DbSet<AgentReflectionRequest> AgentReflectionRequests => Set<AgentReflectionRequest>();
+    public DbSet<Note> Notes => Set<Note>();
+    public DbSet<NoteRevision> NoteRevisions => Set<NoteRevision>();
+    public DbSet<NoteDependency> NoteDependencies => Set<NoteDependency>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {

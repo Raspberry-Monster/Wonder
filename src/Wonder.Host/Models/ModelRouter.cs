@@ -34,9 +34,10 @@ public sealed class ModelRouter(
         return new ModelContextBudget(tokens, profile);
     }
 
-    public IChatClient CreateToolClient(ModelProfile profile, Action<List<ChatMessage>>? prepare = null)
+    public IChatClient CreateToolClient(ModelProfile profile, Action<List<ChatMessage>>? prepare = null,
+        Func<CancellationToken, Task>? beforeSend = null)
     {
-        return new AccountedChatClient(CreateTransport(profile), this, profile, prepare);
+        return new AccountedChatClient(CreateTransport(profile), this, profile, prepare, beforeSend);
     }
 
     private IChatClient CreateTransport(ModelProfile profile)
@@ -143,7 +144,7 @@ public sealed class ModelRouter(
         IChatClient inner,
         ModelRouter router,
         ModelProfile profile,
-        Action<List<ChatMessage>>? prepare) : DelegatingChatClient(inner)
+        Action<List<ChatMessage>>? prepare, Func<CancellationToken, Task>? beforeSend) : DelegatingChatClient(inner)
     {
         private int calls;
         private int rounds;
@@ -155,6 +156,7 @@ public sealed class ModelRouter(
             var disabled = rounds++ >= 3 || calls >= 8 || options?.ToolMode == ChatToolMode.None;
             var input = messages.ToList();
             prepare?.Invoke(input);
+            if (beforeSend is not null) await beforeSend(cancellationToken);
             var available = router.Context(profile).OutputAvailable(input, options?.Tools);
             var output = Math.Min(profile.MaxOutputTokens, available);
             if (output < Math.Min(256, profile.MaxOutputTokens))

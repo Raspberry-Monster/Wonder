@@ -118,6 +118,10 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 
 ## 保留与清理
 
+ADR-013 新增迁移应按原 stop-backup-migrate-start 流程部署。`Chat__InteractionToolsEnabled`、`Chat__ReflectionToolsEnabled`、`Chat__NotesToolsEnabled` 默认 false；需显式开放模块并配置 Chat SupportsTools。Notes 还需本人独立授权。未对旧只读设置自动追加写权限。
+
+删除账本现兼容旧 Memory v1 和 Note v2 目标。恢复仍须在任何 Worker/OneBot/外部查询前重放最新账本。Notes 与整理原因按本人确认保留到主动删除/清除，不自动过期。验收边界见 [实施附录](adr-013-implementation.md)。
+
 原始消息默认保留 90 天，创建时记录 ExpiresAt，修改 Bot 保留期只影响后续消息；图片缓存 7 天。清理每 5 分钟分批执行，符合条件的完成发送正文按 30 天清理。Memory / Relationship 不随原始消息自动过期。
 
 记忆更正、撤回和删除的范围见 [跨群记忆](shared-context.md) 及 [自主维护记忆](memory-maintenance.md)，整体结构见 [核心架构](architecture.md)。

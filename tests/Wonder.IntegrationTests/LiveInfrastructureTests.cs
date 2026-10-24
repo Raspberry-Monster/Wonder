@@ -83,8 +83,10 @@ public sealed class LiveInfrastructureTests
             await db.SaveChangesAsync();
             var authorized = await MemoryQueries
                 .Nearest(db, new MemoryAccess(bot.Id, alice.Id, "123"), profile.Id, [1, 0, 0]).ToListAsync();
-            await Assert.That(authorized).HasSingleItem();
-            await Assert.That(authorized[0].Id).IsEqualTo(groupFact.Id);
+            await Assert.That(authorized).IsEmpty();
+            var privateMatches = await MemoryQueries.Nearest(db, new MemoryAccess(bot.Id, alice.Id, null), profile.Id, [1, 0, 0]).ToListAsync();
+            await Assert.That(privateMatches.Count).IsEqualTo(5);
+            await Assert.That(privateMatches.All(x => x.Scope == MemoryScope.Private && x.SubjectId == alice.Id)).IsTrue();
 
             bob.AllowMemory = true;
             bob.AllowCrossGroupMemory = true;
@@ -109,16 +111,14 @@ public sealed class LiveInfrastructureTests
             await db.SaveChangesAsync();
             var sharedAccess = new MemoryAccess(bot.Id, alice.Id, "123", sharedSpace.Id);
             var sharedMatches = await MemoryQueries.Nearest(db, sharedAccess, profile.Id, [1, 0, 0]).ToListAsync();
-            await Assert.That(sharedMatches.Count).IsEqualTo(2);
-            await Assert.That(sharedMatches[0].Id).IsEqualTo(sharedFact.Id);
+            await Assert.That(sharedMatches).IsEmpty();
             bob.AllowCrossGroupMemory = false;
             await db.SaveChangesAsync();
             var withdrawnMatches = await MemoryQueries.Nearest(db, sharedAccess, profile.Id, [1, 0, 0]).ToListAsync();
-            await Assert.That(withdrawnMatches).HasSingleItem();
-            await Assert.That(withdrawnMatches[0].Id).IsEqualTo(groupFact.Id);
+            await Assert.That(withdrawnMatches).IsEmpty();
 
             var conversation = new Conversation
-                { BotId = bot.Id, Kind = ConversationKind.Group, ExternalId = "continuity" };
+                { BotId = bot.Id, Kind = ConversationKind.Private, ExternalId = "continuity" };
             var previousSession = new ConversationSession
                 { BotId = bot.Id, ConversationId = conversation.Id, Status = SessionStatus.Closed };
             var currentSession = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };

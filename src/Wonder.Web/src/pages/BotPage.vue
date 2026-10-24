@@ -9,7 +9,6 @@ const route = useRoute(),
   router = useRouter(),
   bot = ref<any>(),
   data = ref<any>(),
-  spaces = ref<any[]>([]),
   tokenizers = ref<components["schemas"]["TokenizerResponse"][]>([]),
   loading = ref(false),
   error = ref(""),
@@ -19,14 +18,24 @@ const route = useRoute(),
   selectedTasks = ref<string[]>([]);
 const id = computed(() => String(route.params.id)),
   base = computed(() => `/bots/${id.value}`),
-  tab = computed(() => String(route.params.tab || "settings"));
+  tab = computed(() =>
+    [
+      "settings",
+      "identity",
+      "binding",
+      "model-routes",
+      "groups",
+      "status",
+    ].includes(String(route.params.tab))
+      ? String(route.params.tab)
+      : "settings",
+  );
 const tabs = [
   ["settings", "基本设置"],
   ["identity", "身份设定"],
   ["binding", "平台连接"],
   ["model-routes", "模型路由"],
   ["groups", "群组策略"],
-  ["context-spaces", "共享空间"],
   ["status", "运行状态"],
 ];
 const tasks = [
@@ -140,13 +149,6 @@ const groupFields = computed<Field[]>(() => [
   { key: "respondToReply", label: "响应引用回复", type: "switch" },
   { key: "commandPrefix", label: "命令前缀" },
   { key: "persistMessages", label: "保留消息", type: "switch" },
-  { key: "allowReflection", label: "允许反思", type: "switch" },
-  {
-    key: "contextSpaceId",
-    label: "共享空间",
-    type: "select",
-    options: spaces.value.map((s) => ({ label: s.name, value: s.id })),
-  },
 ]);
 async function load() {
   loading.value = true;
@@ -172,8 +174,6 @@ async function load() {
       tokenizers.value = available;
     } else if (tab.value === "settings") data.value = bot.value;
     else data.value = await api(base.value + "/" + tab.value);
-    if (tab.value === "groups")
-      spaces.value = await api(base.value + "/context-spaces");
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -255,7 +255,7 @@ function newGroup() {
     respondToReply: true,
     commandPrefix: "/wonder",
     persistMessages: true,
-    allowReflection: true,
+    allowReflection: false,
     proactiveEnabled: false,
     contextSpaceId: null,
   };
@@ -405,32 +405,6 @@ const jobColumns = [
             >编辑</a-button
           ></template
         ></a-table
-      ></a-card
-    >
-    <a-card v-if="data && tab === 'context-spaces'" title="共享空间"
-      ><template #extra
-        ><a-button type="primary" @click="editing = { name: '' }"
-          >创建空间</a-button
-        ></template
-      ><a-list :data="data"
-        ><template #item="{ item }"
-          ><a-list-item
-            ><a-list-item-meta
-              :title="item.name"
-              :description="item.id"
-            /><template #actions
-              ><a-button type="text" @click="editing = { ...item }"
-                >重命名</a-button
-              ><a-popconfirm
-                content="删除空间并撤销关联的共享上下文？"
-                @ok="action('/context-spaces/' + item.id, 'DELETE')"
-                ><a-button type="text" status="danger"
-                  >删除</a-button
-                ></a-popconfirm
-              ></template
-            ></a-list-item
-          ></template
-        ></a-list
       ></a-card
     >
     <div v-if="data && tab === 'status'" class="stack">
@@ -591,17 +565,6 @@ const jobColumns = [
         base + '/groups/' + encodeURIComponent(editing.groupId) + '/policy'
       "
       :transform="(v) => ({ ...v, contextSpaceId: v.contextSpaceId || null })"
-      @saved="
-        editing = undefined;
-        load();
-      "
-    />
-    <EditorForm
-      v-if="editing && tab === 'context-spaces'"
-      :value="editing"
-      :fields="[{ key: 'name', label: '空间名称', required: true }]"
-      :path="base + '/context-spaces' + (editing.id ? '/' + editing.id : '')"
-      :method="editing.id ? 'PUT' : 'POST'"
       @saved="
         editing = undefined;
         load();
