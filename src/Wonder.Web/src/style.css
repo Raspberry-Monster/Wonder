@@ -5,8 +5,6 @@
     -apple-system,
     "Segoe UI",
     sans-serif;
-  color: var(--color-text-1);
-  background: var(--color-fill-1);
   font-synthesis: none;
 }
 * {
@@ -14,6 +12,8 @@
 }
 body {
   margin: 0;
+  color: var(--color-text-1);
+  background: var(--color-fill-1);
 }
 a {
   color: inherit;
@@ -202,7 +202,6 @@ h2 {
   grid-template-columns: minmax(0, 1fr) minmax(0, 450px);
   max-width: 1200px;
   margin-inline: auto;
-  background: var(--color-fill-1);
   padding: 9vh 40px;
   gap: clamp(32px, 8vw, 120px);
   align-items: center;
