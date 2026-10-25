@@ -34,7 +34,7 @@ public sealed class ConversationContinuityTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That(await db.Parts.AnyAsync()).IsFalse();
-        await Assert.That(await db.Messages.AnyAsync(x => x.Role == "assistant")).IsFalse();
+        await Assert.That(await db.Messages.AnyAsync(x => x.Role == MessageRole.Assistant)).IsFalse();
         await Assert.That(await db.Usage.CountAsync()).IsEqualTo(1);
         await Assert.That(app.Sender.Sent).IsEmpty();
     }
@@ -55,12 +55,12 @@ public sealed class ConversationContinuityTests
         var generated = new ChatMessage
         {
             BotId = f.Bot, ConversationId = next.Message.ConversationId,
-            SessionId = next.Message.SessionId, Role = "assistant", ExternalMessageId = "generated:" + next.Job,
+            SessionId = next.Message.SessionId, Role = MessageRole.Assistant, ExternalMessageId = "generated:" + next.Job,
             Text = "<｜｜DSML｜｜ calls>unfinished"
         };
         db.Messages.Add(generated);
         await db.SaveChangesAsync();
-        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Outgoing);
+        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobKind.Outgoing);
         await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
         await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
         db.ChangeTracker.Clear();
@@ -103,7 +103,7 @@ public sealed class ConversationContinuityTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That((await db.Parts.SingleAsync()).Text).IsEqualTo("现在是晚上十一点五十八分。");
         await Assert.That(await db.Usage.CountAsync()).IsEqualTo(2);
-        await Assert.That((await db.Messages.SingleAsync(x => x.Role == "assistant")).Text).DoesNotContain("我先查询");
+        await Assert.That((await db.Messages.SingleAsync(x => x.Role == MessageRole.Assistant)).Text).DoesNotContain("我先查询");
     }
 
     [Test]
@@ -117,7 +117,7 @@ public sealed class ConversationContinuityTests
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-            var outgoing = await db.Outbox.SingleAsync(x => x.BotId == f.Bot && x.Type == JobTypes.Outgoing);
+            var outgoing = await db.Outbox.SingleAsync(x => x.BotId == f.Bot && x.Type == JobKind.Outgoing);
             await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
             await db.Sessions.Where(x => x.Id == first.Message.SessionId)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.DeadlineAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
@@ -320,7 +320,7 @@ public sealed class ConversationContinuityTests
         }).ToArray();
         finalDb.Messages.AddRange(rows);
         await finalDb.SaveChangesAsync();
-        var job = Jobs.Add(finalDb, f.Bot, JobTypes.Summary,
+        var job = Jobs.Add(finalDb, f.Bot, JobKind.Summary,
             new SummaryJob(next.Message.SessionId!.Value, rows.Max(x => x.Sequence)), next.Message.ConversationId);
         await finalDb.SaveChangesAsync();
         await finalScope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, default);
@@ -370,8 +370,8 @@ public sealed class ConversationContinuityTests
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
             var memory = new Memory
             {
-                BotId = f.Bot, SubjectId = first.Message.SenderId!.Value, Scope = MemoryScope.Private,
-                ScopeOwnerId = first.Message.SenderId.Value.ToString(), Text = "项目代号为纸飞机", FactKey = "project-code"
+                BotId = f.Bot, SubjectId = first.Message.SenderId!.Value,
+                Text = "项目代号为纸飞机", FactKey = "project-code"
             };
             memoryId = memory.Id;
             db.Memories.Add(memory);
@@ -458,7 +458,7 @@ public sealed class ConversationContinuityTests
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
             await Assert.That((await db.Messages.SingleAsync(x => x.ExternalMessageId == "ambient")).SessionId)
                 .IsNull();
-            await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobTypes.Chat)).IsEqualTo(0);
+            await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobKind.Chat)).IsEqualTo(0);
         }
 
         var next = await QueueAsync(app, f.Binding, "ambient-ask", "刚才说的窗帘呢", "group-one");
@@ -560,7 +560,7 @@ public sealed class ConversationContinuityTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var message = await db.Messages.SingleAsync(x => x.ExternalMessageId == id);
         var job = await db.Outbox.SingleAsync(x =>
-            x.Type == JobTypes.Chat && x.Payload.Contains(message.Id.ToString()));
+            x.Type == JobKind.Chat && x.Payload.Contains(message.Id.ToString()));
         return (message, job.Id);
     }
 

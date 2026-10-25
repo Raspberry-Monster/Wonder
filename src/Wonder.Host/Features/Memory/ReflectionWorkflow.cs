@@ -22,13 +22,13 @@ public sealed class ReflectionWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Status == JobStatus.Completed) return;
+        if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
         var input = Json.Read<ReflectionJob>(job.Payload);
         ReflectionGeneration? generation = await db.ReflectionGenerations.SingleOrDefaultAsync(x => x.JobId == job.Id, ct);
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == input.SubjectId, ct);
         if (!user.AllowMemory || user.RevocationEpoch != input.Epoch)
         {
-            ReflectionRuns.Cancel(generation, "AuthorizationChanged");
+            ReflectionRuns.Cancel(generation, ReflectionCancellationReason.AuthorizationChanged);
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             return;
@@ -42,12 +42,12 @@ public sealed class ReflectionWorkflow(
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
-        if (input.Kind == "full")
+        if (input.Kind == ReflectionKind.Full)
         {
-            if (generation is not null && (generation.Status == "Cancelled" ||
+            if (generation is not null && (generation.Status == ReflectionGenerationStatus.Cancelled ||
                 generation.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct)))
             {
-                ReflectionRuns.Cancel(generation, "SourceChanged");
+                ReflectionRuns.Cancel(generation, ReflectionCancellationReason.SourceChanged);
                 Jobs.Complete(db, job);
                 await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 return;
@@ -55,23 +55,23 @@ public sealed class ReflectionWorkflow(
             await using var admission = await db.Database.BeginTransactionAsync(ct);
             if (!await UserFence.CheckAsync(db, user.Id, input.Epoch, ct))
             {
-                ReflectionRuns.Cancel(generation, "AuthorizationChanged");
+                ReflectionRuns.Cancel(generation, ReflectionCancellationReason.AuthorizationChanged);
                 Jobs.Complete(db, job);
             }
             else
             {
                 var (run, status) = await ReflectionRuns.AdmitAsync(db, job.BotId, conv.Id, input, ct, job);
                 generation = run;
-                if (run is null || run.JobId != job.Id || run.Status is "Completed" or "Cancelled")
+                if (run is null || run.JobId != job.Id || run.Status is ReflectionGenerationStatus.Completed or ReflectionGenerationStatus.Cancelled)
                     Jobs.Complete(db, job);
-                else run.Status = "Running";
+                else run.Status = ReflectionGenerationStatus.Running;
             }
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             await admission.CommitAsync(ct);
-            if (job.Status == JobStatus.Completed) return;
+            if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
             if (generation!.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct))
             {
-                ReflectionRuns.Cancel(generation, "NoEligibleSources");
+                ReflectionRuns.Cancel(generation, ReflectionCancellationReason.NoEligibleSources);
                 Jobs.Complete(db, job);
                 await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 return;
@@ -86,7 +86,7 @@ public sealed class ReflectionWorkflow(
         if (processed.Count != processedIds.Length ||
             processed.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
         {
-            ReflectionRuns.Cancel(generation, "SourceChanged");
+            ReflectionRuns.Cancel(generation, ReflectionCancellationReason.SourceChanged);
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
@@ -95,12 +95,12 @@ public sealed class ReflectionWorkflow(
         var source = await db.Messages.AsNoTracking().Where(x =>
                 x.SessionId == session.Id && x.SenderId == user.Id && x.AllowReflection &&
                 !x.ContextInvalidated && x.Sequence <= input.Boundary &&
-                (input.Kind != "light" || x.Sequence == input.Boundary) &&
+                (input.Kind != ReflectionKind.Light || x.Sequence == input.Boundary) &&
                 (x.Sequence > progress.Sequence || (progress.Offset > 0 && x.Sequence == progress.Sequence)))
             .OrderBy(x => x.Sequence).Take(100).ToListAsync(ct);
         if (source.Count == 0)
         {
-            ReflectionRuns.Cancel(generation, "NoEligibleSources");
+            ReflectionRuns.Cancel(generation, ReflectionCancellationReason.NoEligibleSources);
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             return;
@@ -202,7 +202,7 @@ public sealed class ReflectionWorkflow(
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (!await UserFence.CheckAsync(db, user.Id, input.Epoch, ct))
         {
-            ReflectionRuns.Cancel(generation, "AuthorizationChanged");
+            ReflectionRuns.Cancel(generation, ReflectionCancellationReason.AuthorizationChanged);
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -216,7 +216,7 @@ public sealed class ReflectionWorkflow(
             unchanged.Count != sourceIds.Length ||
             unchanged.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
         {
-            ReflectionRuns.Cancel(generation, "SourceChanged");
+            ReflectionRuns.Cancel(generation, ReflectionCancellationReason.SourceChanged);
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             await tx.CommitAsync(ct);
@@ -227,7 +227,7 @@ public sealed class ReflectionWorkflow(
                                                                    x.AllowReflection && !x.ContextInvalidated &&
                                                                    x.Sequence > progress.Sequence &&
                                                                    x.Sequence <= input.Boundary &&
-                                                                   (input.Kind != "light" ||
+                                                                   (input.Kind != ReflectionKind.Light ||
                                                                     x.Sequence == input.Boundary), ct))
         {
             Jobs.Continue(job, progress);
@@ -247,7 +247,6 @@ public sealed class ReflectionWorkflow(
             BotId = job.BotId,
             SessionId = session.Id,
             SubjectId = user.Id,
-            GroupId = conv.Kind == ConversationKind.Group ? conv.ExternalId : null,
             Kind = input.Kind,
             Boundary = input.Boundary,
             RevocationEpoch = input.Epoch,
@@ -257,10 +256,10 @@ public sealed class ReflectionWorkflow(
         db.Reflections.Add(result);
         if (generation is not null)
         {
-            generation.Status = "Completed";
+            generation.Status = ReflectionGenerationStatus.Completed;
             generation.ResultId = result.Id;
         }
-        foreach (var type in new[] { JobTypes.Emotion, JobTypes.Relationship, JobTypes.Memory })
+        foreach (var type in new[] { JobKind.Emotion, JobKind.Relationship, JobKind.Memory })
             Jobs.Add(db, job.BotId, type, new IdPayload(result.Id), conv.Id, job.Id, job.CorrelationId);
         Jobs.Complete(db, job);
         await db.SaveChangesAsync(ct);
@@ -291,8 +290,10 @@ public sealed class ReflectionWorkflow(
         var result = await db.Reflections.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == Json.Read<IdPayload>(job.Payload).Id, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        if (job.Status == JobStatus.Completed) return;
-        if (result is null || result.GroupId != null || result.Payload == "{}" ||
+        if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
+        if (result is null || result.Payload == "{}" ||
+            !await db.Sessions.AnyAsync(s => s.Id == result.SessionId && db.Conversations.Any(c =>
+                c.Id == s.ConversationId && c.Kind == ConversationKind.Private), ct) ||
             !await UserFence.CheckAsync(db, result.SubjectId, result.RevocationEpoch, ct))
         {
             Jobs.Complete(db, job);
@@ -316,7 +317,7 @@ public sealed class ReflectionWorkflow(
                 x.Sequence <= result.Boundary)
             .Select(x => x.Id).ToListAsync(ct);
         var allowed = evidence.ToHashSet();
-        if (job.Type == JobTypes.Emotion && proposal.Emotion is { } ep && ep.EvidenceMessageIds.All(allowed.Contains))
+        if (job.Type == JobKind.Emotion && proposal.Emotion is { } ep && ep.EvidenceMessageIds.All(allowed.Contains))
         {
             // Each source message can influence the global mood once across light/full reflections.
             var key = string.Join(":", ep.EvidenceMessageIds.Order());
@@ -340,16 +341,16 @@ public sealed class ReflectionWorkflow(
                 });
             }
         }
-        else if (job.Type == JobTypes.Relationship)
+        else if (job.Type == JobKind.Relationship)
         {
             var state = await db.Relationships.SingleOrDefaultAsync(
-                x => x.BotId == job.BotId && x.UserId == user.Id && x.GroupId == result.GroupId, ct);
+                x => x.BotId == job.BotId && x.UserId == user.Id, ct);
             foreach (var candidate in proposal.Relationships.Where(x => x.EvidenceMessageIds.All(allowed.Contains)))
             {
                 if (await db.Observations.AnyAsync(
                         x => x.ReflectionId == result.Id && x.Candidate == candidate.Preference, ct)) continue;
                 var old = await db.Observations
-                    .Where(x => x.BotId == job.BotId && x.UserId == user.Id && x.GroupId == result.GroupId &&
+                    .Where(x => x.BotId == job.BotId && x.UserId == user.Id &&
                                 x.Candidate == candidate.Preference).Select(x => x.EvidenceJson).ToListAsync(ct);
                 var independent = old.SelectMany(Json.Read<Guid[]>).Concat(candidate.EvidenceMessageIds).Distinct()
                     .Count();
@@ -358,7 +359,6 @@ public sealed class ReflectionWorkflow(
                 {
                     BotId = job.BotId,
                     UserId = user.Id,
-                    GroupId = result.GroupId,
                     ReflectionId = result.Id,
                     Candidate = candidate.Preference,
                     EvidenceJson = Json.Write(candidate.EvidenceMessageIds),
@@ -367,7 +367,7 @@ public sealed class ReflectionWorkflow(
                 if (!accepted) continue;
                 if (state is null)
                 {
-                    state = new RelationshipState { BotId = job.BotId, UserId = user.Id, GroupId = result.GroupId };
+                    state = new RelationshipState { BotId = job.BotId, UserId = user.Id };
                     db.Relationships.Add(state);
                 }
 
@@ -380,18 +380,16 @@ public sealed class ReflectionWorkflow(
                 }
             }
         }
-        else if (job.Type == JobTypes.Memory)
+        else if (job.Type == JobKind.Memory)
         {
             foreach (var candidate in proposal.Memories)
             {
                 if (!MemoryRules.CanAdmit(candidate, user.AllowMemory, result.RevocationEpoch, user.RevocationEpoch,
                         allowed)) continue;
-                var scope = result.GroupId is null ? MemoryScope.Private : MemoryScope.GroupUser;
-                var owner = result.GroupId ?? user.Id.ToString();
                 var keyHash = Json.Hash(candidate.FactKey);
                 if (await db.Revocations.AnyAsync(
-                        x => x.BotId == job.BotId && x.UserId == user.Id && x.Scope == scope &&
-                             x.ScopeOwnerId == owner && x.FactKeyHash == keyHash, ct)) continue;
+                        x => x.BotId == job.BotId && x.UserId == user.Id && x.ResourceKind == DeletionResourceKind.Memory &&
+                             x.FactKeyHash == keyHash, ct)) continue;
                 var hash = Json.Hash(Json.Write(candidate));
                 if (db.MemoryCandidates.Local.Any(x => x.SourceReflectionId == result.Id && x.CandidateHash == hash) ||
                     await db.MemoryCandidates.AnyAsync(
@@ -400,8 +398,6 @@ public sealed class ReflectionWorkflow(
                 {
                     BotId = job.BotId,
                     SubjectId = user.Id,
-                    Scope = scope,
-                    ScopeOwnerId = owner,
                     FactKey = candidate.FactKey,
                     Text = candidate.Text,
                     SourceReflectionId = result.Id,
@@ -410,7 +406,7 @@ public sealed class ReflectionWorkflow(
                     CandidateHash = hash
                 };
                 db.MemoryCandidates.Add(pending);
-                Jobs.Add(db, job.BotId, JobTypes.MemoryMaintenance, new IdPayload(pending.Id), cause: job.Id);
+                Jobs.Add(db, job.BotId, JobKind.MemoryMaintenance, new IdPayload(pending.Id), cause: job.Id);
             }
         }
 
@@ -428,10 +424,8 @@ public sealed class ReflectionWorkflow(
             await db.Memories.SingleOrDefaultAsync(
                 x => x.Id == Json.Read<IdPayload>(job.Payload).Id && x.Status != MemoryStatus.Revoked &&
                      x.ArchivedAt == null, ct);
-        if (job.Status == JobStatus.Completed) return;
-        var privateShare = memory?.Scope == MemoryScope.UserShared && await db.Memories.AnyAsync(x =>
-            x.Id == memory.SharedFromMemoryId && x.Scope == MemoryScope.Private && x.Status != MemoryStatus.Revoked, ct);
-        if (memory is null || (memory.Scope != MemoryScope.Private && !privateShare))
+        if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
+        if (memory is null)
         {
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
@@ -439,7 +433,7 @@ public sealed class ReflectionWorkflow(
         }
 
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == memory.SubjectId, ct);
-        if (!user.AllowMemory || (privateShare && !user.AllowCrossGroupMemory))
+        if (!user.AllowMemory)
         {
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);

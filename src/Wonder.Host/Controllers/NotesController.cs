@@ -42,7 +42,7 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
         var id = await FindLogicalUserIdAsync(ct);
         if (id is null) return Conflict();
         // Agent Notes are deliberately never included, even for a Bot Owner.
-        return Ok(await Db.Notes.AsNoTracking().Where(x => x.UserId == id && x.AuthorKind == "User" &&
+        return Ok(await Db.Notes.AsNoTracking().Where(x => x.UserId == id && x.AuthorKind == NoteAuthorKind.User &&
                 x.DeletedAt == null && !x.PrivacyDeleted)
             .OrderByDescending(x => x.UpdatedAt).ThenBy(x => x.Id).Take(100)
             .Select(x => new { x.Id, x.BotId, x.Content, x.Version, x.CreatedAt, x.UpdatedAt }).ToArrayAsync(ct));
@@ -65,7 +65,7 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
     public async Task<IActionResult> History(Guid noteId, CancellationToken ct)
     {
         var user = await FindLogicalUserIdAsync(ct);
-        if (!await Db.Notes.AnyAsync(x => x.Id == noteId && x.UserId == user && x.AuthorKind == "User" && !x.PrivacyDeleted, ct))
+        if (!await Db.Notes.AnyAsync(x => x.Id == noteId && x.UserId == user && x.AuthorKind == NoteAuthorKind.User && !x.PrivacyDeleted, ct))
             return NotFound();
         return Ok(await Db.NoteRevisions.AsNoTracking().Where(x => x.NoteId == noteId).OrderBy(x => x.Version).ToArrayAsync(ct));
     }
@@ -78,7 +78,7 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
         await using var tx = await Db.Database.BeginTransactionAsync(ct);
         var user = await Db.LogicalUsers.SingleAsync(x => x.Id == id, ct);
         if (!await UserFence.CheckAsync(Db, user.Id, user.RevocationEpoch, ct)) return Conflict();
-        var note = await Db.Notes.SingleOrDefaultAsync(x => x.Id == noteId && x.UserId == id && x.AuthorKind == "User" &&
+        var note = await Db.Notes.SingleOrDefaultAsync(x => x.Id == noteId && x.UserId == id && x.AuthorKind == NoteAuthorKind.User &&
             !x.PrivacyDeleted && x.DeletedAt == null, ct);
         if (note is null) return NotFound();
         if (note.Version != expectedVersion) return Conflict();
@@ -105,7 +105,7 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
             select c.Id).SingleOrDefaultAsync(ct);
         if (conversation == Guid.Empty) return NotFound();
         var note = new Note { BotId = input.BotId, UserId = user.Id, ConversationId = conversation,
-            AuthorKind = "User", Content = input.Content };
+            AuthorKind = NoteAuthorKind.User, Content = input.Content };
         Db.Notes.Add(note);
         Db.NoteRevisions.Add(new NoteRevision { NoteId = note.Id, Version = 1, Content = note.Content, CreatedAt = note.CreatedAt });
         await Db.SaveChangesAsync(ct);
@@ -123,7 +123,7 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
         await using var tx = await Db.Database.BeginTransactionAsync(ct);
         var user = await Db.LogicalUsers.SingleAsync(x => x.Id == userId, ct);
         if (!await UserFence.CheckAsync(Db, user.Id, user.RevocationEpoch, ct) || !user.AllowNotes) return Conflict();
-        var note = await Db.Notes.SingleOrDefaultAsync(x => x.Id == noteId && x.UserId == userId && x.AuthorKind == "User" &&
+        var note = await Db.Notes.SingleOrDefaultAsync(x => x.Id == noteId && x.UserId == userId && x.AuthorKind == NoteAuthorKind.User &&
             x.DeletedAt == null && !x.PrivacyDeleted, ct);
         if (note is null) return NotFound();
         if (note.Version != input.ExpectedVersion || note.BotId != input.BotId) return Conflict();
@@ -148,12 +148,12 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
         var notes = await Db.Notes.AsNoTracking().Where(x => x.UserId == id && !x.PrivacyDeleted).ToArrayAsync(ct);
         foreach (var note in notes)
         {
-            Db.Revocations.Add(new MemoryRevocation { RecordVersion = 2, ResourceKind = "Note", ResourceId = note.Id,
+            Db.Revocations.Add(new MemoryRevocation { ResourceKind = DeletionResourceKind.Note, ResourceId = note.Id,
                 ResourceVersion = note.Version, BotId = note.BotId, UserId = user.Id, Epoch = user.NotesEpoch });
             await NoteSources.PurgeAsync(Db, note.Id, ct);
         }
         if (!string.IsNullOrWhiteSpace(configuration["Backups:AgeRecipient"]))
-            foreach (var bot in notes.Select(x => x.BotId).Distinct()) Jobs.Add(Db, bot, JobTypes.Ledger, new IdPayload(user.Id));
+            foreach (var bot in notes.Select(x => x.BotId).Distinct()) Jobs.Add(Db, bot, JobKind.Ledger, new IdPayload(user.Id));
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return NoContent();

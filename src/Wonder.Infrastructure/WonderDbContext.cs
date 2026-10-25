@@ -14,7 +14,6 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options)
     public DbSet<PlatformBinding> Bindings => Set<PlatformBinding>();
     public DbSet<BindingChallenge> BindingChallenges => Set<BindingChallenge>();
     public DbSet<GroupPolicy> GroupPolicies => Set<GroupPolicy>();
-    public DbSet<ContextSpace> ContextSpaces => Set<ContextSpace>();
     public DbSet<PersonaIdentityRevision> Identities => Set<PersonaIdentityRevision>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationSession> Sessions => Set<ConversationSession>();
@@ -54,6 +53,7 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options)
         base.OnModelCreating(b);
         b.HasPostgresExtension("vector");
         b.ApplyConfigurationsFromAssembly(typeof(WonderDbContext).Assembly);
+        EnumModelConfiguration.Apply(b);
     }
 }
 

@@ -26,7 +26,7 @@ public sealed class MaintenanceWorkflow(
         {
             if (await db.Outbox.AnyAsync(
                     x => x.ConversationId == session.ConversationId &&
-                         (x.Type == JobTypes.Chat || x.Type == JobTypes.Outgoing) &&
+                         (x.Type == JobKind.Chat || x.Type == JobKind.Outgoing) &&
                          (x.Status == JobStatus.Pending || x.Status == JobStatus.Running), ct)) continue;
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             session.Status = SessionStatus.Reflecting;
@@ -43,7 +43,7 @@ public sealed class MaintenanceWorkflow(
                 if (user.AllowMemory && await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
                     await ReflectionRuns.AdmitAsync(db, session.BotId, session.ConversationId,
                         new ReflectionJob(session.Id, subject, session.ClosingBoundary.Value, user.RevocationEpoch,
-                            "full"), ct);
+                            ReflectionKind.Full), ct);
             }
 
             if (subjects.Count == 0) session.Status = SessionStatus.Closed;
@@ -60,8 +60,8 @@ public sealed class MaintenanceWorkflow(
             var pending = await db.Outbox.Where(x =>
                 x.ConversationId == session.ConversationId &&
                 (x.Status == JobStatus.Pending || x.Status == JobStatus.Running) &&
-                (x.Type == JobTypes.Reflection || x.Type == JobTypes.Emotion || x.Type == JobTypes.Relationship ||
-                 x.Type == JobTypes.Memory)).Select(x => x.Payload).ToListAsync(ct);
+                (x.Type == JobKind.Reflection || x.Type == JobKind.Emotion || x.Type == JobKind.Relationship ||
+                 x.Type == JobKind.Memory)).Select(x => x.Payload).ToListAsync(ct);
             if (!pending.Any(p =>
                     p.Contains(session.Id.ToString(), StringComparison.Ordinal) ||
                     refs.Any(r => p.Contains(r.ToString(), StringComparison.Ordinal))))
@@ -88,8 +88,8 @@ public sealed class MaintenanceWorkflow(
         {
             // Catch up the latest missed day, not an unbounded backlog of stale AI generations.
             if (await db.Outbox.AnyAsync(
-                    x => x.BotId == bot && x.Type == JobTypes.Maintenance && x.ScheduledDate == today, ct)) continue;
-            var job = Jobs.Add(db, bot, JobTypes.Maintenance, new DailyJob(today));
+                    x => x.BotId == bot && x.Type == JobKind.Maintenance && x.ScheduledDate == today, ct)) continue;
+            var job = Jobs.Add(db, bot, JobKind.Maintenance, new DailyJob(today));
             job.ScheduledDate = today;
         }
 
@@ -132,7 +132,7 @@ public sealed class MaintenanceWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Type == JobTypes.Ledger)
+        if (job.Type == JobKind.Ledger)
         {
             await backups.ExportLedgerAsync(ct);
             Jobs.Complete(db, job);
@@ -140,20 +140,20 @@ public sealed class MaintenanceWorkflow(
             return;
         }
 
-        if (job.Type == JobTypes.Maintenance)
+        if (job.Type == JobKind.Maintenance)
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var mood = await db.Emotions.SingleAsync(x => x.BotId == job.BotId, ct);
             engine.Evolve(mood, DateTimeOffset.UtcNow);
             var daily = Json.Read<DailyJob>(job.Payload);
-            Jobs.Add(db, job.BotId, JobTypes.Narrative, daily, cause: job.Id).ScheduledDate = daily.Date;
+            Jobs.Add(db, job.BotId, JobKind.Narrative, daily, cause: job.Id).ScheduledDate = daily.Date;
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return;
         }
 
-        if (job.Type == JobTypes.Narrative)
+        if (job.Type == JobKind.Narrative)
         {
             var date = Json.Read<DailyJob>(job.Payload).Date;
             if (!await db.Narratives.AnyAsync(x => x.BotId == job.BotId && x.Date == date, ct))
@@ -170,7 +170,7 @@ public sealed class MaintenanceWorkflow(
                     { BotId = job.BotId, Date = date, StateRevision = mood.Revision, Text = result.Text });
             }
         }
-        else if (job.Type == JobTypes.Summary)
+        else if (job.Type == JobKind.Summary)
         {
             await summaries.RunAsync(jobId, ct, expectedLeaseId);
             return;

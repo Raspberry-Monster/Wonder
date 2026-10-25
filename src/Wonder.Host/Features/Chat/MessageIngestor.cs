@@ -133,7 +133,7 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, 
                     try
                     {
                         contexts.Build(new ContextInput(identityText, mood, "", "", [], [],
-                            new ContextTurn("user", $"[Server: authorized Force input; remaining at admission={mute!.ForceRemaining - 1}. " +
+                            new ContextTurn(MessageRole.User, $"[Server: authorized Force input; remaining at admission={mute!.ForceRemaining - 1}. " +
                                 "Replying does not unmute. You may explicitly choose interaction_no_reply.]\n" +
                                 string.Concat(e.Segments.Where(x => x.Kind == SegmentKind.Text).Select(x => x.Value)),
                                 e.Segments, SpeakerTags.For(conv.Id, user.Id), user.PreferredName,
@@ -203,7 +203,7 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, 
         db.Messages.Add(message);
         if (decision.ShouldRespond)
         {
-            var chat = Jobs.Add(db, bot.Id, JobTypes.Chat, new IdPayload(message.Id), conv.Id);
+            var chat = Jobs.Add(db, bot.Id, JobKind.Chat, new IdPayload(message.Id), conv.Id);
             if (isForce && mute is not null)
             {
                 mute.ForceRemaining--;
@@ -220,8 +220,8 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, 
         }
         await db.SaveChangesAsync(ct);
         if (decision.ShouldReflect && session is not null)
-            Jobs.Add(db, bot.Id, JobTypes.Reflection,
-                new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, "light"), conv.Id);
+            Jobs.Add(db, bot.Id, JobKind.Reflection,
+                new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, ReflectionKind.Light), conv.Id);
         if (UserCommands.IsEnd(text) && session is not null)
         {
             session.DeadlineAt = DateTimeOffset.UtcNow;

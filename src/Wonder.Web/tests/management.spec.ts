@@ -24,13 +24,10 @@ test("Arco management forms, lists and confirmation actions", async ({
     privateIdleMinutes: 10,
     groupIdleMinutes: 10,
   };
-  let spaces = [{ id: "space-1", name: "共享测试空间" }];
   const memory = {
     id: "memory-1",
     text: "记忆测试内容",
-    scope: "Private",
     createdAt: "2026-10-22T00:00:00Z",
-    sharing: [],
   };
   await page.route("**/api/v1/**", async (route) => {
     const p = new URL(route.request().url()).pathname;
@@ -39,7 +36,6 @@ test("Arco management forms, lists and confirmation actions", async ({
     if (method !== "GET") {
       const body = route.request().postDataJSON();
       writes.push({ path: p, method, body });
-      if (method === "DELETE" && p.endsWith("/space-1")) spaces = [];
       return route.fulfill({ status: 204 });
     }
     if (p.endsWith("/me"))
@@ -49,7 +45,6 @@ test("Arco management forms, lists and confirmation actions", async ({
         logicalUserId: "user-1",
       });
     if (p === base) return ok(bot);
-    if (p.endsWith("/context-spaces")) return ok(spaces);
     if (p.endsWith("/groups"))
       return ok([
         {
@@ -59,7 +54,6 @@ test("Arco management forms, lists and confirmation actions", async ({
           respondToReply: true,
           commandPrefix: "/wonder",
           persistMessages: true,
-          allowReflection: true,
         },
       ]);
     if (p.endsWith("/jobs"))
@@ -72,9 +66,7 @@ test("Arco management forms, lists and confirmation actions", async ({
       return ok({
         preferredName: "小明",
         allowMemory: true,
-        allowCrossGroupMemory: false,
       });
-    if (p.endsWith("/sharing-options")) return ok({});
     if (p.endsWith("/notes/settings")) return ok({ allowNotes: false });
     if (p.endsWith("/notes/bots")) return ok([{ id: botId, name: "管理测试" }]);
     if (p.endsWith("/notes/note-1/history"))
@@ -89,7 +81,7 @@ test("Arco management forms, lists and confirmation actions", async ({
         {
           id: "run-1",
           createdAt: "2026-10-24T12:00:00Z",
-          status: "Completed",
+          status: "ReflectionCompleted",
           taskStatus: "Completed",
           requests: [{ priority: "Normal", reason: "整理当前对话" }],
           downstream: [{ type: "memory", status: "Pending" }],
@@ -120,6 +112,10 @@ test("Arco management forms, lists and confirmation actions", async ({
       () => writes.find((w) => w.path.endsWith("/policy"))?.body.commandPrefix,
     )
     .toBe("/hello");
+  const groupWrite = writes.find((w) => w.path.endsWith("/policy"))!.body;
+  expect(groupWrite).not.toHaveProperty("contextSpaceId");
+  expect(groupWrite).not.toHaveProperty("allowReflection");
+  expect(groupWrite).not.toHaveProperty("proactiveEnabled");
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
   await expect(
@@ -210,4 +206,5 @@ test("Arco management forms, lists and confirmation actions", async ({
     fullPage: true,
   });
   expect(errors).toEqual([]);
+  expect(writes.some((w) => /sharing|context-spaces/.test(w.path))).toBe(false);
 });

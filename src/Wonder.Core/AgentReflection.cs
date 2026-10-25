@@ -11,8 +11,8 @@ public sealed class ReflectionGeneration
     public string SourceSignature { get; set; } = "";
     public Guid JobId { get; set; }
     public Guid? ResultId { get; set; }
-    public string Status { get; set; } = "Queued";
-    public string? CancellationReason { get; set; }
+    public ReflectionGenerationStatus Status { get; set; } = ReflectionGenerationStatus.Queued;
+    public ReflectionCancellationReason? CancellationReason { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
@@ -35,7 +35,7 @@ public sealed class AgentReflectionRequest
     public long RawBoundary { get; set; }
     public Guid GenerationId { get; set; }
     public Guid OperationId { get; set; }
-    public string Priority { get; set; } = "Normal";
+    public ReflectionPriority Priority { get; set; } = ReflectionPriority.Normal;
     public string Reason { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
 }

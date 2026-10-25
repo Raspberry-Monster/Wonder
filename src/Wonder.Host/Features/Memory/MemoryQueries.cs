@@ -9,29 +9,9 @@ namespace Wonder.Host;
 
 public static class MemoryQueries
 {
-    public static IQueryable<Memory> RetiredGroupSources(WonderDbContext db) => db.Memories.Where(m =>
-        (m.Scope != MemoryScope.Private && m.Scope != MemoryScope.UserShared) ||
-        (m.Scope == MemoryScope.UserShared && db.Memories.Any(s => s.Id == m.SharedFromMemoryId && s.Scope != MemoryScope.Private)));
-
     public static IQueryable<Memory> Authorized(WonderDbContext db, MemoryAccess access)
     {
-        if (access.GroupId is not null) return db.Memories.Where(x => false);
-        return db.Memories.AsNoTracking().Where(MemoryRules.Authorized(access)).Where(m =>
-            (m.Scope == MemoryScope.Private || m.Scope == MemoryScope.UserShared) &&
-            (m.Scope != MemoryScope.UserShared && m.Scope != MemoryScope.SpaceShared) ||
-            (db.LogicalUsers.Any(u => u.Id == m.SubjectId && u.AllowMemory && u.AllowCrossGroupMemory) &&
-             db.Memories.Any(source => source.Id == m.SharedFromMemoryId && source.Status != MemoryStatus.Revoked &&
-                                       source.ArchivedAt == null &&
-                                       source.Scope == MemoryScope.Private &&
-                                       source.SubjectId == m.SubjectId && source.BotId == m.BotId &&
-                                       (m.Scope != MemoryScope.SpaceShared || (source.Scope == MemoryScope.GroupUser &&
-                                                                               db.GroupPolicies.Any(g =>
-                                                                                   g.BotId == m.BotId &&
-                                                                                   g.GroupId == source.ScopeOwnerId &&
-                                                                                   g.ContextSpaceId != null &&
-                                                                                   g.ContextSpaceId.ToString()!
-                                                                                       .ToLower() ==
-                                                                                   m.ScopeOwnerId.ToLower()))))));
+        return db.Memories.AsNoTracking().Where(MemoryRules.Authorized(access));
     }
 
     public static IQueryable<Memory> Nearest(WonderDbContext db, MemoryAccess access, Guid profileId,

@@ -8,7 +8,7 @@ public sealed class JobQueue(IDbContextFactory<WonderDbContext> factory)
 {
     public static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(10);
 
-    public async Task<OutboxMessage?> TryClaimAsync(string[] types, CancellationToken ct)
+    public async Task<OutboxMessage?> TryClaimAsync(JobKind[] types, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = DateTimeOffset.UtcNow;
@@ -22,10 +22,10 @@ public sealed class JobQueue(IDbContextFactory<WonderDbContext> factory)
                                                 j.ConversationId != null && p.ConversationId == j.ConversationId &&
                                                 p.Id != j.Id &&
                                                 (p.Status == JobStatus.Pending || p.Status == JobStatus.Running) &&
-                                                ((j.Type == JobTypes.Chat &&
-                                                  ((p.Type == JobTypes.Chat && p.Sequence < j.Sequence) ||
-                                                   p.Type == JobTypes.Outgoing)) ||
-                                                 (j.Type == JobTypes.Outgoing && p.Type == JobTypes.Outgoing &&
+                                                ((j.Type == JobKind.Chat &&
+                                                  ((p.Type == JobKind.Chat && p.Sequence < j.Sequence) ||
+                                                   p.Type == JobKind.Outgoing)) ||
+                                                 (j.Type == JobKind.Outgoing && p.Type == JobKind.Outgoing &&
                                                   p.Sequence < j.Sequence))));
         var candidates = await eligible.AsNoTracking().OrderBy(x => x.Sequence).Take(8)
             .Select(x => new { x.Id, x.LeaseId }).ToListAsync(ct);

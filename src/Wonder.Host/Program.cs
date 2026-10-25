@@ -16,6 +16,16 @@ using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
 using Wonder.Platforms;
 
+if (Array.IndexOf(args, "--convert-ledger") is var convertIndex && convertIndex >= 0)
+{
+    if (convertIndex + 2 >= args.Length) throw new ArgumentException("Supply input and a new output ledger path.");
+    var converted = LegacyDeletionLedgerConverter.Convert(await File.ReadAllTextAsync(args[convertIndex + 1]));
+    await using var target = new FileStream(args[convertIndex + 2], FileMode.CreateNew, FileAccess.Write);
+    await using var writer = new StreamWriter(target);
+    await writer.WriteAsync(converted);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 var frontendRoot = Path.GetFullPath("../Wonder.Web/dist", builder.Environment.ContentRootPath);
 if (Directory.Exists(frontendRoot))
@@ -30,7 +40,7 @@ builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1024 * 1024)
 builder.Services.AddProblemDetails();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddControllers(o => o.Filters.Add<RequestValidationFilter>())
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 builder.Services.AddOpenApi();
 builder.Services.AddDbContextFactory<WonderDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("Postgres") ??
@@ -144,6 +154,12 @@ if (Array.IndexOf(args, "--replay-ledger") is var ledgerIndex && ledgerIndex >= 
     if (ledgerIndex + 1 >= args.Length) throw new ArgumentException("Supply a decrypted deletion-ledger file.");
     await app.Services.GetRequiredService<MemoryService>()
         .ReplayLedgerAsync(args[ledgerIndex + 1], CancellationToken.None);
+    return;
+}
+
+if (args.Contains("--export-retired-context"))
+{
+    Console.WriteLine(Json.Write(await app.Services.GetRequiredService<BackupService>().ExportRetiredContextAsync(CancellationToken.None)));
     return;
 }
 

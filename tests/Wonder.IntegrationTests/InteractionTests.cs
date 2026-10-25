@@ -24,7 +24,7 @@ public sealed class InteractionTests
         await Assert.That(marker.Text).IsEmpty();
         await Assert.That(marker.SessionId).IsNull();
         await Assert.That(await db.Sessions.CountAsync()).IsEqualTo(0);
-        await Assert.That(await db.Outbox.CountAsync(x => x.Type != JobTypes.Outgoing)).IsEqualTo(0);
+        await Assert.That(await db.Outbox.CountAsync(x => x.Type != JobKind.Outgoing)).IsEqualTo(0);
         var text = string.Concat(await db.Parts.OrderBy(x => x.Sequence).Select(x => x.Text).ToArrayAsync());
         foreach (var command in new[] { "/help", "/bind", "/end", "/结束", "/force" })
             await Assert.That(text).Contains(command);
@@ -66,7 +66,7 @@ public sealed class InteractionTests
         ChatWorkflow.QueueReply(db, original, session.Id, "我仍然可以发消息");
         await db.SaveChangesAsync();
         var batch = await db.Batches.SingleAsync(x => x.SourceJobId == original.Id);
-        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Outgoing && x.Payload.Contains(batch.Id.ToString()));
+        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobKind.Outgoing && x.Payload.Contains(batch.Id.ToString()));
         await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
         await Assert.That(app.Sender.Sent).Contains("我仍然可以发消息");
     }
@@ -152,7 +152,7 @@ public sealed class InteractionTests
         await Assert.That(mute.ForceRemaining).IsEqualTo(2);
         await Assert.That(mute.ResetGeneration).IsEqualTo(1);
         await Assert.That(mute.EndedAt).IsNull();
-        await Assert.That((await db.ForceReceipts.SingleAsync(x => x.ChatJobId == old.ChatJobId)).CompensationStatus).IsEqualTo("SupersededByReset");
+        await Assert.That((await db.ForceReceipts.SingleAsync(x => x.ChatJobId == old.ChatJobId)).CompensationStatus).IsEqualTo(ForceCompensationOutcome.SupersededByReset);
     }
 
     [Test]
@@ -172,7 +172,7 @@ public sealed class InteractionTests
         await Assert.That(await db.ForceReceipts.CountAsync()).IsEqualTo(1);
         await Assert.That((await db.Mutes.SingleAsync()).ForceRemaining).IsEqualTo(0);
         await Assert.That(await db.Messages.CountAsync(x => x.Id == receipt.MessageId && x.SessionId != null)).IsEqualTo(1);
-        await Assert.That(await db.Outbox.CountAsync(x => x.Id == receipt.ChatJobId && x.Type == JobTypes.Chat)).IsEqualTo(1);
+        await Assert.That(await db.Outbox.CountAsync(x => x.Id == receipt.ChatJobId && x.Type == JobKind.Chat)).IsEqualTo(1);
     }
 
     [Test]
@@ -206,7 +206,7 @@ public sealed class InteractionTests
         var maintenance = scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>();
         await maintenance.SweepSessionsAsync(default); await maintenance.SweepSessionsAsync(default);
         await Assert.That((await db.Mutes.AsNoTracking().SingleAsync()).ForceRemaining).IsEqualTo(3);
-        await Assert.That((await db.ForceReceipts.AsNoTracking().SingleAsync()).CompensationStatus).IsEqualTo("Refunded");
+        await Assert.That((await db.ForceReceipts.AsNoTracking().SingleAsync()).CompensationStatus).IsEqualTo(ForceCompensationOutcome.Refunded);
         await db.Outbox.Where(x => x.Id == failed.ChatJobId).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, JobStatus.Pending));
         await scope.ServiceProvider.GetRequiredService<ChatWorkflow>().RunAsync(failed.ChatJobId, default);
         await Assert.That(app.ModelRequests).IsEmpty();
@@ -227,7 +227,7 @@ public sealed class InteractionTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var message = await db.Messages.SingleAsync(x => x.ExternalMessageId == id);
-        var job = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Chat && x.Payload.Contains(message.Id.ToString()));
+        var job = await db.Outbox.SingleAsync(x => x.Type == JobKind.Chat && x.Payload.Contains(message.Id.ToString()));
         job.Status = JobStatus.Running;
         job.LeaseId = Guid.NewGuid();
         job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);

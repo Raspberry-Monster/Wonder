@@ -25,6 +25,7 @@ public sealed class ChatWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
+        if (job.Status == JobStatus.Cancelled) return;
         if (await db.Inbox.AnyAsync(x => x.EventId == job.Id && x.HandlerName == job.Type, ct)) return;
         if (await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
         {
@@ -41,7 +42,7 @@ public sealed class ChatWorkflow(
             return;
         }
         var force = await db.ForceReceipts.AsNoTracking().SingleOrDefaultAsync(x => x.ChatJobId == job.Id, ct);
-        if (force?.CompensationStatus == "Refunded")
+        if (force?.CompensationStatus == ForceCompensationOutcome.Refunded)
         {
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
@@ -55,7 +56,7 @@ public sealed class ChatWorkflow(
                     x.Status == JobStatus.Running && x.LeaseId == lease && x.LeaseUntil > leaseNow)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.LeaseId, lease), ct) != 1)
                 throw new DbUpdateConcurrencyException("Chat lease expired before source recovery.");
-            await db.NoteDependencies.Where(x => x.TargetKind == "Chat" && x.TargetId == job.Id).ExecuteDeleteAsync(ct);
+            await db.NoteDependencies.Where(x => x.TargetKind == NoteDependencyTargetKind.Chat && x.TargetId == job.Id).ExecuteDeleteAsync(ct);
             await resetSources.CommitAsync(ct);
         }
         var bot = await db.Bots.AsNoTracking().SingleAsync(x => x.Id == message.BotId, ct);
@@ -68,8 +69,7 @@ public sealed class ChatWorkflow(
         var basicGroup = conv.Kind == ConversationKind.Group;
         var relationship = user.AllowMemory && !basicGroup
             ? await db.Relationships.AsNoTracking().SingleOrDefaultAsync(
-                x => x.BotId == bot.Id && x.UserId == user.Id &&
-                     x.GroupId == (conv.Kind == ConversationKind.Group ? conv.ExternalId : null), ct)
+                x => x.BotId == bot.Id && x.UserId == user.Id, ct)
             : null;
         var (summary, history) = basicGroup ? (null, (IReadOnlyList<ChatMessage>)[]) :
             await conversations.LoadAsync(bot.Id, conv.Id, message.Sequence, ct);
@@ -82,7 +82,7 @@ public sealed class ChatWorkflow(
         if (canWrite && profile.SupportsTools && interaction.NotesEnabled && user.AllowNotes)
             toolDefinitions = toolDefinitions!.Concat(InteractionBoundary.NotesDefinitions).ToList();
         var selected = basicGroup ? new List<Core.Memory>() : await memories.RetrieveAsync(
-            new MemoryAccess(bot.Id, user.Id, conv.Kind == ConversationKind.Group ? conv.ExternalId : null),
+            new MemoryAccess(bot.Id, user.Id),
             message.Text, ct);
         var authorIds = history.Where(x => x.SenderId != null).Select(x => x.SenderId!.Value)
             .Concat(selected.Select(x => x.SubjectId)).Append(user.Id).Distinct().ToArray();
@@ -121,7 +121,7 @@ public sealed class ChatWorkflow(
                     : [],
                 SentAt: clock.Local(x.CreatedAt), MessageIds: ConversationHistory.MessageIds(x),
                 TurnSequence: x.InReplyToSequence ?? x.Sequence)).ToArray(),
-            new ContextTurn("user", currentText, segments, SpeakerTags.For(conv.Id, message.SenderId),
+            new ContextTurn(MessageRole.User, currentText, segments, SpeakerTags.For(conv.Id, message.SenderId),
                 user.PreferredName,
                 SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id]),
             models.Context(profile), conv.Id, names, summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson),
@@ -156,11 +156,11 @@ public sealed class ChatWorkflow(
         var sourceMessageIds = context.MessageIds.ToHashSet();
         var sourceUserIds = history.SelectMany(ConversationHistory.SubjectIds).Append(user.Id)
             .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
-        await NoteSources.InheritAsync(db, "Chat", job.Id, sourceMessageIds.ToArray(), summary?.Id, ct);
+        await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Chat, job.Id, sourceMessageIds.ToArray(), summary?.Id, ct);
         await db.SaveChangesAsync(ct);
         async Task ValidateSources(CancellationToken token)
         {
-            if (!await NoteSources.ValidAsync(db, "Chat", job.Id, token))
+            if (!await NoteSources.ValidAsync(db, NoteDependencyTargetKind.Chat, job.Id, token))
                 throw new DbUpdateConcurrencyException("Note source changed; rebuild the conversation.");
         }
         await ValidateSources(ct);
@@ -184,9 +184,7 @@ public sealed class ChatWorkflow(
                     var fits = toolBudget.ResultFits(invocation.Messages, invocation.CallContent.CallId);
                     if (terminated) throw new InvalidOperationException("Turn already terminated.");
                     ConversationToolResult result;
-                    if (invocation.CallContent.Name.StartsWith("interaction_", StringComparison.Ordinal) ||
-                        invocation.CallContent.Name.StartsWith("reflection_", StringComparison.Ordinal) ||
-                        invocation.CallContent.Name.StartsWith("notes_", StringComparison.Ordinal))
+                    if (EnumWire.TryParse<AgentAction>(invocation.CallContent.Name, out _))
                     {
                         var json = !canWrite ? "{\"error\":\"UnavailableTool\"}" :
                             await interaction.ExecuteAsync(new AgentExecution(job.Id, expectedLeaseId!.Value,
@@ -252,7 +250,7 @@ public sealed class ChatWorkflow(
         await ValidateSources(ct);
 
         if (!await db.Bots.AnyAsync(x => x.Id == bot.Id && x.SettingsRevision == bot.SettingsRevision, ct))
-            throw new InvalidOperationException("Shared context settings changed during generation; retry.");
+            throw new InvalidOperationException("Bot settings changed during generation; retry.");
         var current = await db.Messages.AsNoTracking().SingleOrDefaultAsync(x => x.Id == message.Id, ct);
         if (current is null || current.ContextInvalidated || current.Text != message.Text)
         {
@@ -267,7 +265,7 @@ public sealed class ChatWorkflow(
             BotId = bot.Id,
             ConversationId = conv.Id,
             SessionId = message.SessionId,
-            Role = "assistant",
+            Role = MessageRole.Assistant,
             InReplyToSequence = message.Sequence,
             ExternalMessageId = "generated:" + job.Id,
             Text = text,
@@ -281,9 +279,9 @@ public sealed class ChatWorkflow(
         QueueReply(db, job, message.SessionId.Value, text);
         Jobs.Complete(db, job);
         if (!basicGroup && context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id && x.ConversationId == conv.Id &&
-                                                                   x.Type == JobTypes.Summary &&
+                                                                   x.Type == JobKind.Summary &&
                                                                    x.Status == JobStatus.Pending, ct))
-            Jobs.Add(db, bot.Id, JobTypes.Summary, new SummaryJob(message.SessionId.Value, message.Sequence), conv.Id,
+            Jobs.Add(db, bot.Id, JobKind.Summary, new SummaryJob(message.SessionId.Value, message.Sequence), conv.Id,
                 job.Id);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -302,7 +300,7 @@ public sealed class ChatWorkflow(
         var sequence = 0;
         foreach (var part in OneBotProtocol.Split(text))
             db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Sequence = sequence++, Text = part });
-        Jobs.Add(db, source.BotId, JobTypes.Outgoing, new IdPayload(batch.Id), source.ConversationId, source.Id,
+        Jobs.Add(db, source.BotId, JobKind.Outgoing, new IdPayload(batch.Id), source.ConversationId, source.Id,
             source.CorrelationId);
     }
 }

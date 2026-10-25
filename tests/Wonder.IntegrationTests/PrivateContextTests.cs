@@ -9,120 +9,26 @@ using Wonder.Infrastructure;
 
 namespace Wonder.IntegrationTests;
 
-public sealed class SharedContextTests
+public sealed class PrivateContextTests
 {
     [Test]
-    public async Task GroupMemoryAndNewSharingAreUnavailableWhilePrivateMemorySurvives()
+    public async Task RemovedSharingAndSpaceRoutesCannotBeUsed()
     {
         using var app = new TestApp();
         var f = await SeedAsync(app);
-        using var scope = app.Services.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, "10001"), "??", default)).IsEmpty();
-        await Assert.That(await service.RetrieveAsync(new MemoryAccess(f.BotId, f.BobId, "10002"), "??", default)).IsEmpty();
-        await Assert.That((await service.RetrieveAsync(new MemoryAccess(f.BotId, f.AliceId, null), "??", default)).Any(x => x.Id == f.PersonalId)).IsTrue();
-        await Assert.That(() => service.ShareAsync(f.AliceId, f.SourceId, MemoryScope.SpaceShared, default))
-            .ThrowsExactly<ArgumentException>();
+        await Assert.That((await f.Alice.GetAsync($"/api/v1/me/memories/{f.SourceId}/sharing-options")).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That((await f.Alice.PostAsJsonAsync($"/api/v1/me/memories/{f.SourceId}/sharing", new { scope = "UserShared" })).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That((await f.Owner.GetAsync($"/api/v1/bots/{f.BotId}/context-spaces")).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That((await f.Alice.GetAsync($"/api/v1/me/memories/{f.PersonalId}")).StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
-    public async Task WithdrawalOnlyInvalidatesDependentHistoryAndCorrectionRevokesEveryCopy()
-    {
-        using var app = new TestApp();
-        var f = await SeedAsync(app);
-        await EnableAsync(f.Alice, "小明");
-        var shared = await LegacyShareAsync(app, f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
-        var personal = await LegacyShareAsync(app, f.Alice, f.SourceId, "UserShared");
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var conversation = new Conversation
-            { BotId = f.BotId, Kind = ConversationKind.Group, ExternalId = "dependent" };
-        var unrelated = new Conversation { BotId = f.BotId, Kind = ConversationKind.Group, ExternalId = "unrelated" };
-        var summaryOnly = new Conversation
-            { BotId = f.BotId, Kind = ConversationKind.Group, ExternalId = "summary-only" };
-        db.Conversations.AddRange(conversation, unrelated, summaryOnly);
-        var session = new ConversationSession { BotId = f.BotId, ConversationId = conversation.Id };
-        var otherSession = new ConversationSession { BotId = f.BotId, ConversationId = unrelated.Id };
-        var summarySession = new ConversationSession { BotId = f.BotId, ConversationId = summaryOnly.Id };
-        db.Sessions.AddRange(session, otherSession, summarySession);
-        var sourceJob = Jobs.Add(db, f.BotId, JobTypes.Chat, new IdPayload(Guid.NewGuid()), conversation.Id);
-        var otherJob = Jobs.Add(db, f.BotId, JobTypes.Chat, new IdPayload(Guid.NewGuid()), unrelated.Id);
-
-        string Snapshot(Guid sessionId, Guid[] memories)
-        {
-            return Json.Write(new ContextSnapshot(f.BotId, sessionId, 1, 1, null, 0, 0, memories, "test"));
-        }
-
-        var message = new ChatMessage
-        {
-            BotId = f.BotId, ConversationId = conversation.Id, SessionId = session.Id,
-            Role = "assistant", ExternalMessageId = "generated:" + sourceJob.Id, Text = "shared derived answer",
-            ContextSnapshotJson = Snapshot(session.Id, [shared])
-        };
-        var otherMessage = new ChatMessage
-        {
-            BotId = f.BotId, ConversationId = unrelated.Id, SessionId = otherSession.Id,
-            Role = "assistant", ExternalMessageId = "generated:" + otherJob.Id, Text = "unrelated history",
-            ContextSnapshotJson = Snapshot(otherSession.Id, [])
-        };
-        db.Messages.AddRange(message, otherMessage);
-        db.Summaries.AddRange(
-            new ConversationSummary { BotId = f.BotId, SessionId = session.Id, Text = "dependent summary" },
-            new ConversationSummary { BotId = f.BotId, SessionId = otherSession.Id, Text = "unrelated summary" },
-            new ConversationSummary
-            {
-                BotId = f.BotId, SessionId = summarySession.Id, Text = "summary with expired source message",
-                MemoryIdsJson = Json.Write(new[] { shared })
-            });
-        var batch = new OutgoingMessageBatch
-            { BotId = f.BotId, ConversationId = conversation.Id, SessionId = session.Id, SourceJobId = sourceJob.Id };
-        var otherBatch = new OutgoingMessageBatch
-            { BotId = f.BotId, ConversationId = unrelated.Id, SessionId = otherSession.Id, SourceJobId = otherJob.Id };
-        db.Batches.AddRange(batch, otherBatch);
-        var part = new OutgoingMessagePart { BatchId = batch.Id, Text = "shared pending answer" };
-        var otherPart = new OutgoingMessagePart { BatchId = otherBatch.Id, Text = "unrelated pending answer" };
-        db.Parts.AddRange(part, otherPart);
-        await db.SaveChangesAsync();
-        var withdrawn = await f.Alice.DeleteAsync($"/api/v1/me/memories/{f.SourceId}/sharing/{shared}");
-        await Assert.That(withdrawn.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-        db.ChangeTracker.Clear();
-        var affected = await db.Messages.SingleAsync(x => x.Id == message.Id);
-        await Assert.That(affected.ContextInvalidated).IsTrue();
-        await Assert.That(affected.Text).IsEqualTo("shared derived answer");
-        await Assert.That((await db.Messages.SingleAsync(x => x.Id == otherMessage.Id)).ContextInvalidated).IsFalse();
-        await Assert.That((await db.Summaries.SingleAsync(x => x.SessionId == session.Id)).ContextInvalidated).IsTrue();
-        await Assert.That((await db.Summaries.SingleAsync(x => x.SessionId == otherSession.Id)).ContextInvalidated)
-            .IsFalse();
-        await Assert.That((await db.Summaries.SingleAsync(x => x.SessionId == summarySession.Id)).ContextInvalidated)
-            .IsTrue();
-        await Assert.That((await db.Parts.SingleAsync(x => x.Id == part.Id)).Status).IsEqualTo(DeliveryStatus.Failed);
-        await Assert.That((await db.Parts.SingleAsync(x => x.Id == otherPart.Id)).Status)
-            .IsEqualTo(DeliveryStatus.Pending);
-        await Assert.That((await db.Memories.SingleAsync(x => x.Id == f.SourceId)).Text).Contains("项目");
-        await Assert
-            .That((await f.Alice.PatchAsJsonAsync($"/api/v1/me/memories/{f.SourceId}", new { text = "项目进入下一阶段。" }))
-                .StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-        db.ChangeTracker.Clear();
-        await Assert.That((await db.Memories.SingleAsync(x => x.Id == personal)).Status)
-            .IsEqualTo(MemoryStatus.Revoked);
-        await Assert
-            .That(await db.Memories.Where(x => x.SharedFromMemoryId == f.SourceId && x.Status != MemoryStatus.Revoked)
-                .ToListAsync()).IsEmpty();
-        await Assert
-            .That(await db.Memories
-                .Where(x => x.BotId == f.BotId && x.Text == "项目进入下一阶段。" && x.SharedFromMemoryId == null).ToListAsync())
-            .HasSingleItem();
-    }
-
-    [Test]
-    public async Task EachSenderReceivesTheirOwnNameAndSharedFactsRetainTheOriginalAuthor()
+    public async Task GroupRepliesRecognizeOnlyTheCurrentSpeakerWithoutPersonalContext()
     {
         using var app = new TestApp();
         var f = await SeedAsync(app);
         await EnableAsync(f.Alice, "小明");
         await f.Bob.PutAsJsonAsync("/api/v1/me/memory-settings", new { allowMemory = false, preferredName = "小李" });
-        await LegacyShareAsync(app, f.Alice, f.SourceId, "SpaceShared", f.SpaceId);
-        await LegacyShareAsync(app, f.Alice, f.PersonalId, "UserShared");
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var ingestor = scope.ServiceProvider.GetRequiredService<MessageIngestor>();
@@ -137,7 +43,7 @@ public sealed class SharedContextTests
             var message = await db.Messages.AsNoTracking()
                 .SingleAsync(x => x.BotId == f.BotId && x.ExternalMessageId == id);
             var job = await db.Outbox.AsNoTracking().SingleAsync(x =>
-                x.BotId == f.BotId && x.Type == JobTypes.Chat && x.Payload.Contains(message.Id.ToString()));
+                x.BotId == f.BotId && x.Type == JobKind.Chat && x.Payload.Contains(message.Id.ToString()));
             await workflow.RunAsync(job.Id, default);
         }
 
@@ -185,11 +91,11 @@ public sealed class SharedContextTests
         var session = new ConversationSession { BotId = f.BotId, ConversationId = conversation.Id };
         db.Conversations.Add(conversation);
         db.Sessions.Add(session);
-        var job = Jobs.Add(db, f.BotId, JobTypes.Chat, new IdPayload(Guid.NewGuid()), conversation.Id);
+        var job = Jobs.Add(db, f.BotId, JobKind.Chat, new IdPayload(Guid.NewGuid()), conversation.Id);
         var message = new ChatMessage
         {
             BotId = f.BotId, ConversationId = conversation.Id, SessionId = session.Id,
-            Role = "assistant", ExternalMessageId = "generated:" + job.Id, Text = "legacy cached answer",
+            Role = MessageRole.Assistant, ExternalMessageId = "generated:" + job.Id, Text = "legacy cached answer",
             ContextSnapshotJson = snapshot
         };
         var summary = new ConversationSummary
@@ -238,8 +144,8 @@ public sealed class SharedContextTests
             { BotId = f.BotId, ConversationId = conversation.Id, Status = SessionStatus.Reflecting };
         db.Conversations.Add(conversation);
         db.Sessions.AddRange(pendingSession, doneSession);
-        Jobs.Add(db, f.BotId, JobTypes.Reflection,
-            new ReflectionJob(pendingSession.Id, f.AliceId, 0, 0, "full"), conversation.Id);
+        Jobs.Add(db, f.BotId, JobKind.Reflection,
+            new ReflectionJob(pendingSession.Id, f.AliceId, 0, 0, ReflectionKind.Full), conversation.Id);
         var expired = new ChatMessage
         {
             BotId = f.BotId, ConversationId = conversation.Id, SessionId = doneSession.Id,
@@ -257,7 +163,7 @@ public sealed class SharedContextTests
 
         OutgoingMessageBatch Batch(DeliveryStatus status, int age)
         {
-            var job = Jobs.Add(db, f.BotId, JobTypes.Chat, new IdPayload(Guid.NewGuid()), conversation.Id);
+            var job = Jobs.Add(db, f.BotId, JobKind.Chat, new IdPayload(Guid.NewGuid()), conversation.Id);
             job.Status = JobStatus.Completed;
             job.CreatedAt = DateTimeOffset.UtcNow.AddDays(-age);
             var batch = new OutgoingMessageBatch
@@ -292,23 +198,8 @@ public sealed class SharedContextTests
 
     private static async Task EnableAsync(HttpClient client, string name)
     {
-        var response = await client.PutAsJsonAsync("/api/v1/me/memory-settings", new
-            { allowMemory = true, allowCrossGroupMemory = true, preferredName = name });
+        var response = await client.PutAsJsonAsync("/api/v1/me/memory-settings", new { allowMemory = true, preferredName = name });
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-    }
-
-    private static async Task<Guid> LegacyShareAsync(TestApp app, HttpClient client, Guid source, string scope, Guid? space = null)
-    {
-        // Seed an old backup row directly: production no longer permits new sharing.
-        using var serviceScope = app.Services.CreateScope();
-        var db = serviceScope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var original = await db.Memories.SingleAsync(x => x.Id == source);
-        var copy = new Memory { BotId = original.BotId, SubjectId = original.SubjectId,
-            Scope = Enum.Parse<MemoryScope>(scope), ScopeOwnerId = space?.ToString() ?? original.SubjectId.ToString(),
-            SharedFromMemoryId = source, Text = original.Text, FactKey = original.FactKey, Status = MemoryStatus.Active };
-        db.Memories.Add(copy);
-        await db.SaveChangesAsync();
-        return copy.Id;
     }
 
     private static async Task<(HttpClient Client, Guid Id)> AccountAsync(TestApp app, string name)
@@ -327,26 +218,8 @@ public sealed class SharedContextTests
         var owner = await AccountAsync(app, "owner");
         var alice = await AccountAsync(app, "alice");
         var bob = await AccountAsync(app, "bob");
-        var created =
-            await owner.Client.PostAsJsonAsync("/api/v1/bots", new { name = "Tree", identity = "你的名字是树莓，你是助手。" });
+        var created = await owner.Client.PostAsJsonAsync("/api/v1/bots", new { name = "Tree", identity = "你的名字是树莓，你是助手。" });
         var bot = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-
-        async Task<Guid> Space(string name)
-        {
-            var response = await owner.Client.PostAsJsonAsync($"/api/v1/bots/{bot}/context-spaces", new { name });
-            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Created);
-            return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-        }
-
-        var shared = await Space("项目组");
-        var other = await Space("其他项目");
-        foreach (var group in new[] { "10001", "10002", "10003", "10004" })
-        {
-            var response = await owner.Client.PutAsJsonAsync($"/api/v1/bots/{bot}/groups/{group}/policy", new
-                { contextSpaceId = group == "10003" ? other : group == "10004" ? (Guid?)null : shared });
-            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        }
-
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var a = new LogicalUser { AllowMemory = true };
@@ -354,41 +227,17 @@ public sealed class SharedContextTests
         db.LogicalUsers.AddRange(a, b);
         (await db.Users.SingleAsync(x => x.Id == alice.Id)).LogicalUserId = a.Id;
         (await db.Users.SingleAsync(x => x.Id == bob.Id)).LogicalUserId = b.Id;
-        db.PlatformIdentities.AddRange(new PlatformIdentity { UserId = a.Id, ExternalId = "11111" },
-            new PlatformIdentity { UserId = b.Id, ExternalId = "22222" });
+        db.PlatformIdentities.AddRange(new PlatformIdentity { UserId = a.Id, ExternalId = "11111" }, new PlatformIdentity { UserId = b.Id, ExternalId = "22222" });
+        db.GroupPolicies.AddRange(new GroupPolicy { BotId = bot, GroupId = "10002" }, new GroupPolicy { BotId = bot, GroupId = "10003" });
         var binding = new PlatformBinding { BotId = bot, PlatformAccountId = "999" };
         db.Bindings.Add(binding);
-        db.Models.Add(new ModelProfile
-        {
-            BotId = bot, TaskKind = TaskKind.Chat, Endpoint = "https://model.example/v1/", Model = "test",
-            ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key")
-        });
-        var source = new Memory
-        {
-            BotId = bot, SubjectId = a.Id, Scope = MemoryScope.GroupUser, ScopeOwnerId = "10001",
-            FactKey = "project-progress", Text = "项目已完成测试，下一步部署。", Status = MemoryStatus.Active
-        };
-        var personal = new Memory
-        {
-            BotId = bot, SubjectId = a.Id, Scope = MemoryScope.Private, ScopeOwnerId = a.Id.ToString(),
-            FactKey = "answer-style", Text = "偏好简洁回答。", Status = MemoryStatus.Active
-        };
+        db.Models.Add(new ModelProfile { BotId = bot, TaskKind = TaskKind.Chat, Endpoint = "https://model.example/v1/", Model = "test", ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key") });
+        var source = new Memory { BotId = bot, SubjectId = a.Id, FactKey = "project-progress", Text = "项目已完成测试，下一步部署。", Status = MemoryStatus.Active };
+        var personal = new Memory { BotId = bot, SubjectId = a.Id, FactKey = "answer-style", Text = "偏好简洁回答。", Status = MemoryStatus.Active };
         db.Memories.AddRange(source, personal);
         await db.SaveChangesAsync();
-        return new Fixture(owner.Client, alice.Client, bob.Client, bot, a.Id, b.Id, source.Id, personal.Id, shared,
-            other, binding.Id);
+        return new Fixture(owner.Client, alice.Client, bob.Client, bot, a.Id, b.Id, source.Id, personal.Id, binding.Id);
     }
 
-    private sealed record Fixture(
-        HttpClient Owner,
-        HttpClient Alice,
-        HttpClient Bob,
-        Guid BotId,
-        Guid AliceId,
-        Guid BobId,
-        Guid SourceId,
-        Guid PersonalId,
-        Guid SpaceId,
-        Guid OtherSpaceId,
-        Guid BindingId);
+    private sealed record Fixture(HttpClient Owner, HttpClient Alice, HttpClient Bob, Guid BotId, Guid AliceId, Guid BobId, Guid SourceId, Guid PersonalId, Guid BindingId);
 }

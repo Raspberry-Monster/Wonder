@@ -14,6 +14,7 @@
 | `Storage:MediaPath` | `Storage__MediaPath` | `data/media` |
 | `Backups:Path` | `Backups__Path` | `data/backups` |
 | `Backups:DeletionLedgerPath` | `Backups__DeletionLedgerPath` | `data/deletion-ledger` |
+| `Backups:RetiredContextPath` | `Backups__RetiredContextPath` | `data/retired-context`，退役数据的独立加密导出目录 |
 | `Backups:AgeRecipient` | `Backups__AgeRecipient` | age 公钥收件人，备份和账本导出需要 |
 | `SystemAdminIds` | `SystemAdminIds__0` 等 | 可执行备份 API 的账号 UUID |
 | `Chat:TimeZone` | `Chat__TimeZone` | `Asia/Shanghai`，用于时间上下文和日常调度 |
@@ -110,17 +111,21 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 1. 停止 Host，保留最新独立删除账本和密钥，暂不启动 OneBot 或消费者。
 2. 用 age 私钥解密数据库备份，在空的 PostgreSQL + pgvector 数据库中用 pg_restore 恢复。
 3. 恢复原密钥及必要媒体，确认目录权限，显式执行 `--migrate`。
-4. 将最新删除账本解密到私有临时文件，运行 `dotnet Wonder.Host.dll --replay-ledger /private/latest-ledger.json`。该入口不启动 HTTP、OneBot 或消费者，且可重复执行。
+4. 将最新删除账本解密到私有临时文件。旧文件先通过 `dotnet Wonder.Host.dll --convert-ledger /private/old.json /private/current.json` 显式转换（不覆盖原件）；再运行 `dotnet Wonder.Host.dll --replay-ledger /private/latest-ledger.json`。该入口不启动 HTTP、OneBot 或消费者，且可重复执行。
 5. 验证撤销记忆、向量和派生内容不可检索，再启动 Host，处理不确定发送和死信。
 6. 检查 ready、任务、本人记忆及模型配置，再恢复流量。
 
 恢复点之后的删除只有在独立账本已成功保存且可取得时才能重放；数据库与最新账本同时丢失时不能保证保留这些删除记录。
 
+## 群／共享退役归档
+
+用户已授权完整归档后退出在线表。停止 Host 并先备份，再依次应用 TypedBusinessTags、ArchiveRetiredContext、PrivateMemoryOnly。归档记录保存在独立只读 schema `retired_context.entries`，没有应用读取入口；迁移不可通过降级恢复旧群功能。运行 `dotnet Wonder.Host.dll --export-retired-context`，使用 Backups:AgeRecipient 流式加密导出到 Backups:RetiredContextPath，输出文件名与 SHA-256；请将密文另存异盘／异机。命令不启动 HTTP 或 Worker。旧备份和删除账本不删除；归档不会被恢复入口自动导入在线表。
+
 ## 保留与清理
 
 ADR-013 新增迁移应按原 stop-backup-migrate-start 流程部署。`Chat__InteractionToolsEnabled`、`Chat__ReflectionToolsEnabled`、`Chat__NotesToolsEnabled` 默认 false；需显式开放模块并配置 Chat SupportsTools。Notes 还需本人独立授权。未对旧只读设置自动追加写权限。
 
-删除账本现兼容旧 Memory v1 和 Note v2 目标。恢复仍须在任何 Worker/OneBot/外部查询前重放最新账本。Notes 与整理原因按本人确认保留到主动删除/清除，不自动过期。验收边界见 [实施附录](adr-013-implementation.md)。
+删除账本使用 DeletionResourceKind 区分 Memory、Note 和退役上下文 MemoryContext；不存在产品层的 Memory v1 / Note v2。旧格式只在离线转换器处理，在线重放拒绝未转换文件。Note 的 ResourceVersion 是实际修订号，继续保留。恢复仍须在任何 Worker/OneBot/外部查询前重放最新账本。Notes 与整理原因按本人确认保留到主动删除/清除，不自动过期。验收边界见 [实施附录](adr-013-implementation.md)。
 
 原始消息默认保留 90 天，创建时记录 ExpiresAt，修改 Bot 保留期只影响后续消息；图片缓存 7 天。清理每 5 分钟分批执行，符合条件的完成发送正文按 30 天清理。Memory / Relationship 不随原始消息自动过期。
 

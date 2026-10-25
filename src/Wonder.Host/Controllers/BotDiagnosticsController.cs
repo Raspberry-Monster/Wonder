@@ -91,12 +91,12 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
             where b.BotId == id && p.Id == partId && p.Status == DeliveryStatus.DeliveryUnknown
             select p).SingleOrDefaultAsync(ct);
         if (part is null) return NotFound();
-        if (input.Action == "confirm-sent")
+        if (input.Action == DeliveryResolutionAction.ConfirmSent)
         {
             part.Status = DeliveryStatus.Sent;
             part.ExternalId = input.ExternalId;
         }
-        else if (input.Action == "retry")
+        else if (input.Action == DeliveryResolutionAction.Retry)
         {
             part.Status = DeliveryStatus.Pending;
         }

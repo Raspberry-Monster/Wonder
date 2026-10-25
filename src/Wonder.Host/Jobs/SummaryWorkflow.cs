@@ -41,7 +41,7 @@ public sealed class SummaryWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Status == JobStatus.Completed) return;
+        if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
         var input = Json.Read<SummaryJob>(job.Payload);
         if (await db.Summaries.AnyAsync(
                 x => x.SessionId == input.SessionId && !x.ContextInvalidated &&
@@ -213,7 +213,7 @@ public sealed class SummaryWorkflow(
             target.MessageIdsJson = Json.Write(progress.MessageIds);
             target.ContextInvalidated = false;
             target.Revision++;
-            await NoteSources.InheritAsync(db, "Summary", target.Id, progress.MessageIds.ToArray(), progress.BaseId, ct);
+            await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Summary, target.Id, progress.MessageIds.ToArray(), progress.BaseId, ct);
             progress.BaseId = target.Id;
             progress.BaseRevision = target.Revision;
         }

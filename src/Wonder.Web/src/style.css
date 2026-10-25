@@ -189,13 +189,6 @@ h2 {
 .memory-body p {
   margin-top: 16px;
 }
-.sharing-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  font-size: 12px;
-}
 .login-layout {
   min-height: 100vh;
   display: grid;

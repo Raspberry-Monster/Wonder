@@ -40,8 +40,8 @@ public static class ReflectionRunHistory
             catch (System.Text.Json.JsonException) { return null; }
         }
         return runs.Select(x => (object)new { x.Id, x.BotId, x.RawBoundary,
-            status = x.Status == "Completed" ? "ReflectionCompleted" : x.Status == "Cancelled" ? "Cancelled" :
-                x.taskStatus == JobStatus.DeadLetter ? "Failed" : x.taskStatus == JobStatus.Running ? "Running" : "Queued",
+            status = x.Status == ReflectionGenerationStatus.Completed ? ReflectionRunDisplayStatus.ReflectionCompleted : x.Status == ReflectionGenerationStatus.Cancelled || x.taskStatus == JobStatus.Cancelled ? ReflectionRunDisplayStatus.Cancelled :
+                x.taskStatus == JobStatus.DeadLetter ? ReflectionRunDisplayStatus.Failed : x.taskStatus == JobStatus.Running ? ReflectionRunDisplayStatus.Running : ReflectionRunDisplayStatus.Queued,
             x.taskStatus, x.ResultId, x.CancellationReason, x.CreatedAt, x.ErrorCode,
             proposalCount = ProposalCount(x.ResultId),
             memoryCandidateCount = maintenance.Where(m => m.SourceReflectionId == x.ResultId).Sum(m => m.count),

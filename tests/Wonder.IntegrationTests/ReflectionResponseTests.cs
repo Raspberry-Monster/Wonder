@@ -113,8 +113,8 @@ public sealed class ReflectionResponseTests
             ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key")
         });
         await db.SaveChangesAsync();
-        var job = Jobs.Add(db, bot.Id, JobTypes.Reflection,
-            new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, "light"));
+        var job = Jobs.Add(db, bot.Id, JobKind.Reflection,
+            new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, ReflectionKind.Light));
         await db.SaveChangesAsync();
         return (job.Id, bot.Id);
     }

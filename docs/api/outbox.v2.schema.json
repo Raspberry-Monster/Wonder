@@ -84,7 +84,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -215,7 +216,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -354,7 +356,10 @@
                 "pattern": "^-?(?:0|[1-9]\\d*)$"
               },
               "kind": {
-                "type": "string"
+                "enum": [
+                  "light",
+                  "full"
+                ]
               }
             },
             "required": [
@@ -371,7 +376,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -502,7 +508,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -633,7 +640,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -764,7 +772,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -895,7 +904,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -1026,7 +1036,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -1157,7 +1168,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -1288,7 +1300,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -1427,7 +1440,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {
@@ -1558,7 +1572,8 @@
             "Pending",
             "Running",
             "Completed",
-            "DeadLetter"
+            "DeadLetter",
+            "Cancelled"
           ]
         },
         "attempts": {

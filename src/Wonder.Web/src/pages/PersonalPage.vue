@@ -13,7 +13,6 @@ const route = useRoute(),
   loading = ref(false),
   challenge = ref<any>(),
   editing = ref<any>(),
-  sharing = ref<any>(),
   archived = ref(false),
   skip = ref(0);
 const noteEditor = ref<any>(),
@@ -77,14 +76,6 @@ async function action(path: string, method = "POST", body?: unknown) {
 }
 async function bind() {
   challenge.value = await action("/me/qq-binding-challenge");
-}
-async function share(memory: any) {
-  try {
-    const options = await api(`/me/memories/${memory.id}/sharing-options`);
-    sharing.value = { memory, ...options };
-  } catch (e) {
-    Message.error((e as Error).message);
-  }
 }
 async function refreshBinding() {
   await session.load();
@@ -259,7 +250,6 @@ async function loadNoteHistory(note: any) {
             ><a-list-item
               ><div class="memory-body">
                 <a-space
-                  ><a-tag>{{ item.scope }}</a-tag
                   ><a-tag v-if="item.archivedAt">已归档</a-tag
                   ><span class="muted">{{
                     new Date(item.createdAt).toLocaleString()
@@ -277,26 +267,6 @@ async function loadNoteHistory(note: any) {
                     ></a-popconfirm
                   ></a-space
                 >
-                <div
-                  v-for="copy in item.sharing"
-                  :key="copy.id"
-                  class="sharing-row"
-                >
-                  <a-tag>{{ copy.scope }}</a-tag
-                  ><span>{{ copy.available ? "共享中" : "共享不可用" }}</span
-                  ><a-popconfirm
-                    content="撤回共享？"
-                    @ok="
-                      action(
-                        '/me/memories/' + item.id + '/sharing/' + copy.id,
-                        'DELETE',
-                      )
-                    "
-                    ><a-button type="text" status="danger"
-                      >撤回</a-button
-                    ></a-popconfirm
-                  >
-                </div>
               </div></a-list-item
             ></template
           ></a-list
@@ -420,38 +390,4 @@ async function loadNoteHistory(note: any) {
       ></a-list
     >
   </a-modal>
-  <a-modal
-    role="dialog"
-    aria-modal="true"
-    :visible="!!sharing"
-    title="共享记忆"
-    :footer="false"
-    @cancel="sharing = undefined"
-    ><template v-if="sharing"
-      ><p>{{ sharing.memory.text }}</p>
-      <a-space direction="vertical"
-        ><a-button
-          @click="
-            action('/me/memories/' + sharing.memory.id + '/sharing', 'POST', {
-              scope: 'UserShared',
-            }).then((result) => {
-              if (result !== false) sharing = undefined;
-            })
-          "
-          >共享到我的其他对话</a-button
-        ><a-button
-          v-if="sharing.space"
-          @click="
-            action('/me/memories/' + sharing.memory.id + '/sharing', 'POST', {
-              scope: 'SpaceShared',
-              contextSpaceId: sharing.space.id,
-            }).then((result) => {
-              if (result !== false) sharing = undefined;
-            })
-          "
-          >共享到 {{ sharing.space.name }}</a-button
-        ></a-space
-      ></template
-    ></a-modal
-  >
 </template>

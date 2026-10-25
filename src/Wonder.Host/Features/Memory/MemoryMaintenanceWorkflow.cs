@@ -14,8 +14,6 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
     private static IQueryable<Memory> Scope(WonderDbContext db, MemoryMaintenanceCandidate c)
     {
         return db.Memories.AsNoTracking().Where(m => m.BotId == c.BotId && m.SubjectId == c.SubjectId &&
-                                                     m.Scope == c.Scope && m.ScopeOwnerId == c.ScopeOwnerId &&
-                                                     m.SharedFromMemoryId == null &&
                                                      m.Status != MemoryStatus.Revoked && m.ArchivedAt == null);
     }
 
@@ -24,7 +22,7 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Status == JobStatus.Completed) return;
+        if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
         var candidate = await db.MemoryCandidates.SingleAsync(x => x.Id == Json.Read<IdPayload>(job.Payload).Id, ct);
         if (candidate.BotId != job.BotId)
             throw new InvalidOperationException("Candidate does not belong to this job's bot.");
@@ -77,11 +75,11 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                 foreach (var memory in missing)
                 {
                     var payload = Json.Write(new IdPayload(memory.Id));
-                    if (!await db.Outbox.AnyAsync(x => x.BotId == candidate.BotId && x.Type == JobTypes.Embedding &&
+                    if (!await db.Outbox.AnyAsync(x => x.BotId == candidate.BotId && x.Type == JobKind.Embedding &&
                                                        x.Payload == payload &&
                                                        (x.Status == JobStatus.Pending || x.Status == JobStatus.Running),
                             ct))
-                        Jobs.Add(db, candidate.BotId, JobTypes.Embedding, new IdPayload(memory.Id), cause: job.Id);
+                        Jobs.Add(db, candidate.BotId, JobKind.Embedding, new IdPayload(memory.Id), cause: job.Id);
                 }
 
                 Jobs.Continue<object?>(job, null, DateTimeOffset.UtcNow.AddSeconds(30));
@@ -270,8 +268,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             {
                 var memory = new Memory
                 {
-                    BotId = candidate.BotId, SubjectId = candidate.SubjectId, Scope = candidate.Scope,
-                    ScopeOwnerId = candidate.ScopeOwnerId, FactKey = candidate.FactKey, Text = output!,
+                    BotId = candidate.BotId, SubjectId = candidate.SubjectId,
+                    FactKey = candidate.FactKey, Text = output!,
                     SourceReflectionId = candidate.SourceReflectionId, LastConfirmedAt = newest,
                     SupersedesMemoryId = decision.Action == MemoryMaintenanceAction.Add ? null : target!.Id,
                     EvidenceJson = Json.Write(decision.Action == MemoryMaintenanceAction.Supplement
@@ -408,18 +406,17 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
     private static async Task<bool> ValidAsync(WonderDbContext db, MemoryMaintenanceCandidate c, LogicalUser u,
         CancellationToken ct)
     {
-        if (!u.AllowMemory || u.RevocationEpoch != c.RevocationEpoch ||
-            c.Scope != MemoryScope.Private) return false;
+        if (!u.AllowMemory || u.RevocationEpoch != c.RevocationEpoch) return false;
         var key = Json.Hash(c.FactKey);
         if (await db.Revocations.AnyAsync(x => x.BotId == c.BotId && x.UserId == c.SubjectId &&
-                                               x.Scope == c.Scope && x.ScopeOwnerId == c.ScopeOwnerId &&
+                                               x.ResourceKind == DeletionResourceKind.Memory &&
                                                x.FactKeyHash == key, ct)) return false;
         var evidence = Json.Read<Guid[]>(c.EvidenceJson);
         var reflection = await db.Reflections.AsNoTracking().SingleOrDefaultAsync(x => x.Id == c.SourceReflectionId &&
             x.BotId == c.BotId && x.SubjectId == c.SubjectId && x.RevocationEpoch == c.RevocationEpoch &&
             x.Payload != "{}", ct);
-        if (reflection is null || c.ScopeOwnerId != (reflection.GroupId ?? c.SubjectId.ToString()) ||
-            c.Scope != (reflection.GroupId is null ? MemoryScope.Private : MemoryScope.GroupUser)) return false;
+        if (reflection is null || !await db.Sessions.AnyAsync(s => s.Id == reflection.SessionId &&
+            db.Conversations.Any(c => c.Id == s.ConversationId && c.Kind == ConversationKind.Private), ct)) return false;
         return evidence.Length > 0 && await db.Messages.CountAsync(x => evidence.Contains(x.Id) &&
                                                                         x.BotId == c.BotId &&
                                                                         x.SenderId == c.SubjectId &&
@@ -449,19 +446,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             memory.EvidenceJson = "[]";
         }
 
-        var copies = await db.Memories.Where(x => x.SharedFromMemoryId == id && x.Status != MemoryStatus.Revoked)
-            .ToListAsync(ct);
-        foreach (var copy in copies)
-        {
-            copy.Status = MemoryStatus.Revoked;
-            copy.Text = copy.FactKey = "";
-            copy.EvidenceJson = "[]";
-            copy.Revision++;
-        }
-
-        var ids = copies.Select(x => x.Id).Append(id).ToArray();
-        await db.Embeddings.Where(x => ids.Contains(x.MemoryId)).ExecuteDeleteAsync(ct);
-        await MemoryService.InvalidateSharedContextAsync(db, memory.BotId, ids, ct);
+        await db.Embeddings.Where(x => x.MemoryId == id).ExecuteDeleteAsync(ct);
+        await MemoryService.InvalidateMemoryContextAsync(db, memory.BotId, [id], ct);
     }
 
     public static Task<int> ScrubAuditAsync(WonderDbContext db, Guid user, Guid[] ids, CancellationToken ct)

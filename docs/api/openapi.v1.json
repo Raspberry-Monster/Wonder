@@ -545,152 +545,6 @@
         }
       }
     },
-    "/api/v1/bots/{id}/context-spaces": {
-      "get": {
-        "tags": [
-          "ContextSpaces"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "ContextSpaces"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextSpaceInput"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextSpaceInput"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextSpaceInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/bots/{id}/context-spaces/{spaceId}": {
-      "put": {
-        "tags": [
-          "ContextSpaces"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "spaceId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextSpaceInput"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextSpaceInput"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextSpaceInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "ContextSpaces"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "spaceId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/api/v1/bots/{id}/groups": {
       "get": {
         "tags": [
@@ -996,72 +850,6 @@
         }
       }
     },
-    "/api/v1/me/memories/{id}/sharing-options": {
-      "get": {
-        "tags": [
-          "Memories"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/me/memories/{id}/sharing": {
-      "post": {
-        "tags": [
-          "Memories"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShareMemoryInput"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShareMemoryInput"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShareMemoryInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/api/v1/me/memory-maintenance": {
       "get": {
         "tags": [
@@ -1078,38 +866,6 @@
                 "string"
               ],
               "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/me/memories/{id}/sharing/{sharedId}": {
-      "delete": {
-        "tags": [
-          "Memories"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "sharedId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
             }
           }
         ],
@@ -1769,17 +1525,6 @@
           }
         }
       },
-      "ContextSpaceInput": {
-        "required": [
-          "name"
-        ],
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          }
-        }
-      },
       "CorrectMemory": {
         "required": [
           "text"
@@ -1829,7 +1574,7 @@
         "type": "object",
         "properties": {
           "action": {
-            "type": "string"
+            "$ref": "#/components/schemas/DeliveryResolutionAction"
           },
           "externalId": {
             "type": [
@@ -1838,6 +1583,9 @@
             ]
           }
         }
+      },
+      "DeliveryResolutionAction": {
+        "type": "integer"
       },
       "GroupPolicyInput": {
         "type": "object",
@@ -1857,26 +1605,8 @@
           "persistMessages": {
             "type": "boolean",
             "default": true
-          },
-          "allowReflection": {
-            "type": "boolean",
-            "default": true
-          },
-          "proactiveEnabled": {
-            "type": "boolean",
-            "default": false
-          },
-          "contextSpaceId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
           }
         }
-      },
-      "MemoryScope": {
-        "type": "integer"
       },
       "MemorySettingsInput": {
         "required": [
@@ -1886,12 +1616,6 @@
         "properties": {
           "allowMemory": {
             "type": "boolean"
-          },
-          "allowCrossGroupMemory": {
-            "type": [
-              "null",
-              "boolean"
-            ]
           },
           "preferredName": {
             "type": [
@@ -2191,24 +1915,6 @@
           }
         }
       },
-      "ShareMemoryInput": {
-        "required": [
-          "scope"
-        ],
-        "type": "object",
-        "properties": {
-          "scope": {
-            "$ref": "#/components/schemas/MemoryScope"
-          },
-          "contextSpaceId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          }
-        }
-      },
       "TaskKind": {
         "type": "integer"
       },
@@ -2356,9 +2062,6 @@
     },
     {
       "name": "Bots"
-    },
-    {
-      "name": "ContextSpaces"
     },
     {
       "name": "Groups"

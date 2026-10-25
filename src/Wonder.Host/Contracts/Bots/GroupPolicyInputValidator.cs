@@ -6,8 +6,6 @@ public sealed class GroupPolicyInputValidator : AbstractValidator<GroupPolicyInp
 {
     public GroupPolicyInputValidator()
     {
-        RuleFor(x => x.ProactiveEnabled).Equal(false)
-            .WithMessage("Proactive sending is not available in this version.");
         RuleFor(x => x.CommandPrefix).NotNull().MaximumLength(50);
     }
 }

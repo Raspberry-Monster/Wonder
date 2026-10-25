@@ -27,17 +27,17 @@ public sealed class JobProcessor(
             var ct = execution.Token;
             switch (job.Type)
             {
-                case JobTypes.Chat:
+                case JobKind.Chat:
                     await sp.GetRequiredService<ChatWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
-                case JobTypes.Outgoing:
+                case JobKind.Outgoing:
                     await sp.GetRequiredService<OutgoingWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
-                case JobTypes.Reflection:
+                case JobKind.Reflection:
                     await sp.GetRequiredService<ReflectionWorkflow>().GenerateAsync(job.Id, ct, job.LeaseId); break;
-                case JobTypes.Emotion or JobTypes.Relationship or JobTypes.Memory:
+                case JobKind.Emotion or JobKind.Relationship or JobKind.Memory:
                     await sp.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, ct, job.LeaseId); break;
-                case JobTypes.Embedding:
+                case JobKind.Embedding:
                     await sp.GetRequiredService<ReflectionWorkflow>().EmbedAsync(job.Id, ct, job.LeaseId); break;
-                case JobTypes.MemoryMaintenance:
+                case JobKind.MemoryMaintenance:
                     await sp.GetRequiredService<MemoryMaintenanceWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
                 default: await sp.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
             }
@@ -90,14 +90,14 @@ public sealed class JobProcessor(
         var failed = await db.Outbox.SingleOrDefaultAsync(x => x.Id == job.Id && x.Status == JobStatus.Running &&
                                                                x.LeaseId == job.LeaseId, ct);
         if (failed is null) return;
-        if (job.Type == JobTypes.Chat && await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
+        if (job.Type == JobKind.Chat && await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
         {
             Jobs.Complete(db, failed);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return;
         }
-        var deferredQuota = ex is TokenQuotaException && job.Type != JobTypes.Chat;
+        var deferredQuota = ex is TokenQuotaException && job.Type != JobKind.Chat;
         var terminal = !deferredQuota && (failed.Attempts >= MaxAttempts(job.Type) ||
                                           ex is ModelConfigurationException or DeliveryUnknownException
                                               or ContextLimitException or OutputLimitException or TokenQuotaException);
@@ -114,7 +114,7 @@ public sealed class JobProcessor(
             failed.Attempts = Math.Max(0, failed.Attempts - 1);
         }
 
-        if (terminal && job.Type == JobTypes.Chat && !await db.Batches.AnyAsync(x => x.SourceJobId == job.Id, ct))
+        if (terminal && job.Type == JobKind.Chat && !await db.Batches.AnyAsync(x => x.SourceJobId == job.Id, ct))
         {
             var messageId = Json.Read<IdPayload>(job.Payload).Id;
             var session = await db.Messages.Where(x => x.Id == messageId).Select(x => x.SessionId)
@@ -131,7 +131,7 @@ public sealed class JobProcessor(
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        if (terminal && job.Type == JobTypes.Chat)
+        if (terminal && job.Type == JobKind.Chat)
         {
             using var scope = scopes.CreateScope();
             await scope.ServiceProvider.GetRequiredService<InteractionBoundary>().CompensateAsync(job.Id, ct);
@@ -140,8 +140,8 @@ public sealed class JobProcessor(
             job.Id, job.Type, ex.GetType().Name, terminal);
     }
 
-    private static int MaxAttempts(string type)
+    private static int MaxAttempts(JobKind type)
     {
-        return type == JobTypes.Chat ? 2 : 5;
+        return type == JobKind.Chat ? 2 : 5;
     }
 }

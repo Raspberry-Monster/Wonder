@@ -2,68 +2,59 @@ namespace Wonder.Core;
 
 public enum ConversationKind
 {
-    Private,
-    Group
+    Private = 0,
+    Group = 1
 }
 
 public enum SessionStatus
 {
-    Active,
-    Closing,
-    Reflecting,
-    Closed
-}
-
-public enum MemoryScope
-{
-    Private,
-    GroupUser,
-    GroupShared,
-    GlobalPublic,
-    UserShared,
-    SpaceShared
+    Active = 0,
+    Closing = 1,
+    Reflecting = 2,
+    Closed = 3
 }
 
 public enum MemoryStatus
 {
-    PendingEmbedding,
-    Active,
-    Revoked
+    PendingEmbedding = 0,
+    Active = 1,
+    Revoked = 2
 }
 
 public enum TaskKind
 {
-    Chat,
-    LightReflection,
-    StrongReflection,
-    DailyNarrative,
-    RollingSummary,
-    Embedding
+    Chat = 0,
+    LightReflection = 1,
+    StrongReflection = 2,
+    DailyNarrative = 3,
+    RollingSummary = 4,
+    Embedding = 5
 }
 
 public enum DeliveryStatus
 {
-    Pending,
-    Sending,
-    Sent,
-    DeliveryUnknown,
-    Failed
+    Pending = 0,
+    Sending = 1,
+    Sent = 2,
+    DeliveryUnknown = 3,
+    Failed = 4
 }
 
 public enum JobStatus
 {
-    Pending,
-    Running,
-    Completed,
-    DeadLetter
+    Pending = 0,
+    Running = 1,
+    Completed = 2,
+    DeadLetter = 3,
+    Cancelled = 4
 }
 
 public enum SegmentKind
 {
-    Text,
-    Image,
-    Mention,
-    ReplyReference
+    Text = 0,
+    Image = 1,
+    Mention = 2,
+    ReplyReference = 3
 }
 
 public sealed record MessageSegment(SegmentKind Kind, string Value);
@@ -114,13 +105,7 @@ public sealed record ReflectionProposal(
     RelationshipProposal[] Relationships,
     MemoryCandidate[] Memories);
 
-public sealed record MemoryAccess(
-    Guid BotId,
-    Guid UserId,
-    string? GroupId,
-    Guid? ContextSpaceId = null,
-    bool AllowUserShared = false,
-    bool AllowPersonal = true);
+public sealed record MemoryAccess(Guid BotId, Guid UserId, bool AllowPersonal = true);
 
 public sealed class BotInstance
 {
@@ -143,7 +128,6 @@ public sealed class LogicalUser
     public bool AllowMemory { get; set; }
     public bool AllowNotes { get; set; }
     public long NotesEpoch { get; set; }
-    public bool AllowCrossGroupMemory { get; set; }
     public bool AllowMemoryMerge { get; set; } = true;
     public bool AllowMemoryUpdate { get; set; } = true;
     public bool AllowMemoryArchive { get; set; } = true;
@@ -179,28 +163,16 @@ public sealed class BindingChallenge
     public DateTimeOffset ExpiresAt { get; set; }
 }
 
-public sealed class ContextSpace
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid BotId { get; set; }
-    public string Name { get; set; } = "";
-}
-
 public sealed class GroupPolicy
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public string GroupId { get; set; } = "";
-    public Guid? ContextSpaceId { get; set; }
     public bool RespondToMention { get; set; } = true;
     public bool RespondToReply { get; set; } = true;
     public string CommandPrefix { get; set; } = "/wonder";
     public bool PersistMessages { get; set; } = true;
 
-    public bool AllowReflection { get; set; } = true;
-
-    // Proactive messages are deliberately opt-in; no unsolicited scheduler in v0.1.
-    public bool ProactiveEnabled { get; set; }
 }
 
 public sealed class PersonaIdentityRevision
@@ -244,7 +216,7 @@ public sealed class ChatMessage
     public Guid? SenderId { get; set; }
     public string Platform { get; set; } = "qq";
     public string ExternalMessageId { get; set; } = "";
-    public string Role { get; set; } = "user";
+    public MessageRole Role { get; set; } = MessageRole.User;
     public long? InReplyToSequence { get; set; }
     public string SegmentsJson { get; set; } = "[]";
     public string Text { get; set; } = "";
@@ -306,7 +278,6 @@ public sealed class RelationshipState
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
-    public string? GroupId { get; set; }
     public string PreferencesJson { get; set; } = "[]";
     public string BoundariesJson { get; set; } = "[]";
     public long Revision { get; set; } = 1;
@@ -317,7 +288,6 @@ public sealed class RelationshipObservation
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
-    public string? GroupId { get; set; }
     public Guid ReflectionId { get; set; }
     public string Candidate { get; set; } = "";
     public string EvidenceJson { get; set; } = "[]";
@@ -332,11 +302,8 @@ public sealed class Memory
     public DateTimeOffset? ArchivedAt { get; set; }
     public DateTimeOffset? LastConfirmedAt { get; set; }
     public long Revision { get; set; } = 1;
-    public Guid? SharedFromMemoryId { get; set; }
     public Guid BotId { get; set; }
     public Guid SubjectId { get; set; }
-    public MemoryScope Scope { get; set; }
-    public string ScopeOwnerId { get; set; } = "";
     public string FactKey { get; set; } = "";
     public string Text { get; set; } = "";
     public MemoryStatus Status { get; set; } = MemoryStatus.PendingEmbedding;
@@ -347,20 +314,20 @@ public sealed class Memory
 
 public enum MemoryMaintenanceStatus
 {
-    Pending,
-    Applied,
-    Deferred,
-    Cancelled
+    Pending = 0,
+    Applied = 1,
+    Deferred = 2,
+    Cancelled = 3
 }
 
 public enum MemoryMaintenanceAction
 {
-    Add,
-    Merge,
-    Supplement,
-    Update,
-    Archive,
-    Defer
+    Add = 0,
+    Merge = 1,
+    Supplement = 2,
+    Update = 3,
+    Archive = 4,
+    Defer = 5
 }
 
 public sealed record MemoryMaintenanceDecision(
@@ -375,8 +342,6 @@ public sealed class MemoryMaintenanceCandidate
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid SubjectId { get; set; }
-    public MemoryScope Scope { get; set; }
-    public string ScopeOwnerId { get; set; } = "";
     public string FactKey { get; set; } = "";
     public string Text { get; set; } = "";
     public string EvidenceJson { get; set; } = "[]";
@@ -394,15 +359,12 @@ public sealed class MemoryMaintenanceCandidate
 
 public sealed class MemoryRevocation
 {
-    public int RecordVersion { get; set; } = 1;
-    public string ResourceKind { get; set; } = "Memory";
+    public DeletionResourceKind ResourceKind { get; set; } = DeletionResourceKind.Memory;
     public Guid? ResourceId { get; set; }
     public long? ResourceVersion { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
-    public MemoryScope Scope { get; set; }
-    public string ScopeOwnerId { get; set; } = "";
     public string FactKeyHash { get; set; } = "";
     public long Epoch { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -425,8 +387,7 @@ public sealed class ReflectionResult
     public Guid BotId { get; set; }
     public Guid SessionId { get; set; }
     public Guid SubjectId { get; set; }
-    public string? GroupId { get; set; }
-    public string Kind { get; set; } = "full";
+    public ReflectionKind Kind { get; set; } = ReflectionKind.Full;
     public long Boundary { get; set; }
     public long RevocationEpoch { get; set; }
     public int SchemaVersion { get; set; } = 1;
@@ -445,7 +406,7 @@ public sealed class OutboxMessage
     public Guid? CausationId { get; set; }
     public int SchemaVersion { get; set; } = 2;
     public DateOnly? ScheduledDate { get; set; }
-    public string Type { get; set; } = "";
+    public JobKind Type { get; set; }
     public string Payload { get; set; } = "{}";
     public JobStatus Status { get; set; }
     public int Attempts { get; set; }
@@ -459,7 +420,7 @@ public sealed class OutboxMessage
 public sealed class InboxProcessedEvent
 {
     public Guid EventId { get; set; }
-    public string HandlerName { get; set; } = "";
+    public JobKind HandlerName { get; set; }
     public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 

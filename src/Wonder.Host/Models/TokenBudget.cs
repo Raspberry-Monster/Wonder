@@ -44,8 +44,10 @@ public sealed class TokenBudget(IDbContextFactory<WonderDbContext> factory)
                 await tx.CommitAsync(ct);
                 return record.Id;
             }
-            catch (Exception ex) when (attempt < 2 && ex.GetBaseException() is PostgresException { SqlState: "40001" })
+            catch (Exception ex) when (attempt < 4 && ex.GetBaseException() is PostgresException { SqlState: "40001" })
             {
+                // Let the competing reservation commit before reading a fresh serializable snapshot.
+                await Task.Delay(Random.Shared.Next(10, 30) * (attempt + 1), ct);
             }
         }
     }

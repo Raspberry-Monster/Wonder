@@ -7,9 +7,8 @@ public static class MemoryRules
 {
     public static Expression<Func<Core.Memory, bool>> Authorized(MemoryAccess access)
     {
-        return memory => access.GroupId == null && access.AllowPersonal && memory.BotId == access.BotId &&
+        return memory => access.AllowPersonal && memory.BotId == access.BotId &&
                          memory.SubjectId == access.UserId &&
-                         (memory.Scope == MemoryScope.Private || (access.AllowUserShared && memory.Scope == MemoryScope.UserShared)) &&
                          memory.Status != MemoryStatus.Revoked && memory.ArchivedAt == null;
     }
 

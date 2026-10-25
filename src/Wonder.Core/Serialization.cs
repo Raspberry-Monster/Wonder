@@ -9,7 +9,7 @@ namespace Wonder.Core;
 public static class Json
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-        { Converters = { new JsonStringEnumConverter() } };
+        { Converters = { new JsonStringEnumConverter(allowIntegerValues: false) } };
 
     // Model message text is data, never inline HTML. Keep storage serialization stable for payload hashes.
     private static readonly JsonSerializerOptions PromptOptions = new(Options)
@@ -36,26 +36,9 @@ public static class Json
     }
 }
 
-public static class JobTypes
-{
-    public const string Ledger = "deletion-ledger";
-
-    public const string Chat = "chat",
-        Outgoing = "outgoing",
-        Reflection = "reflection",
-        Emotion = "emotion",
-        Relationship = "relationship",
-        Memory = "memory",
-        MemoryMaintenance = "memory-maintenance",
-        Embedding = "embedding",
-        Maintenance = "maintenance",
-        Narrative = "narrative",
-        Summary = "summary";
-}
-
 public sealed record IdPayload(Guid Id);
 
-public sealed record ReflectionJob(Guid SessionId, Guid SubjectId, long Boundary, long Epoch, string Kind);
+public sealed record ReflectionJob(Guid SessionId, Guid SubjectId, long Boundary, long Epoch, ReflectionKind Kind);
 
 public sealed record SummaryJob(Guid SessionId, long ThroughSequence);
 

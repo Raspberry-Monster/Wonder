@@ -255,9 +255,6 @@ function newGroup() {
     respondToReply: true,
     commandPrefix: "/wonder",
     persistMessages: true,
-    allowReflection: false,
-    proactiveEnabled: false,
-    contextSpaceId: null,
   };
 }
 async function action(path: string, method = "POST", body?: unknown) {
@@ -564,7 +561,6 @@ const jobColumns = [
       :path="
         base + '/groups/' + encodeURIComponent(editing.groupId) + '/policy'
       "
-      :transform="(v) => ({ ...v, contextSpaceId: v.contextSpaceId || null })"
       @saved="
         editing = undefined;
         load();

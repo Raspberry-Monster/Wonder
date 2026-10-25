@@ -33,6 +33,6 @@ public static class UserCommands
         var sequence = 0;
         foreach (var part in OneBotProtocol.Split(text))
             db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Sequence = sequence++, Text = part });
-        Jobs.Add(db, botId, JobTypes.Outgoing, new IdPayload(batch.Id), conversationId, sourceId);
+        Jobs.Add(db, botId, JobKind.Outgoing, new IdPayload(batch.Id), conversationId, sourceId);
     }
 }

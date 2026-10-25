@@ -11,14 +11,14 @@ public sealed class JobWorkers(
     protected override Task ExecuteAsync(CancellationToken ct)
     {
         return Task.WhenAll(
-            ConsumeAsync([JobTypes.Chat], ct), ConsumeAsync([JobTypes.Chat], ct),
-            ConsumeAsync([JobTypes.Outgoing], ct),
-            ConsumeAsync([JobTypes.Reflection, JobTypes.Emotion, JobTypes.Relationship], ct),
-            ConsumeAsync([JobTypes.Memory, JobTypes.Embedding, JobTypes.MemoryMaintenance], ct),
-            ConsumeAsync([JobTypes.Maintenance, JobTypes.Narrative, JobTypes.Summary, JobTypes.Ledger], ct));
+            ConsumeAsync([JobKind.Chat], ct), ConsumeAsync([JobKind.Chat], ct),
+            ConsumeAsync([JobKind.Outgoing], ct),
+            ConsumeAsync([JobKind.Reflection, JobKind.Emotion, JobKind.Relationship], ct),
+            ConsumeAsync([JobKind.Memory, JobKind.Embedding, JobKind.MemoryMaintenance], ct),
+            ConsumeAsync([JobKind.Maintenance, JobKind.Narrative, JobKind.Summary, JobKind.Ledger], ct));
     }
 
-    private async Task ConsumeAsync(string[] types, CancellationToken ct)
+    private async Task ConsumeAsync(JobKind[] types, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
             try

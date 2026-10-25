@@ -42,7 +42,7 @@ public static class Jobs
         return db.SaveChangesAsync(ct);
     }
 
-    public static OutboxMessage Add<T>(WonderDbContext db, Guid botId, string type, T payload,
+    public static OutboxMessage Add<T>(WonderDbContext db, Guid botId, JobKind type, T payload,
         Guid? conversationId = null, Guid? cause = null, Guid? correlation = null)
     {
         if (!EventContracts.PayloadTypes.TryGetValue(type, out var payloadType) || payloadType != typeof(T))

@@ -73,19 +73,19 @@ public sealed class AgentAutonomyTests
     [Test]
     public async Task PostgreSqlLegacyMemoryLedgerRowsUpgradeAndRemainReplayable()
     {
-        await using var pg = await TestPostgres.CreateAsync();
+        await using var pg = await TestPostgres.CreateAsync("20261024144500_VersionedNotesAndPrivacyLedger");
         using var app = pg.CreateApp();
-        var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"LogicalUsers\" ALTER COLUMN \"AllowCrossGroupMemory\" SET DEFAULT false;");
+        var f = await SeedAsync(app);
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync();
-        await db.GetService<IMigrator>().MigrateAsync("20261024143750_CanonicalReflectionRuns");
         var id = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"Revocations\" (\"Id\", \"BotId\", \"UserId\", \"Scope\", \"ScopeOwnerId\", \"FactKeyHash\", \"Epoch\", \"CreatedAt\") VALUES ({id}, {f.Bot}, {user.Id}, {0}, {user.Id.ToString()}, {Json.Hash("old-fact")}, {1L}, {DateTimeOffset.UtcNow})");
         await db.Database.MigrateAsync();
         var row = await db.Revocations.AsNoTracking().SingleAsync();
-        await Assert.That(row.RecordVersion).IsEqualTo(1);
-        await Assert.That(row.ResourceKind).IsEqualTo("Memory");
+        await Assert.That(row.ResourceId).IsNull();
+        await Assert.That(row.ResourceKind).IsEqualTo(DeletionResourceKind.Memory);
         var file = Path.GetFullPath(".local/legacy-ledger-" + Guid.NewGuid() + ".json");
         try
         {
@@ -109,13 +109,13 @@ public sealed class AgentAutonomyTests
         await CallAsync(app, e, 1, "notes_read", new() { ["note_id"] = noteId.ToString() });
         var message = await db.Messages.SingleAsync(x => x.Id == e.MessageId);
         var derived = new ChatMessage { BotId = e.BotId, ConversationId = e.ConversationId,
-            SessionId = message.SessionId, Role = "assistant", ExternalMessageId = "generated:" + e.ChatJobId,
+            SessionId = message.SessionId, Role = MessageRole.Assistant, ExternalMessageId = "generated:" + e.ChatJobId,
             Text = "旧推测", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
         db.Messages.Add(derived);
         await NoteSources.CopyChatAsync(db, e.ChatJobId, derived.Id, default);
         var summary = new ConversationSummary { BotId = e.BotId, SessionId = message.SessionId!.Value, Text = "旧摘要" };
         db.Summaries.Add(summary);
-        await NoteSources.AddAsync(db, "Summary", summary.Id, noteId, 1, default);
+        await NoteSources.AddAsync(db, NoteDependencyTargetKind.Summary, summary.Id, noteId, 1, default);
         ChatWorkflow.QueueReply(db, await db.Outbox.SingleAsync(x => x.Id == e.ChatJobId), message.SessionId.Value, "旧推测");
         await db.SaveChangesAsync();
         var args = new Dictionary<string, object?> { ["note_id"] = noteId.ToString(), ["expected_version"] = 1,
@@ -146,7 +146,7 @@ public sealed class AgentAutonomyTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await db.LogicalUsers.ExecuteUpdateAsync(s => s.SetProperty(x => x.AllowNotes, true));
-        var userNote = new Note { BotId = e.BotId, UserId = e.UserId, ConversationId = e.ConversationId, AuthorKind = "User", Content = "用户自己的笔记" };
+        var userNote = new Note { BotId = e.BotId, UserId = e.UserId, ConversationId = e.ConversationId, AuthorKind = NoteAuthorKind.User, Content = "用户自己的笔记" };
         db.Notes.Add(userNote); await db.SaveChangesAsync();
         await CallAsync(app, e, 0, "notes_create", new() { ["content"] = "Miku 私人观察" });
         await Assert.That(await CallAsync(app, e, 1, "notes_update", new() { ["note_id"] = userNote.Id.ToString(),
@@ -173,18 +173,18 @@ public sealed class AgentAutonomyTests
         await CallAsync(app, e, 1, "notes_read", new() { ["note_id"] = note.Id.ToString() });
         var input = await db.Messages.SingleAsync(x => x.Id == e.MessageId);
         var derived = new ChatMessage { BotId = e.BotId, ConversationId = e.ConversationId, SessionId = input.SessionId,
-            Role = "assistant", ExternalMessageId = "generated:" + e.ChatJobId, Text = note.Content, ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+            Role = MessageRole.Assistant, ExternalMessageId = "generated:" + e.ChatJobId, Text = note.Content, ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
         db.Messages.Add(derived);
         await NoteSources.CopyChatAsync(db, e.ChatJobId, derived.Id, default);
         var summary = new ConversationSummary { BotId = e.BotId, SessionId = input.SessionId!.Value, Text = note.Content };
-        db.Summaries.Add(summary); await NoteSources.AddAsync(db, "Summary", summary.Id, note.Id, note.Version, default);
+        db.Summaries.Add(summary); await NoteSources.AddAsync(db, NoteDependencyTargetKind.Summary, summary.Id, note.Id, note.Version, default);
         ChatWorkflow.QueueReply(db, await db.Outbox.SingleAsync(x => x.Id == e.ChatJobId), input.SessionId.Value, note.Content);
         await db.SaveChangesAsync();
         var controller = await ControllerAsync(db, app, e.UserId);
         await controller.DeletePersonalData(default);
         db.ChangeTracker.Clear();
         var ledger = await db.Revocations.AsNoTracking().ToArrayAsync();
-        await Assert.That(ledger.Single().ResourceKind).IsEqualTo("Note");
+        await Assert.That(ledger.Single().ResourceKind).IsEqualTo(DeletionResourceKind.Note);
         await Assert.That((await db.Notes.SingleAsync()).Content).IsEmpty();
         await Assert.That((await db.Messages.AsNoTracking().SingleAsync(x => x.Id == derived.Id)).Text).IsEmpty();
         await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).ContextInvalidated).IsTrue();
@@ -245,7 +245,7 @@ public sealed class AgentAutonomyTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var input = await db.Messages.SingleAsync(x => x.Id == e.MessageId);
         var assistant = new ChatMessage { BotId = e.BotId, ConversationId = e.ConversationId, SessionId = input.SessionId,
-            Role = "assistant", ExternalMessageId = "later-assistant", Text = "知道啦", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+            Role = MessageRole.Assistant, ExternalMessageId = "later-assistant", Text = "知道啦", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
         db.Messages.Add(assistant); await db.SaveChangesAsync();
         async Task AutoFull()
         {
@@ -253,18 +253,18 @@ public sealed class AgentAutonomyTests
             await using var admission = await concurrent.Database.BeginTransactionAsync();
             await UserFence.CheckAsync(concurrent, e.UserId, 0, default);
             await ReflectionRuns.AdmitAsync(concurrent, e.BotId, e.ConversationId,
-                new ReflectionJob(input.SessionId!.Value, e.UserId, assistant.Sequence, 0, "full"), default);
+                new ReflectionJob(input.SessionId!.Value, e.UserId, assistant.Sequence, 0, ReflectionKind.Full), default);
             await concurrent.SaveChangesAsync(); await admission.CommitAsync();
         }
         await Task.WhenAll(AutoFull(), CallAsync(app, e, 0, "reflection_request_review",
             new() { ["priority"] = "Normal", ["reason"] = "整理" }));
         await using var tx = await db.Database.BeginTransactionAsync();
         var (_, status) = await ReflectionRuns.AdmitAsync(db, e.BotId, e.ConversationId,
-            new ReflectionJob(input.SessionId!.Value, e.UserId, assistant.Sequence, 0, "full"), default);
-        await Assert.That(status).IsEqualTo("AlreadyScheduled");
+            new ReflectionJob(input.SessionId!.Value, e.UserId, assistant.Sequence, 0, ReflectionKind.Full), default);
+        await Assert.That(status).IsEqualTo(ReflectionAdmissionOutcome.AlreadyScheduled);
         await db.SaveChangesAsync(); await tx.CommitAsync();
         await Assert.That(await db.ReflectionGenerations.CountAsync()).IsEqualTo(1);
-        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobTypes.Reflection && x.Payload.Contains("full"))).IsEqualTo(1);
+        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobKind.Reflection && x.Payload.Contains("full"))).IsEqualTo(1);
     }
 
     [Test]
@@ -291,7 +291,7 @@ public sealed class AgentAutonomyTests
         await Assert.That(await db.Outbox.CountAsync(x => x.CausationId == run.JobId)).IsEqualTo(3);
         var result = await db.Reflections.SingleAsync();
         db.MemoryCandidates.Add(new MemoryMaintenanceCandidate { BotId = f.Bot, SubjectId = e.UserId,
-            SourceReflectionId = result.Id, Scope = MemoryScope.Private, ScopeOwnerId = e.UserId.ToString(),
+            SourceReflectionId = result.Id,
             Text = "等待维护", FactKey = "pending", CandidateHash = "test-pending" });
         await db.SaveChangesAsync();
         using var history = JsonDocument.Parse(Json.Write(await ReflectionRunHistory.ReadAsync(db, e.UserId, f.Bot, 0, 10, default)));
@@ -303,7 +303,7 @@ public sealed class AgentAutonomyTests
         var pending = await db.ReflectionGenerations.AsNoTracking().SingleAsync(x => x.Id != run.Id);
         await db.LogicalUsers.ExecuteUpdateAsync(s => s.SetProperty(x => x.AllowMemory, false).SetProperty(x => x.RevocationEpoch, 1));
         await workflow.GenerateAsync(pending.JobId, default);
-        await Assert.That((await db.ReflectionGenerations.AsNoTracking().SingleAsync(x => x.Id == pending.Id)).Status).IsEqualTo("Cancelled");
+        await Assert.That((await db.ReflectionGenerations.AsNoTracking().SingleAsync(x => x.Id == pending.Id)).Status).IsEqualTo(ReflectionGenerationStatus.Cancelled);
         await Assert.That(app.ModelRequests.Count).IsEqualTo(1);
     }
 

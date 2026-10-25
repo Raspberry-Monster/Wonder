@@ -41,10 +41,10 @@ public sealed class SpeakerContextTests
         await Assert.That(firstTag).IsNotEqualTo(secondTag);
         var workflow = scope.ServiceProvider.GetRequiredService<ChatWorkflow>();
         var outgoing = scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>();
-        var jobs = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobTypes.Chat).OrderBy(x => x.Sequence)
+        var jobs = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobKind.Chat).OrderBy(x => x.Sequence)
             .ToListAsync();
         await workflow.RunAsync(jobs[0].Id, default);
-        await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing)).Id,
+        await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobKind.Outgoing)).Id,
             default);
         await workflow.RunAsync(jobs[1].Id, default);
         using var secondRequest = JsonDocument.Parse(app.ModelRequests[1]);
@@ -56,11 +56,11 @@ public sealed class SpeakerContextTests
         await Assert.That(messages.Length).IsEqualTo(2);
         await Assert.That(app.ModelRequests[1]).DoesNotContain(first.SenderId!.Value.ToString());
         await Assert.That(app.ModelRequests[1]).DoesNotContain(second.SenderId!.Value.ToString());
-        await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobTypes.Outgoing &&
+        await outgoing.RunAsync((await db.Outbox.SingleAsync(x => x.BotId == botId && x.Type == JobKind.Outgoing &&
                                                                   x.Status == JobStatus.Pending)).Id, default);
         await Ingest("3", "456", "我现在改名叫小蓝了。");
         var third = await db.Messages.AsNoTracking().SingleAsync(x => x.BotId == botId && x.ExternalMessageId == "3");
-        var thirdJob = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobTypes.Chat)
+        var thirdJob = await db.Outbox.Where(x => x.BotId == botId && x.Type == JobKind.Chat)
             .OrderByDescending(x => x.Sequence).FirstAsync();
         await workflow.RunAsync(thirdJob.Id, default);
         using var thirdRequest = JsonDocument.Parse(app.ModelRequests[2]);
@@ -94,7 +94,7 @@ public sealed class SpeakerContextTests
         }).ToArray();
         db.Messages.AddRange(rows);
         await db.SaveChangesAsync();
-        var job = Jobs.Add(db, botId, JobTypes.Summary, new SummaryJob(session.Id, rows.Max(x => x.Sequence)));
+        var job = Jobs.Add(db, botId, JobKind.Summary, new SummaryJob(session.Id, rows.Max(x => x.Sequence)));
         await db.SaveChangesAsync();
         await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, default);
         await Assert.That(app.ModelRequests).IsEmpty();

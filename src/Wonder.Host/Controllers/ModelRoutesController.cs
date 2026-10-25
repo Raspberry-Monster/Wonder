@@ -73,7 +73,7 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
             {
                 var memoryIds = await Db.Memories.Where(x => x.BotId == id && x.Status != MemoryStatus.Revoked)
                     .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).Select(x => x.Id).Take(10000).ToListAsync(ct);
-                foreach (var memory in memoryIds) Jobs.Add(Db, id, JobTypes.Embedding, new IdPayload(memory));
+                foreach (var memory in memoryIds) Jobs.Add(Db, id, JobKind.Embedding, new IdPayload(memory));
             }
         }
 

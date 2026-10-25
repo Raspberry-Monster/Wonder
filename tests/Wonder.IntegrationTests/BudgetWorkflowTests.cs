@@ -28,7 +28,7 @@ public sealed class BudgetWorkflowTests
                 f = await SeedAsync(app, 130, true);
                 using var scope = app.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-                var job = Jobs.Add(db, f.Bot, JobTypes.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence),
+                var job = Jobs.Add(db, f.Bot, JobKind.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence),
                     f.Conversation);
                 await db.SaveChangesAsync();
                 jobId = job.Id;
@@ -81,8 +81,8 @@ public sealed class BudgetWorkflowTests
         };
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var job = Jobs.Add(db, f.Bot, JobTypes.Reflection,
-            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, "full"), f.Conversation);
+        var job = Jobs.Add(db, f.Bot, JobKind.Reflection,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), f.Conversation);
         await db.SaveChangesAsync();
         await DrainAsync(app, job.Id, true);
         var result = await db.Reflections.AsNoTracking().SingleAsync();
@@ -90,8 +90,8 @@ public sealed class BudgetWorkflowTests
         await Assert.That(seen.Count).IsEqualTo(110);
         await Assert.That(proposal.Emotion!.Valence).IsEqualTo(.04).Within(.000001);
         await Assert.That(proposal.Emotion.EvidenceMessageIds.Length).IsEqualTo(110);
-        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobTypes.Emotion)).IsEqualTo(1);
-        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobTypes.Memory)).IsEqualTo(1);
+        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobKind.Emotion)).IsEqualTo(1);
+        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobKind.Memory)).IsEqualTo(1);
     }
 
     [Test]
@@ -102,7 +102,7 @@ public sealed class BudgetWorkflowTests
         RecordSummaries(app, []);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var job = Jobs.Add(db, f.Bot, JobTypes.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence),
+        var job = Jobs.Add(db, f.Bot, JobKind.Summary, new SummaryJob(f.Session, f.Messages[^1].Sequence),
             f.Conversation);
         await db.SaveChangesAsync();
         var workflow = scope.ServiceProvider.GetRequiredService<SummaryWorkflow>();
@@ -150,7 +150,7 @@ public sealed class BudgetWorkflowTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
         db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 950, OutputTokens = 0 });
-        var job = Jobs.Add(db, f.Bot, JobTypes.Narrative, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
+        var job = Jobs.Add(db, f.Bot, JobKind.Narrative, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
         job.Status = JobStatus.Running;
         job.LeaseId = Guid.NewGuid();
         job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);
@@ -189,8 +189,8 @@ public sealed class BudgetWorkflowTests
             app.ModelResponses.Enqueue(Response(Json.Write(new ReflectionProposal(!strong, null, [], []))));
             return Task.CompletedTask;
         };
-        var job = Jobs.Add(db, f.Bot, JobTypes.Reflection,
-            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, "full"), f.Conversation);
+        var job = Jobs.Add(db, f.Bot, JobKind.Reflection,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), f.Conversation);
         await db.SaveChangesAsync();
         await DrainAsync(app, job.Id, true);
         await Assert.That(string.Concat(strongFragments)).IsEqualTo(string.Concat(f.Messages.Select(x => x.Text)));
@@ -213,7 +213,7 @@ public sealed class BudgetWorkflowTests
         {
             var memory = new Memory
             {
-                BotId = f.Bot, SubjectId = f.User, ScopeOwnerId = f.User.ToString(),
+                BotId = f.Bot, SubjectId = f.User,
                 Text = new string((char)('b' + i), 1400), FactKey = "related-" + i, Status = MemoryStatus.Active
             };
             db.Memories.Add(memory);

@@ -14,7 +14,6 @@ public sealed class MemoryService(
 {
     public async Task<IReadOnlyList<Memory>> RetrieveAsync(MemoryAccess access, string query, CancellationToken ct)
     {
-        if (access.GroupId is not null) return [];
         await using var db = await factory.CreateDbContextAsync(ct);
         var resolved = await ResolveAccessAsync(db, access, ct);
         if (resolved is null) return [];
@@ -60,77 +59,7 @@ public sealed class MemoryService(
     {
         var user = await db.LogicalUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == access.UserId, ct);
         if (user is null) return null;
-        Guid? space = null;
-        if (access.GroupId is not null)
-            space = await (from g in db.GroupPolicies
-                join s in db.ContextSpaces on g.ContextSpaceId equals s.Id
-                where g.BotId == access.BotId && g.GroupId == access.GroupId && s.BotId == access.BotId
-                select (Guid?)s.Id).SingleOrDefaultAsync(ct);
-        return access with
-        {
-            ContextSpaceId = space, AllowUserShared = user.AllowMemory && user.AllowCrossGroupMemory,
-            AllowPersonal = user.AllowMemory
-        };
-    }
-
-    public async Task<Guid> ShareAsync(Guid subjectId, Guid memoryId, MemoryScope scope, CancellationToken ct,
-        Guid? expectedSpaceId = null)
-    {
-        if (scope != MemoryScope.UserShared) throw new ArgumentException("Group memory sharing is no longer supported.");
-        await using var db = await factory.CreateDbContextAsync(ct);
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var source = await db.Memories.SingleOrDefaultAsync(x => x.Id == memoryId && x.SubjectId == subjectId &&
-                                                                 x.SharedFromMemoryId == null &&
-                                                                 x.Status != MemoryStatus.Revoked &&
-                                                                 x.ArchivedAt == null, ct)
-                     ?? throw new KeyNotFoundException("Memory not found.");
-        var user = await db.LogicalUsers.SingleAsync(x => x.Id == subjectId, ct);
-        if (!user.AllowMemory || !user.AllowCrossGroupMemory)
-            throw new ArgumentException("Enable memory and cross-group sharing first.");
-        if (!await UserFence.CheckAsync(db, subjectId, user.RevocationEpoch, ct))
-            throw new DbUpdateConcurrencyException("Memory consent changed; reload before sharing.");
-        await db.Entry(source).ReloadAsync(ct);
-        if (source.Status == MemoryStatus.Revoked || source.ArchivedAt != null)
-            throw new ArgumentException("Only current active memories can be shared.");
-        if (source.Scope != MemoryScope.Private)
-            throw new ArgumentException("Only personal source memories can be shared.");
-        string owner;
-        if (scope == MemoryScope.UserShared)
-        {
-            owner = subjectId.ToString();
-        }
-        else if (scope == MemoryScope.SpaceShared && source.Scope == MemoryScope.GroupUser)
-        {
-            var space = await (from g in db.GroupPolicies
-                join s in db.ContextSpaces on g.ContextSpaceId equals s.Id
-                where g.BotId == source.BotId && g.GroupId == source.ScopeOwnerId && s.BotId == source.BotId
-                select (Guid?)s.Id).SingleOrDefaultAsync(ct);
-            if (space is null || expectedSpaceId != space)
-                throw new ArgumentException("The source group shared space changed; reload and select it again.");
-            owner = space.Value.ToString();
-        }
-        else
-        {
-            throw new ArgumentException("Select UserShared or the source group's SpaceShared scope.");
-        }
-
-        var existing = await db.Memories.SingleOrDefaultAsync(x => x.SharedFromMemoryId == source.Id &&
-                                                                   x.Scope == scope && x.ScopeOwnerId == owner &&
-                                                                   x.Status != MemoryStatus.Revoked, ct);
-        if (existing is not null) return existing.Id;
-        var copy = new Memory
-        {
-            BotId = source.BotId, SubjectId = subjectId, Scope = scope, ScopeOwnerId = owner,
-            SharedFromMemoryId = source.Id, FactKey = source.FactKey, Text = source.Text,
-            SourceReflectionId = source.SourceReflectionId, EvidenceJson = source.EvidenceJson
-        };
-        db.Memories.Add(copy);
-        Jobs.Add(db, source.BotId, JobTypes.Embedding, new IdPayload(copy.Id));
-        await db.Bots.Where(x => x.Id == source.BotId)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.SettingsRevision, x => x.SettingsRevision + 1), ct);
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return copy.Id;
+        return access with { AllowPersonal = user.AllowMemory };
     }
 
     private static void RevokeRows(WonderDbContext db, IEnumerable<Memory> rows, LogicalUser user)
@@ -139,8 +68,7 @@ public sealed class MemoryService(
         {
             db.Revocations.Add(new MemoryRevocation
             {
-                BotId = memory.BotId, UserId = user.Id, Scope = memory.Scope,
-                ScopeOwnerId = memory.ScopeOwnerId,
+                BotId = memory.BotId, UserId = user.Id, ResourceId = memory.Id,
                 FactKeyHash = string.IsNullOrEmpty(memory.FactKeyHash) ? Json.Hash(memory.FactKey) : memory.FactKeyHash,
                 Epoch = user.RevocationEpoch
             });
@@ -151,34 +79,13 @@ public sealed class MemoryService(
         }
     }
 
-    public async Task WithdrawAsync(Guid subjectId, Guid sharedId, CancellationToken ct)
-    {
-        await using var db = await factory.CreateDbContextAsync(ct);
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var memory = await db.Memories.SingleOrDefaultAsync(x => x.Id == sharedId && x.SubjectId == subjectId &&
-                                                                 x.SharedFromMemoryId != null &&
-                                                                 x.Status != MemoryStatus.Revoked, ct)
-                     ?? throw new KeyNotFoundException("Shared memory not found.");
-        var user = await db.LogicalUsers.SingleAsync(x => x.Id == subjectId, ct);
-        if (!await UserFence.CheckAsync(db, subjectId, user.RevocationEpoch, ct))
-            throw new DbUpdateConcurrencyException("Memory consent changed; retry withdrawal.");
-        user.RevocationEpoch++;
-        RevokeRows(db, [memory], user);
-        await db.Embeddings.Where(x => x.MemoryId == memory.Id).ExecuteDeleteAsync(ct);
-        await InvalidateSharedContextAsync(db, memory.BotId, [memory.Id], ct);
-        if (!string.IsNullOrWhiteSpace(configuration["Backups:AgeRecipient"]))
-            Jobs.Add(db, memory.BotId, JobTypes.Ledger, new IdPayload(user.Id));
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-    }
-
-    public async Task UpdateSettingsAsync(Guid subjectId, bool allowMemory, bool? allowCrossGroup,
+    public async Task UpdateSettingsAsync(Guid subjectId, bool allowMemory,
         string? preferredName, CancellationToken ct)
     {
-        await UpdateSettingsAsync(subjectId, allowMemory, allowCrossGroup, preferredName, null, null, null, null, ct);
+        await UpdateSettingsAsync(subjectId, allowMemory, preferredName, null, null, null, null, ct);
     }
 
-    public async Task UpdateSettingsAsync(Guid subjectId, bool allowMemory, bool? allowCrossGroup,
+    public async Task UpdateSettingsAsync(Guid subjectId, bool allowMemory,
         string? preferredName,
         bool? allowMerge, bool? allowUpdate, bool? allowArchive, bool? retainHistory, CancellationToken ct)
     {
@@ -190,7 +97,6 @@ public sealed class MemoryService(
         if (!await UserFence.CheckAsync(db, subjectId, user.RevocationEpoch, ct))
             throw new DbUpdateConcurrencyException("Memory policy changed; reload settings.");
         user.AllowMemory = allowMemory;
-        user.AllowCrossGroupMemory = allowMemory && (allowCrossGroup ?? user.AllowCrossGroupMemory);
         user.AllowMemoryMerge = allowMerge ?? user.AllowMemoryMerge;
         user.AllowMemoryUpdate = allowUpdate ?? user.AllowMemoryUpdate;
         user.AllowMemoryArchive = allowArchive ?? user.AllowMemoryArchive;
@@ -203,7 +109,7 @@ public sealed class MemoryService(
                 .SetProperty(x => x.Reason, ""), ct);
         if (!user.RetainMemoryHistory)
         {
-            var history = await db.Memories.Where(x => x.SubjectId == subjectId && x.SharedFromMemoryId == null &&
+            var history = await db.Memories.Where(x => x.SubjectId == subjectId &&
                                                        x.ArchivedAt != null && x.Status != MemoryStatus.Revoked)
                 .ToListAsync(ct);
             foreach (var row in history)
@@ -217,27 +123,11 @@ public sealed class MemoryService(
             await MemoryMaintenanceWorkflow.ScrubAuditAsync(db, subjectId, history.Select(x => x.Id).ToArray(), ct);
         }
 
-        if (!user.AllowCrossGroupMemory)
-        {
-            var copies = await db.Memories.Where(x => x.SubjectId == subjectId && x.SharedFromMemoryId != null &&
-                                                      x.Status != MemoryStatus.Revoked).ToListAsync(ct);
-            RevokeRows(db, copies, user);
-            var ids = copies.Select(x => x.Id).ToArray();
-            await db.Embeddings.Where(x => ids.Contains(x.MemoryId)).ExecuteDeleteAsync(ct);
-            foreach (var bot in copies.Select(x => x.BotId).Distinct())
-            {
-                await InvalidateSharedContextAsync(db, bot,
-                    copies.Where(x => x.BotId == bot).Select(x => x.Id).ToArray(), ct);
-                if (!string.IsNullOrWhiteSpace(configuration["Backups:AgeRecipient"]))
-                    Jobs.Add(db, bot, JobTypes.Ledger, new IdPayload(user.Id));
-            }
-        }
-
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
     }
 
-    public static async Task InvalidateSharedContextAsync(WonderDbContext db, Guid botId,
+    public static async Task InvalidateMemoryContextAsync(WonderDbContext db, Guid botId,
         IReadOnlyCollection<Guid> memoryIds, CancellationToken ct)
     {
         if (memoryIds.Count == 0) return;
@@ -250,7 +140,7 @@ public sealed class MemoryService(
         await NoteSources.InvalidateAsync(db, invalidNotes, false, ct);
         await db.Bots.Where(x => x.Id == botId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.SettingsRevision, x => x.SettingsRevision + 1), ct);
-        var candidates = await db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.Role == "assistant" &&
+        var candidates = await db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.Role == MessageRole.Assistant &&
                                                                      !x.ContextInvalidated &&
                                                                      x.ContextSnapshotJson != null).Select(x => new
             { x.Id, x.SessionId, x.ExternalMessageId, x.ContextSnapshotJson }).ToListAsync(ct);
@@ -297,7 +187,7 @@ public sealed class MemoryService(
         var selected = await db.Memories.SingleOrDefaultAsync(x => x.Id == memoryId && x.SubjectId == userId &&
                                                                    x.Status != MemoryStatus.Revoked, ct) ??
                        throw new KeyNotFoundException("Memory not found.");
-        var rootId = selected.SharedFromMemoryId ?? selected.Id;
+        var rootId = selected.Id;
         var memory = await db.Memories.SingleAsync(x => x.Id == rootId && x.SubjectId == userId, ct);
         if (!string.IsNullOrWhiteSpace(replacement))
         {
@@ -310,9 +200,8 @@ public sealed class MemoryService(
                     nameof(replacement));
         }
 
-        // User deletion/correction covers archived versions and all their shares.
-        var roots = await db.Memories.Where(x => x.SubjectId == userId && x.BotId == memory.BotId &&
-                                                 x.SharedFromMemoryId == null).ToListAsync(ct);
+        // User deletion/correction covers the complete private version family.
+        var roots = await db.Memories.Where(x => x.SubjectId == userId && x.BotId == memory.BotId).ToListAsync(ct);
         var family = new HashSet<Guid> { rootId };
         bool expanded;
         do
@@ -327,9 +216,7 @@ public sealed class MemoryService(
         } while (expanded);
 
         var related = await db.Memories.Where(x => x.SubjectId == userId && x.BotId == memory.BotId &&
-                                                   (family.Contains(x.Id) || (x.SharedFromMemoryId != null &&
-                                                                              family.Contains(
-                                                                                  x.SharedFromMemoryId.Value))) &&
+                                                   family.Contains(x.Id) &&
                                                    x.Status != MemoryStatus.Revoked).ToListAsync(ct);
         var user = await db.LogicalUsers.SingleAsync(x => x.Id == userId, ct);
         if (!await UserFence.CheckAsync(db, userId, user.RevocationEpoch, ct))
@@ -339,25 +226,23 @@ public sealed class MemoryService(
         var relatedIds = related.Select(x => x.Id).ToArray();
         RevokeRows(db, related, user);
         await db.Embeddings.Where(x => relatedIds.Contains(x.MemoryId)).ExecuteDeleteAsync(ct);
-        await InvalidateSharedContextAsync(db, memory.BotId, relatedIds, ct);
+        await InvalidateMemoryContextAsync(db, memory.BotId, relatedIds, ct);
         await ClearDerivedAsync(db, memory.BotId, userId, ct);
         if (!string.IsNullOrWhiteSpace(configuration["Backups:AgeRecipient"]))
-            Jobs.Add(db, memory.BotId, JobTypes.Ledger, new IdPayload(userId));
+            Jobs.Add(db, memory.BotId, JobKind.Ledger, new IdPayload(userId));
         if (replacement is { Length: > 0 })
         {
             var corrected = new Memory
             {
                 BotId = memory.BotId,
                 SubjectId = userId,
-                Scope = memory.Scope,
-                ScopeOwnerId = memory.ScopeOwnerId,
                 FactKey = factKey,
                 SupersedesMemoryId = memory.Id,
                 Text = replacement,
                 SourceReflectionId = Guid.Empty
             };
             db.Memories.Add(corrected);
-            Jobs.Add(db, memory.BotId, JobTypes.Embedding, new IdPayload(corrected.Id));
+            Jobs.Add(db, memory.BotId, JobKind.Embedding, new IdPayload(corrected.Id));
         }
 
         await db.SaveChangesAsync(ct);
@@ -369,7 +254,7 @@ public sealed class MemoryService(
         await db.AgentReflectionRequests.Where(x => x.BotId == botId && x.UserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Reason, ""), ct);
         await db.ReflectionGenerations.Where(x => x.BotId == botId && x.SubjectId == userId)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, "Cancelled").SetProperty(x => x.CancellationReason, "PrivacyRevocation"), ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, ReflectionGenerationStatus.Cancelled).SetProperty(x => x.CancellationReason, ReflectionCancellationReason.PrivacyRevocation), ct);
         await db.MemoryCandidates.Where(x => x.BotId == botId && x.SubjectId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, "").SetProperty(x => x.FactKey, "")
                 .SetProperty(x => x.EvidenceJson, "[]").SetProperty(x => x.Reason, "")
@@ -383,9 +268,9 @@ public sealed class MemoryService(
         // New sessions can depend on older messages without the original author posting again.
         var originalReplies = await db.Messages.Where(x => x.BotId == botId && x.SessionId != null &&
                                                            sessionIds.Contains(x.SessionId.Value) &&
-                                                           x.Role == "assistant").Select(x => x.Id).ToListAsync(ct);
+                                                           x.Role == MessageRole.Assistant).Select(x => x.Id).ToListAsync(ct);
         var roots = messageIds.Concat(originalReplies).ToHashSet();
-        var cached = await db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.Role == "assistant" &&
+        var cached = await db.Messages.AsNoTracking().Where(x => x.BotId == botId && x.Role == MessageRole.Assistant &&
                                                                  !x.ContextInvalidated && x.ContextSnapshotJson != null)
             .Select(x => new { x.Id, x.ExternalMessageId, x.ContextSnapshotJson }).ToListAsync(ct);
         var dependent = cached.Where(x =>
@@ -422,7 +307,7 @@ public sealed class MemoryService(
         // Drafts can carry user-derived text. Reset them when their subject is revoked.
         await db.Outbox.Where(x => x.BotId == botId && x.ProgressJson != null &&
                                    (x.ProgressJson.Contains(subjectKey) || x.Payload.Contains(subjectKey) ||
-                                    x.Type == JobTypes.MemoryMaintenance))
+                                    x.Type == JobKind.MemoryMaintenance))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.ProgressJson, (string?)null), ct);
         await db.Summaries
             .Where(x => x.BotId == botId && (sessionIds.Contains(x.SessionId) || x.SubjectIdsJson.Contains(subjectKey)))
@@ -433,7 +318,7 @@ public sealed class MemoryService(
             .SetProperty(x => x.AllowReflection, false).SetProperty(x => x.ContextInvalidated, true)
             .SetProperty(x => x.Text, "[user content removed]").SetProperty(x => x.SegmentsJson, "[]"), ct);
         await db.Messages.Where(x =>
-                x.SessionId != null && sessionIds.Contains(x.SessionId.Value) && x.Role == "assistant")
+                x.SessionId != null && sessionIds.Contains(x.SessionId.Value) && x.Role == MessageRole.Assistant)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(x => x.Text, "[derived content removed]").SetProperty(x => x.SegmentsJson, "[]")
                     .SetProperty(x => x.ContextSnapshotJson, (string?)null), ct);
@@ -452,7 +337,7 @@ public sealed class MemoryService(
 
     public async Task ReplayLedgerAsync(string file, CancellationToken ct)
     {
-        var ledger = Json.Read<MemoryRevocation[]>(await File.ReadAllTextAsync(file, ct));
+        var ledger = DeletionLedger.Read(await File.ReadAllTextAsync(file, ct));
         foreach (var item in ledger)
         {
             await using var db = await factory.CreateDbContextAsync(ct);
@@ -461,9 +346,9 @@ public sealed class MemoryService(
             if (user is null || !await db.Bots.AnyAsync(x => x.Id == item.BotId, ct)) continue;
             if (!await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
                 throw new DbUpdateConcurrencyException("User changed during ledger replay; retry.");
-            if (item.ResourceKind == "Note")
+            if (item.ResourceKind == DeletionResourceKind.Note)
             {
-                if (item.RecordVersion != 2 || item.ResourceId is null)
+                if (item.ResourceId is null)
                     throw new InvalidOperationException("Unsupported Notes deletion ledger target.");
                 user.NotesEpoch = Math.Max(user.NotesEpoch, item.Epoch);
                 if (!await db.Revocations.AnyAsync(x => x.Id == item.Id, ct)) db.Revocations.Add(item);
@@ -472,13 +357,11 @@ public sealed class MemoryService(
                 await tx.CommitAsync(ct);
                 continue;
             }
-            if (item.ResourceKind != "Memory" || item.RecordVersion != 1)
-                throw new InvalidOperationException("Unsupported deletion ledger version.");
             user.RevocationEpoch = Math.Max(user.RevocationEpoch, item.Epoch);
             if (!await db.Revocations.AnyAsync(x => x.Id == item.Id, ct)) db.Revocations.Add(item);
             var candidates = await db.Memories.Where(x =>
-                x.BotId == item.BotId && x.SubjectId == item.UserId && x.Scope == item.Scope &&
-                x.ScopeOwnerId == item.ScopeOwnerId && x.CreatedAt <= item.CreatedAt &&
+                x.BotId == item.BotId && x.SubjectId == item.UserId && item.ResourceKind == DeletionResourceKind.Memory &&
+                (item.ResourceId == null || x.Id == item.ResourceId) && x.CreatedAt <= item.CreatedAt &&
                 x.Status != MemoryStatus.Revoked).ToListAsync(ct);
             var revoked = candidates.Where(x =>
                     (string.IsNullOrEmpty(x.FactKeyHash) ? Json.Hash(x.FactKey) : x.FactKeyHash) == item.FactKeyHash)
@@ -493,10 +376,7 @@ public sealed class MemoryService(
             }
 
             var revokedIds = revoked.Select(x => x.Id).ToArray();
-            var copies = await db.Memories
-                .Where(x => x.SharedFromMemoryId != null && revokedIds.Contains(x.SharedFromMemoryId.Value))
-                .Select(x => x.Id).ToListAsync(ct);
-            await InvalidateSharedContextAsync(db, item.BotId, revokedIds.Concat(copies).ToArray(), ct);
+            await InvalidateMemoryContextAsync(db, item.BotId, revokedIds, ct);
             await ClearDerivedAsync(db, item.BotId, item.UserId, ct);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);

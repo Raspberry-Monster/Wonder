@@ -16,7 +16,7 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
         if (id is null) return Conflict(new { error = "Link QQ identity first." });
         return Ok(await Db.LogicalUsers.AsNoTracking().Where(x => x.Id == id).Select(x => new
             {
-                x.AllowMemory, x.AllowCrossGroupMemory, x.PreferredName,
+                x.AllowMemory, x.PreferredName,
                 x.AllowMemoryMerge, x.AllowMemoryUpdate, x.AllowMemoryArchive, x.RetainMemoryHistory
             })
             .SingleAsync(ct));
@@ -27,7 +27,7 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     {
         var id = await FindLogicalUserIdAsync(ct);
         if (id is null) return Conflict();
-        await service.UpdateSettingsAsync(id.Value, input.AllowMemory, input.AllowCrossGroupMemory, input.PreferredName,
+        await service.UpdateSettingsAsync(id.Value, input.AllowMemory, input.PreferredName,
             input.AllowMemoryMerge, input.AllowMemoryUpdate, input.AllowMemoryArchive, input.RetainMemoryHistory, ct);
         return NoContent();
     }
@@ -38,34 +38,15 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
         var id = await FindLogicalUserIdAsync(ct);
         if (id is null) return Conflict();
         var roots = await Db.Memories.AsNoTracking().Where(x =>
-                x.SubjectId == id && x.SharedFromMemoryId == null && x.Status != MemoryStatus.Revoked &&
+                x.SubjectId == id && x.Status != MemoryStatus.Revoked &&
                 (x.ArchivedAt == null || (includeArchived && x.Text != "")))
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip(Math.Clamp(skip ?? 0, 0, 100000)).Take(100)
             .Select(x => new
             {
-                x.Id, x.BotId, x.Scope, x.ScopeOwnerId, x.FactKey, x.Text, x.Status, x.CreatedAt,
+                x.Id, x.BotId, x.FactKey, x.Text, x.Status, x.CreatedAt,
                 x.ArchivedAt, x.SupersedesMemoryId, x.LastConfirmedAt, x.Revision
             }).ToListAsync(ct);
-        var ids = roots.Select(x => x.Id).ToArray();
-        var shares = await Db.Memories.AsNoTracking().Where(x => x.SubjectId == id && x.SharedFromMemoryId != null &&
-                                                                 ids.Contains(x.SharedFromMemoryId.Value) &&
-                                                                 x.Status != MemoryStatus.Revoked)
-            .Select(x => new { x.Id, x.SharedFromMemoryId, x.Scope, x.ScopeOwnerId }).ToListAsync(ct);
-        var bots = roots.Select(x => x.BotId).Distinct().ToArray();
-        var policies = await Db.GroupPolicies.AsNoTracking().Where(x => bots.Contains(x.BotId))
-            .Select(x => new { x.BotId, x.GroupId, x.ContextSpaceId }).ToListAsync(ct);
-        return Ok(roots.Select(x => new
-        {
-            x.Id, x.BotId, x.Scope, x.ScopeOwnerId, x.FactKey, x.Text, x.Status, x.CreatedAt,
-            x.ArchivedAt, x.SupersedesMemoryId, x.LastConfirmedAt, x.Revision,
-            sharing = shares.Where(s => s.SharedFromMemoryId == x.Id).Select(s => new
-            {
-                s.Id, s.Scope, s.ScopeOwnerId, available = s.Scope == MemoryScope.UserShared ||
-                                                           policies.Any(g =>
-                                                               g.BotId == x.BotId && g.GroupId == x.ScopeOwnerId &&
-                                                               g.ContextSpaceId?.ToString() == s.ScopeOwnerId)
-            })
-        }));
+        return Ok(roots);
     }
 
     [HttpGet("memories/{id:guid}")]
@@ -76,36 +57,11 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
             .Where(x => x.Id == id && x.SubjectId == subject && x.Status != MemoryStatus.Revoked)
             .Select(x => new
             {
-                x.Id, x.BotId, x.Scope, x.ScopeOwnerId, x.Text, x.FactKey, x.Status,
+                x.Id, x.BotId, x.Text, x.FactKey, x.Status,
                 x.ArchivedAt, x.SupersedesMemoryId, x.LastConfirmedAt, x.Revision
             })
             .SingleOrDefaultAsync(ct);
         return memory is null ? NotFound() : Ok(memory);
-    }
-
-    [HttpGet("memories/{id:guid}/sharing-options")]
-    public async Task<IActionResult> SharingOptions(Guid id, CancellationToken ct)
-    {
-        var subject = await FindLogicalUserIdAsync(ct);
-        var memory = await Db.Memories.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.SubjectId == subject &&
-            x.SharedFromMemoryId == null && x.Status != MemoryStatus.Revoked && x.ArchivedAt == null, ct);
-        if (memory is null) return NotFound();
-        var space = memory.Scope == MemoryScope.GroupUser
-            ? await (from g in Db.GroupPolicies
-                join s in Db.ContextSpaces on g.ContextSpaceId equals s.Id
-                where g.BotId == memory.BotId && g.GroupId == memory.ScopeOwnerId && s.BotId == memory.BotId
-                select new { s.Id, s.Name }).SingleOrDefaultAsync(ct)
-            : null;
-        return Ok(new { space });
-    }
-
-    [HttpPost("memories/{id:guid}/sharing")]
-    public async Task<IActionResult> Share(Guid id, ShareMemoryInput input, CancellationToken ct)
-    {
-        var subject = await FindLogicalUserIdAsync(ct);
-        if (subject is null) return NotFound();
-        var sharedId = await service.ShareAsync(subject.Value, id, input.Scope, ct, input.ContextSpaceId);
-        return Ok(new { id = sharedId });
     }
 
     [HttpGet("memory-maintenance")]
@@ -118,21 +74,9 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip(Math.Clamp(skip ?? 0, 0, 100000)).Take(100)
             .Select(x => new
             {
-                x.Id, x.BotId, x.Scope, x.ScopeOwnerId, x.Text, x.Status, x.Action, x.Reason,
+                x.Id, x.BotId, x.Text, x.Status, x.Action, x.Reason,
                 x.TargetMemoryId, x.ResultMemoryId, x.CreatedAt, x.CompletedAt
             }).ToListAsync(ct));
-    }
-
-    [HttpDelete("memories/{id:guid}/sharing/{sharedId:guid}")]
-    public async Task<IActionResult> Withdraw(Guid id, Guid sharedId, CancellationToken ct)
-    {
-        var subject = await FindLogicalUserIdAsync(ct);
-        if (subject is null || !await Db.Memories.AnyAsync(x => x.Id == sharedId && x.SharedFromMemoryId == id &&
-                                                                x.SubjectId == subject &&
-                                                                x.Status != MemoryStatus.Revoked, ct))
-            return NotFound();
-        await service.WithdrawAsync(subject.Value, sharedId, ct);
-        return NoContent();
     }
 
     [HttpDelete("memories/{id:guid}")]

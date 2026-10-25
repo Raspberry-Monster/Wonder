@@ -6,6 +6,6 @@ public sealed class DeliveryResolutionValidator : AbstractValidator<DeliveryReso
 {
     public DeliveryResolutionValidator()
     {
-        RuleFor(x => x.Action).Must(x => x is "confirm-sent" or "retry");
+        RuleFor(x => x.Action).IsInEnum();
     }
 }

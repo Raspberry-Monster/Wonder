@@ -24,7 +24,7 @@ public sealed class MemoryMaintenanceTests
         await Assert.That(await db.Memories.CountAsync()).IsEqualTo(0);
         await Assert.That((await db.MemoryCandidates.SingleAsync()).Status).IsEqualTo(MemoryMaintenanceStatus.Pending);
         await Assert.That(await scope.ServiceProvider.GetRequiredService<MemoryService>()
-            .RetrieveAsync(new MemoryAccess(f.Bot, f.User, null), "住哪里", default)).IsEmpty();
+            .RetrieveAsync(new MemoryAccess(f.Bot, f.User), "住哪里", default)).IsEmpty();
         app.ModelResponses.Enqueue(Vector());
         await RunAsync(app, f.Job);
         await RunAsync(app, f.Job); // Retrying a committed job cannot duplicate either evidence or jobs.
@@ -34,7 +34,7 @@ public sealed class MemoryMaintenanceTests
         await Assert.That(memory.Status).IsEqualTo(MemoryStatus.Active);
         await Assert.That(await db.Embeddings.CountAsync()).IsEqualTo(1);
         await Assert.That(app.ModelRequests.Count).IsEqualTo(1);
-        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobTypes.Embedding)).IsEqualTo(0);
+        await Assert.That(await db.Outbox.CountAsync(x => x.Type == JobKind.Embedding)).IsEqualTo(0);
     }
 
     [Test]
@@ -43,7 +43,7 @@ public sealed class MemoryMaintenanceTests
     [Arguments(MemoryMaintenanceAction.Update)]
     [Arguments(MemoryMaintenanceAction.Archive)]
     [Arguments(MemoryMaintenanceAction.Defer)]
-    public async Task SemanticDecisionsMaintainVersionsEvidenceAndSharing(MemoryMaintenanceAction action)
+    public async Task SemanticDecisionsMaintainPrivateVersionsEvidenceAndDerivedContext(MemoryMaintenanceAction action)
     {
         await using var database = await TestPostgres.CreateAsync();
         using var app = database.CreateApp();
@@ -51,19 +51,13 @@ public sealed class MemoryMaintenanceTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        // A legacy copy from a backup; production no longer allows creating new shares.
-        var legacy = new Memory { BotId = f.Bot, SubjectId = f.User, Scope = MemoryScope.UserShared,
-            ScopeOwnerId = f.User.ToString(), SharedFromMemoryId = f.Old!.Value, Text = "旧共享副本", Status = MemoryStatus.Active };
-        db.Memories.Add(legacy);
-        await db.SaveChangesAsync();
-        var share = legacy.Id;
         // A reply using the old fact must stop contributing to future context after a replacement.
         db.Messages.Add(new ChatMessage
         {
             BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session,
-            ExternalMessageId = "reply", Role = "assistant", Text = "你住杭州。",
+            ExternalMessageId = "reply", Role = MessageRole.Assistant, Text = "你住杭州。",
             ContextSnapshotJson =
-                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, null, 0, 0, [f.Old.Value], "model"))
+                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, null, 0, 0, [f.Old!.Value], "model"))
         });
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Vector());
@@ -78,25 +72,22 @@ public sealed class MemoryMaintenanceTests
         if (action is MemoryMaintenanceAction.Merge or MemoryMaintenanceAction.Defer)
         {
             await Assert.That(old.ArchivedAt).IsNull();
-            await Assert.That(await db.Memories.CountAsync(x => x.SharedFromMemoryId == null)).IsEqualTo(1);
+            await Assert.That(await db.Memories.CountAsync()).IsEqualTo(1);
             if (action == MemoryMaintenanceAction.Merge)
                 await Assert.That(Json.Read<Guid[]>(old.EvidenceJson).Contains(f.Evidence)).IsTrue();
         }
         else
         {
             await Assert.That(old.ArchivedAt).IsNotNull();
-            await Assert.That((await db.Memories.SingleAsync(x => x.Id == share)).Status)
-                .IsEqualTo(MemoryStatus.Revoked);
             await Assert.That((await db.Messages.SingleAsync(x => x.ExternalMessageId == "reply")).ContextInvalidated)
                 .IsTrue();
             await Assert.That(await db.Embeddings.AnyAsync(x => x.MemoryId == old.Id)).IsFalse();
-            await Assert.That(await MemoryQueries.Authorized(db, new MemoryAccess(f.Bot, f.User, null))
+            await Assert.That(await MemoryQueries.Authorized(db, new MemoryAccess(f.Bot, f.User))
                 .AnyAsync(x => x.Id == old.Id)).IsFalse();
             if (action != MemoryMaintenanceAction.Archive)
             {
-                var current = await db.Memories.SingleAsync(x => x.SharedFromMemoryId == null && x.ArchivedAt == null);
+                var current = await db.Memories.SingleAsync(x => x.ArchivedAt == null);
                 await Assert.That(current.SupersedesMemoryId).IsEqualTo(old.Id);
-                await Assert.That(await db.Memories.AnyAsync(x => x.SharedFromMemoryId == current.Id)).IsFalse();
                 await Assert.That(await db.Embeddings.AnyAsync(x => x.MemoryId == current.Id)).IsTrue();
             }
         }
@@ -159,13 +150,14 @@ public sealed class MemoryMaintenanceTests
         db.LogicalUsers.Add(other);
         var foreign = new Memory
         {
-            BotId = f.Bot, SubjectId = other.Id, ScopeOwnerId = other.Id.ToString(),
-            Text = "FOREIGN_AUTHOR_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active
+            BotId = f.Bot, SubjectId = other.Id, Text = "FOREIGN_AUTHOR_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active
         };
+        var foreignBot = new BotInstance { OwnerId = (await db.Bots.SingleAsync(x => x.Id == f.Bot)).OwnerId };
+        db.Bots.Add(foreignBot);
         var group = new Memory
         {
-            BotId = f.Bot, SubjectId = f.User, Scope = MemoryScope.GroupUser,
-            ScopeOwnerId = "other-group", Text = "FOREIGN_SCOPE_SECRET", FactKey = "new-home-key",
+            BotId = foreignBot.Id, SubjectId = f.User,
+            Text = "FOREIGN_SCOPE_SECRET", FactKey = "new-home-key",
             Status = MemoryStatus.Active
         };
         db.Memories.AddRange(foreign, group);
@@ -226,7 +218,7 @@ public sealed class MemoryMaintenanceTests
         await Assert.That(old.EvidenceJson).IsEqualTo("[]");
         await Assert.That((await db.Memories.SingleAsync(x => x.ArchivedAt == null)).Text).IsEqualTo("我现在住上海。");
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        await service.UpdateSettingsAsync(f.User, true, null, null, null, null, null, true, default);
+        await service.UpdateSettingsAsync(f.User, true, null, null, null, null, true, default);
         db.ChangeTracker.Clear();
         await Assert.That((await db.Memories.SingleAsync(x => x.Id == f.Old)).Text).IsEqualTo("");
         var latest = await db.Memories.SingleAsync(x => x.ArchivedAt == null);
@@ -282,7 +274,7 @@ public sealed class MemoryMaintenanceTests
             if (!body.Contains("messages")) return;
             using var scope = app.Services.CreateScope();
             var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-            if (policyChange) await service.UpdateSettingsAsync(f.User, false, false, null, default);
+            if (policyChange) await service.UpdateSettingsAsync(f.User, false, null, default);
             else await service.RevokeAsync(f.User, f.Old!.Value, null, default);
         };
         await RunAsync(app, f.Job);
@@ -307,8 +299,7 @@ public sealed class MemoryMaintenanceTests
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
             db.Memories.Add(new Memory
             {
-                BotId = f.Bot, SubjectId = f.User, ScopeOwnerId = f.User.ToString(),
-                Text = "我现在住上海。", FactKey = "concurrently-added", Status = MemoryStatus.Active
+                BotId = f.Bot, SubjectId = f.User, Text = "我现在住上海。", FactKey = "concurrently-added", Status = MemoryStatus.Active
             });
             await db.SaveChangesAsync();
         };
@@ -353,7 +344,7 @@ public sealed class MemoryMaintenanceTests
         await Assert.That(app.ModelRequests).IsEmpty();
         await Assert.That((await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == f.Job)).Status)
             .IsEqualTo(JobStatus.Pending);
-        var backfill = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Embedding);
+        var backfill = await db.Outbox.SingleAsync(x => x.Type == JobKind.Embedding);
         app.ModelResponses.Enqueue(Vector());
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().EmbedAsync(backfill.Id, default);
         app.ModelResponses.Enqueue(Vector());
@@ -456,7 +447,7 @@ public sealed class MemoryMaintenanceTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var owner = new ApplicationUser { Id = Guid.NewGuid() };
         var bot = new BotInstance { OwnerId = owner.Id };
-        var user = new LogicalUser { AllowMemory = true, AllowCrossGroupMemory = true };
+        var user = new LogicalUser { AllowMemory = true };
         var conversation = new Conversation { BotId = bot.Id };
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conversation.Id };
         var message = new ChatMessage
@@ -483,8 +474,7 @@ public sealed class MemoryMaintenanceTests
         {
             memory = new Memory
             {
-                BotId = bot.Id, SubjectId = user.Id, ScopeOwnerId = user.Id.ToString(),
-                FactKey = "old-home-key", Text = "我住杭州。", Status = MemoryStatus.Active,
+                BotId = bot.Id, SubjectId = user.Id, FactKey = "old-home-key", Text = "我住杭州。", Status = MemoryStatus.Active,
                 CreatedAt = DateTimeOffset.UtcNow.AddDays(-2)
             };
             var profile = new EmbeddingProfile
@@ -504,11 +494,11 @@ public sealed class MemoryMaintenanceTests
             Payload = Json.Write(new ReflectionProposal(false, null, [], [proposal, proposal]))
         };
         db.Reflections.Add(reflection);
-        var job = Jobs.Add(db, bot.Id, JobTypes.Memory, new IdPayload(reflection.Id));
+        var job = Jobs.Add(db, bot.Id, JobKind.Memory, new IdPayload(reflection.Id));
         await db.SaveChangesAsync();
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, default);
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, default);
-        var maintenance = await db.Outbox.SingleAsync(x => x.Type == JobTypes.MemoryMaintenance);
+        var maintenance = await db.Outbox.SingleAsync(x => x.Type == JobKind.MemoryMaintenance);
         return new Fixture(bot.Id, user.Id, conversation.Id, session.Id, message.Id, memory?.Id, maintenance.Id);
     }
 

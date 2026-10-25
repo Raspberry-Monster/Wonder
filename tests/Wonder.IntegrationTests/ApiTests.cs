@@ -95,7 +95,7 @@ public sealed class ApiTests
         await Assert.That(available.Length > 0).IsTrue();
         var selected = available[0].Id;
         var route = new ModelRouteInput(TaskKind.Chat, "https://model.example/v1", selected, "test-key");
-        await Assert.That((await client.PutAsJsonAsync(url, new[] { route })).StatusCode)
+        await Assert.That((await client.PutAsJsonAsync(url, new[] { route }, Json.Options)).StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -105,9 +105,9 @@ public sealed class ApiTests
         await Assert.That(counter.Resolve(profile)).IsEqualTo(selected);
         await Assert.That(counter.Text(profile, "Hello world") > 0).IsTrue();
         await Assert
-            .That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } })).StatusCode)
+            .That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } }, Json.Options)).StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
-        var invalid = await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = "not-installed" } });
+        var invalid = await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = "not-installed" } }, Json.Options);
         await Assert.That(invalid.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         await Assert.That((await invalid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors")
             .GetProperty("x[0].TokenizerId").GetArrayLength() > 0).IsTrue();
@@ -133,7 +133,6 @@ public sealed class ApiTests
         var memory = new Memory
         {
             BotId = bot.Id, SubjectId = subject.Id, FactKey = "color", Text = "喜欢蓝色",
-            ScopeOwnerId = subject.Id.ToString()
         };
         db.Memories.Add(memory);
         await db.SaveChangesAsync();
@@ -170,7 +169,7 @@ public sealed class ApiTests
         await ingestor.IngestAsync(binding.Id, input, default);
         await ingestor.IngestAsync(binding.Id, input, default);
         await Assert.That(await db.Messages.ToListAsync()).HasSingleItem();
-        await Assert.That(await db.Outbox.Where(x => x.Type == JobTypes.Chat).ToListAsync()).HasSingleItem();
+        await Assert.That(await db.Outbox.Where(x => x.Type == JobKind.Chat).ToListAsync()).HasSingleItem();
         await Assert.That(await db.Sessions.ToListAsync()).HasSingleItem();
     }
 
@@ -197,7 +196,7 @@ public sealed class ApiTests
         db.Messages.Add(msg);
         var memory = new Memory
         {
-            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色", ScopeOwnerId = user.Id.ToString()
+            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色"
         };
         db.Memories.Add(memory);
         var reflection = new ReflectionResult
@@ -211,7 +210,7 @@ public sealed class ApiTests
                 [new MemoryCandidate("color", "喜欢蓝色", true, false, [msg.Id])]))
         };
         db.Reflections.Add(reflection);
-        var job = Jobs.Add(db, bot.Id, JobTypes.Memory, new IdPayload(reflection.Id));
+        var job = Jobs.Add(db, bot.Id, JobKind.Memory, new IdPayload(reflection.Id));
         await db.SaveChangesAsync();
         await scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(user.Id, memory.Id, null, default);
         await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, default);
@@ -260,9 +259,9 @@ public sealed class ApiTests
         await ingestor.IngestAsync(binding.Id,
             new NormalizedEvent("123", "2", "456", "456", ConversationKind.Private,
                 [new MessageSegment(SegmentKind.Text, "第二条")], DateTimeOffset.UtcNow), default);
-        var jobs = await db.Outbox.Where(x => x.Type == JobTypes.Chat).OrderBy(x => x.Sequence).ToListAsync();
+        var jobs = await db.Outbox.Where(x => x.Type == JobKind.Chat).OrderBy(x => x.Sequence).ToListAsync();
         await scope.ServiceProvider.GetRequiredService<ChatWorkflow>().RunAsync(jobs[0].Id, default);
-        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobTypes.Outgoing);
+        var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobKind.Outgoing);
         await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(outgoing.Id, default);
         await scope.ServiceProvider.GetRequiredService<ChatWorkflow>().RunAsync(jobs[1].Id, default);
         await Assert.That(app.ModelRequests.Count).IsEqualTo(2);
@@ -271,8 +270,8 @@ public sealed class ApiTests
             x.GetProperty("role").GetString() == "assistant" &&
             x.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。", StringComparison.Ordinal))).IsTrue();
         await Assert.That(app.Sender.Sent).HasSingleItem();
-        await Assert.That(await db.Messages.CountAsync(x => x.Role == "assistant")).IsEqualTo(2);
-        await Assert.That((await db.Messages.FirstAsync(x => x.Role == "assistant")).ContextSnapshotJson).IsNotNull();
+        await Assert.That(await db.Messages.CountAsync(x => x.Role == MessageRole.Assistant)).IsEqualTo(2);
+        await Assert.That((await db.Messages.FirstAsync(x => x.Role == MessageRole.Assistant)).ContextSnapshotJson).IsNotNull();
         // Inbox completion means an already completed chat job cannot generate another reply.
         await scope.ServiceProvider.GetRequiredService<ChatWorkflow>().RunAsync(jobs[0].Id, default);
         await Assert.That(app.ModelRequests.Count).IsEqualTo(2);
@@ -295,7 +294,7 @@ public sealed class ApiTests
         var batch = new OutgoingMessageBatch { BotId = bot.Id, ConversationId = conv.Id, SessionId = session.Id };
         db.Batches.Add(batch);
         db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Text = "hello" });
-        var job = Jobs.Add(db, bot.Id, JobTypes.Outgoing, new IdPayload(batch.Id), conv.Id);
+        var job = Jobs.Add(db, bot.Id, JobKind.Outgoing, new IdPayload(batch.Id), conv.Id);
         await db.SaveChangesAsync();
         app.Sender.Unknown = true;
         await Assert.That(() => scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync(job.Id, default))
@@ -336,8 +335,7 @@ public sealed class ApiTests
         db.LogicalUsers.Add(user);
         var memory = new Memory
         {
-            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色", ScopeOwnerId = user.Id.ToString(),
-            CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
+            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色", CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
         };
         db.Memories.Add(memory);
         await db.SaveChangesAsync();

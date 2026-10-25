@@ -101,6 +101,48 @@ public sealed class BackupService(IDbContextFactory<WonderDbContext> factory, IC
         }
     }
 
+    public async Task<object> ExportRetiredContextAsync(CancellationToken ct)
+    {
+        var recipient = configuration["Backups:AgeRecipient"];
+        if (string.IsNullOrWhiteSpace(recipient) || !recipient.StartsWith("age1", StringComparison.Ordinal))
+            throw new ArgumentException("Configure an age recipient first.");
+        var directory = Path.GetFullPath(configuration["Backups:RetiredContextPath"] ?? "data/retired-context");
+        Directory.CreateDirectory(directory);
+        var file = Path.Combine(directory, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".context.json.age");
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var rows = db.Database.SqlQueryRaw<RetiredArchiveRow>("""
+            SELECT source_table AS "SourceTable", source_id AS "SourceId", row_json::text AS "RowJson", archived_at AS "ArchivedAt"
+            FROM retired_context.entries ORDER BY source_table, source_id
+            """).AsAsyncEnumerable();
+        using var age = StartAge(recipient, file);
+        var stderr = age.StandardError.ReadToEndAsync(ct);
+        try
+        {
+            await JsonSerializer.SerializeAsync(age.StandardInput.BaseStream, rows, Json.Options, ct);
+            age.StandardInput.Close();
+            await age.WaitForExitAsync(ct);
+            await stderr;
+            if (age.ExitCode != 0) throw new IOException("Retired context archive export failed.");
+            await using var encrypted = File.OpenRead(file);
+            var sha256 = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(encrypted, ct));
+            return new { file = Path.GetFileName(file), sha256, createdAt = DateTimeOffset.UtcNow };
+        }
+        catch
+        {
+            if (!age.HasExited) age.Kill(true);
+            if (File.Exists(file)) File.Delete(file);
+            throw;
+        }
+    }
+
+    public sealed class RetiredArchiveRow
+    {
+        public string SourceTable { get; set; } = "";
+        public string SourceId { get; set; } = "";
+        public string RowJson { get; set; } = "";
+        public DateTimeOffset ArchivedAt { get; set; }
+    }
+
     private static Process StartAge(string recipient, string output)
     {
         var info = new ProcessStartInfo("age")

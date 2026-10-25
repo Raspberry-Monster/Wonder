@@ -8,8 +8,7 @@ public sealed class RelationshipStateConfiguration : IEntityTypeConfiguration<Re
 {
     public void Configure(EntityTypeBuilder<RelationshipState> builder)
     {
-        builder.HasIndex(x => new { x.BotId, x.UserId, x.GroupId }).IsUnique()
-            .AreNullsDistinct(false);
+        builder.HasIndex(x => new { x.BotId, x.UserId }).IsUnique();
         builder.Property(x => x.Revision).IsConcurrencyToken();
         builder.HasOne<BotInstance>().WithMany().HasForeignKey(x => x.BotId).OnDelete(DeleteBehavior.Restrict);
     }

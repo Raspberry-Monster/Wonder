@@ -132,7 +132,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("ChatJobId", "Ordinal")
                         .IsUnique();
 
-                    b.ToTable("AgentOperations");
+                    b.ToTable("AgentOperations", t =>
+                        {
+                            t.HasCheckConstraint("CK_AgentOperations_Action", "\"Action\" IN ('interaction_mute','interaction_reset_force','interaction_unmute','interaction_no_reply','notes_create','notes_search','notes_read','notes_update','notes_delete','reflection_request_review','reflection_list_runs','reflection_get_run')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.AgentReflectionQuota", b =>
@@ -206,7 +209,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("BotId", "UserId", "CreatedAt");
 
-                    b.ToTable("AgentReflectionRequests");
+                    b.ToTable("AgentReflectionRequests", t =>
+                        {
+                            t.HasCheckConstraint("CK_AgentReflectionRequests_Priority", "\"Priority\" IN ('Normal','Important')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.BindingChallenge", b =>
@@ -296,10 +302,6 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<Guid>("OperationId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Outcome")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.HasKey("ChatJobId");
 
                     b.HasIndex("OperationId")
@@ -384,28 +386,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BotId", "Platform", "ExternalMessageId")
                         .IsUnique();
 
-                    b.ToTable("Messages");
-                });
-
-            modelBuilder.Entity("Wonder.Core.ContextSpace", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BotId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BotId");
-
-                    b.ToTable("ContextSpaces");
+                    b.ToTable("Messages", t =>
+                        {
+                            t.HasCheckConstraint("CK_Messages_Role", "\"Role\" IN ('user','assistant')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.Conversation", b =>
@@ -433,7 +417,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BotId", "Platform", "Kind", "ExternalId")
                         .IsUnique();
 
-                    b.ToTable("Conversations");
+                    b.ToTable("Conversations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Conversations_Kind", "\"Kind\" IN (0,1)");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.ConversationSession", b =>
@@ -477,7 +464,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("Status", "DeadlineAt");
 
-                    b.ToTable("Sessions");
+                    b.ToTable("Sessions", t =>
+                        {
+                            t.HasCheckConstraint("CK_Sessions_Status", "\"Status\" IN (0,1,2,3)");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.ConversationSummary", b =>
@@ -681,7 +671,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BotId", "PlatformEventKey")
                         .IsUnique();
 
-                    b.ToTable("ForceReceipts");
+                    b.ToTable("ForceReceipts", t =>
+                        {
+                            t.HasCheckConstraint("CK_ForceReceipts_CompensationStatus", "\"CompensationStatus\" IN ('Refunded','AlreadyProcessed','Expired','SupersededByReset')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.GlobalEmotionState", b =>
@@ -719,9 +712,6 @@ namespace Wonder.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("AllowReflection")
-                        .HasColumnType("boolean");
-
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
 
@@ -729,17 +719,11 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("ContextSpaceId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("GroupId")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<bool>("PersistMessages")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("ProactiveEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("RespondToMention")
@@ -749,8 +733,6 @@ namespace Wonder.Infrastructure.Migrations
                         .HasColumnType("boolean");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ContextSpaceId");
 
                     b.HasIndex("BotId", "GroupId")
                         .IsUnique();
@@ -771,7 +753,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasKey("EventId", "HandlerName");
 
-                    b.ToTable("Inbox");
+                    b.ToTable("Inbox", t =>
+                        {
+                            t.HasCheckConstraint("CK_Inbox_HandlerName", "\"HandlerName\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.LogicalUser", b =>
@@ -779,9 +764,6 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<bool>("AllowCrossGroupMemory")
-                        .HasColumnType("boolean");
 
                     b.Property<bool>("AllowMemory")
                         .HasColumnType("boolean");
@@ -892,16 +874,6 @@ namespace Wonder.Infrastructure.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
 
-                    b.Property<int>("Scope")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ScopeOwnerId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("SharedFromMemoryId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("SourceReflectionId")
                         .HasColumnType("uuid");
 
@@ -924,15 +896,11 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("SubjectId", "FactKey");
 
-                    b.HasIndex("SharedFromMemoryId", "Scope", "ScopeOwnerId")
-                        .IsUnique()
-                        .HasFilter("\"SharedFromMemoryId\" IS NOT NULL AND \"Status\" <> 2");
-
-                    b.HasIndex("BotId", "Scope", "ScopeOwnerId", "Status");
+                    b.HasIndex("BotId", "SubjectId", "Status");
 
                     b.ToTable("Memories", t =>
                         {
-                            t.HasCheckConstraint("CK_Memory_Enums", "\"Scope\" BETWEEN 0 AND 5 AND \"Status\" BETWEEN 0 AND 2");
+                            t.HasCheckConstraint("CK_Memories_Status", "\"Status\" IN (0,1,2)");
                         });
                 });
 
@@ -976,13 +944,6 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<long>("RevocationEpoch")
                         .HasColumnType("bigint");
 
-                    b.Property<int>("Scope")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ScopeOwnerId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<Guid>("SourceReflectionId")
                         .HasColumnType("uuid");
 
@@ -1008,7 +969,12 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("SubjectId", "Status");
 
-                    b.ToTable("MemoryCandidates");
+                    b.ToTable("MemoryCandidates", t =>
+                        {
+                            t.HasCheckConstraint("CK_MemoryCandidates_Action", "\"Action\" IN (0,1,2,3,4,5)");
+
+                            t.HasCheckConstraint("CK_MemoryCandidates_Status", "\"Status\" IN (0,1,2,3)");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.MemoryRevocation", b =>
@@ -1030,9 +996,6 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("RecordVersion")
-                        .HasColumnType("integer");
-
                     b.Property<Guid?>("ResourceId")
                         .HasColumnType("uuid");
 
@@ -1043,13 +1006,6 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<long?>("ResourceVersion")
                         .HasColumnType("bigint");
 
-                    b.Property<int>("Scope")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ScopeOwnerId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
@@ -1057,7 +1013,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("BotId", "UserId", "Epoch");
 
-                    b.ToTable("Revocations");
+                    b.ToTable("Revocations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Revocations_ResourceKind", "\"ResourceKind\" IN ('Memory','Note','MemoryContext')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.ModelProfile", b =>
@@ -1129,7 +1088,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BotId", "TaskKind")
                         .IsUnique();
 
-                    b.ToTable("Models");
+                    b.ToTable("Models", t =>
+                        {
+                            t.HasCheckConstraint("CK_Models_TaskKind", "\"TaskKind\" IN (0,1,2,3,4,5)");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.MuteSession", b =>
@@ -1236,7 +1198,12 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("BotId", "UserId", "ConversationId");
 
-                    b.ToTable("Notes");
+                    b.ToTable("Notes", t =>
+                        {
+                            t.HasCheckConstraint("CK_Notes_AuthorKind", "\"AuthorKind\" IN ('Agent','User')");
+
+                            t.HasCheckConstraint("CK_Notes_ClaimKind", "\"ClaimKind\" IN ('observation','guess','uncertain')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.NoteDependency", b =>
@@ -1257,7 +1224,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("TargetKind", "TargetId");
 
-                    b.ToTable("NoteDependencies");
+                    b.ToTable("NoteDependencies", t =>
+                        {
+                            t.HasCheckConstraint("CK_NoteDependencies_TargetKind", "\"TargetKind\" IN ('Chat','Message','Summary','Note')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.NoteRevision", b =>
@@ -1356,7 +1326,12 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("Status", "NextAttemptAt", "LeaseUntil");
 
-                    b.ToTable("Outbox");
+                    b.ToTable("Outbox", t =>
+                        {
+                            t.HasCheckConstraint("CK_Outbox_Status", "\"Status\" IN (0,1,2,3,4)");
+
+                            t.HasCheckConstraint("CK_Outbox_Type", "\"Type\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.OutgoingMessageBatch", b =>
@@ -1413,7 +1388,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BatchId", "Sequence")
                         .IsUnique();
 
-                    b.ToTable("Parts");
+                    b.ToTable("Parts", t =>
+                        {
+                            t.HasCheckConstraint("CK_Parts_Status", "\"Status\" IN (0,1,2,3,4)");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.PersonaIdentityRevision", b =>
@@ -1558,7 +1536,12 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BotId", "SessionId", "SubjectId", "SourceSignature")
                         .IsUnique();
 
-                    b.ToTable("ReflectionGenerations");
+                    b.ToTable("ReflectionGenerations", t =>
+                        {
+                            t.HasCheckConstraint("CK_ReflectionGenerations_CancellationReason", "\"CancellationReason\" IN ('AuthorizationChanged','SourceChanged','NoEligibleSources','PrivacyRevocation')");
+
+                            t.HasCheckConstraint("CK_ReflectionGenerations_Status", "\"Status\" IN ('Queued','Running','Completed','Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.ReflectionResult", b =>
@@ -1572,9 +1555,6 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<long>("Boundary")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("GroupId")
-                        .HasColumnType("text");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -1607,7 +1587,10 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("SessionId", "SubjectId", "Kind", "Boundary")
                         .IsUnique();
 
-                    b.ToTable("Reflections");
+                    b.ToTable("Reflections", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reflections_Kind", "\"Kind\" IN ('light','full')");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Core.RelationshipObservation", b =>
@@ -1628,9 +1611,6 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<string>("EvidenceJson")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("GroupId")
                         .HasColumnType("text");
 
                     b.Property<Guid>("ReflectionId")
@@ -1662,9 +1642,6 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("GroupId")
-                        .HasColumnType("text");
-
                     b.Property<string>("PreferencesJson")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1678,10 +1655,8 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BotId", "UserId", "GroupId")
+                    b.HasIndex("BotId", "UserId")
                         .IsUnique();
-
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("BotId", "UserId", "GroupId"), false);
 
                     b.ToTable("Relationships");
                 });
@@ -1723,7 +1698,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.HasIndex("BotId", "CreatedAt");
 
-                    b.ToTable("Usage");
+                    b.ToTable("Usage", t =>
+                        {
+                            t.HasCheckConstraint("CK_Usage_TaskKind", "\"TaskKind\" IN (0,1,2,3,4,5)");
+                        });
                 });
 
             modelBuilder.Entity("Wonder.Infrastructure.ApplicationUser", b =>
@@ -1873,15 +1851,6 @@ namespace Wonder.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
-            modelBuilder.Entity("Wonder.Core.ContextSpace", b =>
-                {
-                    b.HasOne("Wonder.Core.BotInstance", null)
-                        .WithMany()
-                        .HasForeignKey("BotId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Wonder.Core.Conversation", b =>
                 {
                     b.HasOne("Wonder.Core.BotInstance", null)
@@ -1967,11 +1936,6 @@ namespace Wonder.Infrastructure.Migrations
                         .HasForeignKey("BotId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("Wonder.Core.ContextSpace", null)
-                        .WithMany()
-                        .HasForeignKey("ContextSpaceId")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Wonder.Core.MediaAsset", b =>
@@ -1990,11 +1954,6 @@ namespace Wonder.Infrastructure.Migrations
                         .HasForeignKey("BotId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("Wonder.Core.Memory", null)
-                        .WithMany()
-                        .HasForeignKey("SharedFromMemoryId")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Wonder.Core.MemoryMaintenanceCandidate", b =>

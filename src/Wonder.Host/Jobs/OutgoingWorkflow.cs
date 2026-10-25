@@ -13,7 +13,7 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Status == JobStatus.Completed) return;
+        if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
         var batchId = Json.Read<IdPayload>(job.Payload).Id;
         var batch = await db.Batches.SingleAsync(x => x.Id == batchId, ct);
         var conversation = await db.Conversations.AsNoTracking().SingleAsync(x => x.Id == batch.ConversationId, ct);
@@ -24,21 +24,7 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
         var retiredContext = generated?.ContextInvalidated == true;
         if (generated is not null)
         {
-            if (!ConversationHistory.TryMemoryIds(generated.ContextSnapshotJson, true, out var ids)) retiredContext = true;
-            else retiredContext |= await MemoryQueries.RetiredGroupSources(db).AnyAsync(x => ids.Contains(x.Id), ct);
-            if (conversation.Kind == ConversationKind.Group)
-            {
-                try
-                {
-                    var snapshot = Json.Read<ContextSnapshot>(generated.ContextSnapshotJson ?? "null");
-                    var original = await db.Outbox.AsNoTracking().SingleOrDefaultAsync(x => x.Id == batch.SourceJobId, ct);
-                    var sourceId = original is null ? Guid.Empty : Json.Read<IdPayload>(original.Payload).Id;
-                    retiredContext |= snapshot is null || snapshot.RelationshipRevision != 0 || snapshot.SummaryRevision != 0 ||
-                        snapshot.RetrievedMemoryIds.Count != 0 || snapshot.SourceMessageIds is null ||
-                        snapshot.SourceMessageIds.Any(x => x != sourceId);
-                }
-                catch (System.Text.Json.JsonException) { retiredContext = true; }
-            }
+            if (!ConversationHistory.TryMemoryIds(generated.ContextSnapshotJson, true, out _)) retiredContext = true;
         }
         if (retiredContext)
         {
@@ -46,7 +32,7 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
             if (generated is not null)
                 await db.Messages.Where(x => x.Id == generated.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true), ct);
             if (parts.Any(x => x.Status is DeliveryStatus.Sending or DeliveryStatus.DeliveryUnknown))
-                throw new DeliveryUnknownException("Retired group context has an unconfirmed delivery; review required.");
+                throw new DeliveryUnknownException("Invalidated context has an unconfirmed delivery; review required.");
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
@@ -81,7 +67,7 @@ public sealed class OutgoingWorkflow(IDbContextFactory<WonderDbContext> factory,
                 throw new DeliveryUnknownException("Unconfirmed OneBot delivery requires review.");
             }
 
-            if (!await NoteSources.ValidAsync(db, "Chat", batch.SourceJobId, ct) ||
+            if (!await NoteSources.ValidAsync(db, NoteDependencyTargetKind.Chat, batch.SourceJobId, ct) ||
                 await db.ChatDispositions.AnyAsync(x => x.ChatJobId == batch.SourceJobId, ct))
             {
                 part.Status = DeliveryStatus.Failed;

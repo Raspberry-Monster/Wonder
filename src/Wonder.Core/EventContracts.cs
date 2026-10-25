@@ -9,14 +9,14 @@ public static class EventContracts
 {
     public const int Version = 2;
 
-    public static IReadOnlyDictionary<string, Type> PayloadTypes { get; } = new Dictionary<string, Type>
+    public static IReadOnlyDictionary<JobKind, Type> PayloadTypes { get; } = new Dictionary<JobKind, Type>
     {
-        [JobTypes.Chat] = typeof(IdPayload), [JobTypes.Outgoing] = typeof(IdPayload),
-        [JobTypes.Reflection] = typeof(ReflectionJob), [JobTypes.Emotion] = typeof(IdPayload),
-        [JobTypes.Relationship] = typeof(IdPayload), [JobTypes.Memory] = typeof(IdPayload),
-        [JobTypes.MemoryMaintenance] = typeof(IdPayload), [JobTypes.Embedding] = typeof(IdPayload),
-        [JobTypes.Maintenance] = typeof(DailyJob), [JobTypes.Narrative] = typeof(DailyJob),
-        [JobTypes.Summary] = typeof(SummaryJob), [JobTypes.Ledger] = typeof(IdPayload)
+        [JobKind.Chat] = typeof(IdPayload), [JobKind.Outgoing] = typeof(IdPayload),
+        [JobKind.Reflection] = typeof(ReflectionJob), [JobKind.Emotion] = typeof(IdPayload),
+        [JobKind.Relationship] = typeof(IdPayload), [JobKind.Memory] = typeof(IdPayload),
+        [JobKind.MemoryMaintenance] = typeof(IdPayload), [JobKind.Embedding] = typeof(IdPayload),
+        [JobKind.Maintenance] = typeof(DailyJob), [JobKind.Narrative] = typeof(DailyJob),
+        [JobKind.Summary] = typeof(SummaryJob), [JobKind.Ledger] = typeof(IdPayload)
     };
 
     public static void ValidateVersion(OutboxMessage job)
@@ -33,7 +33,7 @@ public static class EventContracts
         {
             var schema = options.GetJsonSchemaAsNode(typeof(OutboxMessage));
             var properties = schema["properties"]!;
-            properties["type"] = new JsonObject { ["const"] = name };
+            properties["type"] = new JsonObject { ["const"] = EnumWire.Name(name) };
             properties["schemaVersion"] = new JsonObject { ["const"] = Version };
             properties["payload"] = new JsonObject
             {

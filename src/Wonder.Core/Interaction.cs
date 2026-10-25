@@ -28,7 +28,7 @@ public sealed class ForceReceipt
     public int RemainingAfter { get; set; }
     public DateTimeOffset AcceptedAt { get; set; }
     public DateTimeOffset? ProcessingStartedAt { get; set; }
-    public string? CompensationStatus { get; set; }
+    public ForceCompensationOutcome? CompensationStatus { get; set; }
 }
 
 // Ordinal is the durable slot within a Chat, independent of vendor tool-call IDs.
@@ -42,7 +42,7 @@ public sealed class AgentOperation
     public Guid BotId { get; set; }
     public Guid ConversationId { get; set; }
     public Guid UserId { get; set; }
-    public string Action { get; set; } = "";
+    public AgentAction Action { get; set; }
     public string ArgumentsHash { get; set; } = "";
     public string ReceiptJson { get; set; } = "{}";
     public DateTimeOffset CommittedAt { get; set; }
@@ -53,6 +53,5 @@ public sealed class ChatDisposition
     public Guid ChatJobId { get; set; }
     public Guid ForceReceiptId { get; set; }
     public Guid OperationId { get; set; }
-    public string Outcome { get; set; } = "NoReply";
     public DateTimeOffset CommittedAt { get; set; }
 }

@@ -10,7 +10,7 @@
 - **最终归档澄清覆盖先前选择**：不增加逐条审批。自动独立 Archive 继续受现有用户开关、证据及版本校验控制；Update 替代旧版保持原行为。
 - Notes 独立授权、默认关闭。Agent Notes 不向用户直接展示；User Notes 可由本人查看、修订、移除。用户可以关闭授权并彻底删除与自己关联的全部 Notes。Notes 与 Memory 冲突需要确认，不能自行认证用户事实。
 - 保留期已确认：Notes 与整理原因不自动过期，保留到本人主动删除/清除；整理原因清除入口只清除原因正文，不删除结果、次数和任务记录。
-- **最终群聊澄清覆盖最初保留完整群聊的要求**：群聊保留基础聊天、当前发言者标签和本人设置的称呼；不读取记忆、关系、历史或滚动摘要，不生成 Reflection、维护或群记忆向量。旧数据保留清理入口，不执行全局私人数据删除。
+- **最终群聊澄清覆盖最初保留完整群聊的要求**：群聊保留基础聊天、当前发言者标签和本人设置的称呼；不读取记忆、关系、历史或滚动摘要，不生成 Reflection、维护或群记忆向量。旧群／共享数据按 2026-10-25 后续授权完整归档后退出在线表，清理兼容入口已移除；私人事实和独立 Notes 保留。
 
 ## 最小数据增量
 
@@ -29,7 +29,7 @@
 
 LogicalUser 新增 AllowNotes 和独立 NotesEpoch；NotesEpoch 是并发令牌。Notes 通过已认证私聊的 UserId/ConversationId 关联单一数据主体，不新建可任意指定主体的共享笔记。
 
-原 Memory 撤销账本增加 RecordVersion/ResourceKind/ResourceId/ResourceVersion。旧行在新增迁移中明确填入 1/Memory；新 Notes 删除条目使用 2/Note，保持旧 JSON 记录可读。只新增本轮迁移，不修改仓库既有历史迁移。
+撤销账本使用类型化 ResourceKind/ResourceId/ResourceVersion。重复编码资源类型的 RecordVersion 已删除；旧格式由 --convert-ledger 离线转换，Note 修订号继续保留。旧群／共享事件转换为 MemoryContext，不能误删私人事实。只新增前向迁移，不改既有历史迁移。
 
 ## 工具与用户命令
 
@@ -72,9 +72,9 @@ LogicalUser 新增 AllowNotes 和独立 NotesEpoch；NotesEpoch 是并发令牌�
 
 独立 Notes 隐私删除在同事务推进 NotesEpoch、写稳定 Note 删除账本/墓碑、使目标及衍生内容不可用，清除目标当前正文和全部 Revision，并清除其已知派生正文。已发送内容无法本地撤回，发送中/回执未知沿 DeliveryUnknown 处理。没有 Notes 向量或额外明文缓存需要清理。
 
-恢复顺序仍是 stop → restore → migrate → --replay-ledger 最新独立账本 → start。重放在启动 Worker、OneBot、外部查询前完成；兼容旧 Memory 条目。保证取决于最新账本已独立导出且可取得，原有 age 配置和丢失边界保持不变。
+恢复顺序仍是 stop → restore → migrate → --replay-ledger 最新独立账本 → start。重放在启动 Worker、OneBot、外部查询前完成；旧格式账本必须先显式离线转换。保证取决于最新账本已独立导出且可取得，原有 age 配置和丢失边界保持不变。
 
-Memory 更正/删除或来源 Note 修订不会顺带彻底删除所有独立 Notes；只将明确来源依赖的判断隔离。独立 Notes 的彻底删除走本人专用入口。自动审批拒绝过扩大 Notes 删除范围和全局停用私人共享的方案，当前实现采用上述较小范围。
+Memory 更正/删除或来源 Note 修订不会顺带彻底删除所有独立 Notes；只将明确来源依赖的判断隔离。独立 Notes 的彻底删除走本人专用入口。Notes 的删除范围不因共享功能退役而扩大；共享退役的数据归档已经后续明确授权。
 
 ## Full 规范运行与旧任务兼容
 
@@ -86,9 +86,17 @@ Result、Emotion/Relationship/Memory 三类 Outbox 和规范 Completed 同事务
 
 History/API/工具按本人读取，Owner 不获得额外正文读权；分开展示反思阶段、真实 Job 状态、直接消费者和记忆维护状态/数量，不把 ReflectionCompleted 当作记忆已全部落地。
 
-群聊旧 Reflection、MemoryMaintenance、Embedding 和 Summary 任务在入口停止。旧群来源不能经私人摘要/历史或待发送输出重新进入上下文。旧空间和私人来源 UserShared 的管理/清理兼容仍保留；群聊完全不消费它们，也不再创建群来源共享。
+群聊旧 Reflection、MemoryMaintenance、Embedding 和 Summary 任务在入口停止。旧群来源不能经私人摘要/历史或待发送输出重新进入上下文。ContextSpace、全部共享 API 和 UserShared 运行时例外已移除；迁移先归档旧记录再退出在线表。
+
+## 2026-10-25 类型与兼容清理
+
+封闭业务标签已改为 Enum，保留稳定协议值和现有整数编号；新增数据库 CHECK，拒绝未知值和数字枚举输入。ContextBuilder 的类别与排序权重已分离。ChatDisposition 记录本身表示 NoReply，不再存单值 Outcome。
+
+Memory 仅以 BotId + SubjectId 授权，Scope/ScopeOwnerId/SharedFromMemoryId、ContextSpace 与群关系字段已移除。旧数据先进入无业务入口的只读归档；CLI 可独立加密导出。Reflection 的旧 Full 接管与旧结果防重继续保留，缺乏历史来源签名的结果不能冒充规范运行。详见 [检查与方案](enum-and-compatibility-cleanup-plan.md)。
 
 ## 验证与仍待确定
+
+2026-10-25 清理后最终验证：构建零警告、EF 快照一致；单元 30、契约 15、启用真实 PG 的集成 112（无跳过）、前端单元 2、生产浏览器 5、开发浏览器 1，共 165 通过。原有预算事务并发回归补充短暂退避与有限重试，不改变额度规则。归档与旧账本转换详见清理方案；未对运行库执行迁移，未验证真实 age 加密导出往返。
 
 测试覆盖位于 InteractionTests、AgentAutonomyTests 及既有 Continuity、Speaker、SharedContext、Reflection、MemoryMaintenance、LiveInfrastructure 等模块。真实 PG 临时库验证迁移升级、并发最后一次 Force、同槽位 Notes 创建/修订重放、授权撤销、100/101 去重和旧 Notes 状态恢复后的账本重放；不使用 SQLite 替代 PG 并发语义。
 

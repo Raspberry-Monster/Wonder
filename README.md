@@ -16,7 +16,7 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 - **稳定的身份**：Shared / Identity / Emotion 分层编译提示；Identity 由 Bot Owner 发布，模型只提出状态变化建议，由服务端验证后提交。
 - **延续的心境与关系**：心境有惯性和自然回归，关系变化需要证据；轻量与复杂反思按任务路由，每日叙事独立生成。
-- **有边界的记忆**：默认关闭长期记忆，经 QQ 验证绑定后由本人开启；支持查看、更正、删除，以及逐条授权的本人跨群记忆和群聊共享空间。
+- **有边界的记忆**：默认关闭长期记忆，经 QQ 验证绑定后由本人开启；支持查看、更正、删除，私人事实的自动整理和独立授权 Notes。
 - **可靠的聊天链路**：消息与 Outbox 同事务，消费幂等、失败可重试；完整生成后逐段发送并保存回执，不确定的发送交由人工处理。
 - **可追踪的模型上下文**：按轮固定快照，同一对话跨 Session 衔接近期历史与滚动摘要，每轮注入当前时间；可为聊天开启只读时间与历史查询工具。生成和向量任务独立配置模型、预算与用量。
 
@@ -45,7 +45,7 @@ dotnet run --project src/Wonder.Host
 
 模型路由页支持“批量应用模型”：勾选生成任务，统一设置任意兼容模型的地址、名称、密钥、能力和参数，再单独配置 Embedding。操作和 API 示例见 [模型路由指南](docs/model-routes.md)；[DeepSeek Flash](docs/deepseek.md) 是其中一个配置示例。
 
-不同发言者的称呼、跨群共享空间和逐条记忆共享见 [跨群记忆与用户称呼](docs/shared-context.md)。Bot 的 Identity 只描述助手自身；每个人在“我的记忆”设置自己的称呼。
+不同发言者的称呼与旧共享功能退役见 [发言者识别与共享退役](docs/shared-context.md)。Bot 的 Identity 只描述助手自身；每个人在“我的记忆”设置自己的称呼。
 
 基础设施等应用配置也可写在 src/Wonder.Host/appsettings.Local.json（已忽略），或使用环境变量。图片、Data Protection 密钥和备份位于私有目录；相对存储路径按进程工作目录解析。搬迁或恢复时需同时保留数据库和原密钥目录，否则已保存的模型 Key、QQ 令牌无法解密。配置说明见 [运行指南](docs/operations.md#配置与持久目录)。
 
@@ -150,7 +150,7 @@ dotnet test --solution Wonder.slnx
 - [核心架构](docs/architecture.md)：模块、提示、心境、记忆与可靠性设计。
 - [运行指南](docs/operations.md) / [Quadlet 部署](deploy/quadlet/README.md)：部署、排错、备份与恢复。
 - [模型路由](docs/model-routes.md) / [DeepSeek 示例](docs/deepseek.md)：任务配置与兼容接口。
-- [跨群记忆与用户称呼](docs/shared-context.md)：授权范围、共享与撤回。
+- [发言者识别与共享退役](docs/shared-context.md)：基本群聊、私人记忆与旧数据归档。
 - [Reflection 与 Memory](docs/reflection-memory.md)：即时和会话结束反思、模型复核及候选生成。
 - [自主维护记忆](docs/memory-maintenance.md)：候选准入、事实维护、版本与用户边界。
 - [对话延续与时间](docs/conversation-continuity.md)：跨 Session 上下文、当前时间和历史查询工具。
