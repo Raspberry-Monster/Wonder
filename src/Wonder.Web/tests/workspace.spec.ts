@@ -103,11 +103,11 @@ test("login, custom model editing, field validation and production CSP", async (
   await page.getByLabel("模型名称", { exact: true }).fill("batch-model");
   await page.getByLabel("API Key", { exact: true }).fill("local-key");
   await page.getByRole("button", { name: "保存更改" }).click();
-  await expect.poll(() => saved?.length).toBe(5);
+  await expect.poll(() => saved?.length).toBe(4);
   expect(
     saved.every(
       (route: any) =>
-        route.model === "batch-model" && route.taskKind !== "Embedding",
+        route.model === "batch-model" && route.taskKind !== "Embedding" && route.taskKind !== "DailyNarrative",
     ),
   ).toBe(true);
   await expect(page.getByRole("dialog")).not.toBeVisible();

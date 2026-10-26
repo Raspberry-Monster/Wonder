@@ -32,7 +32,7 @@ test("management pages and forms stay centered on wide and narrow screens", asyn
             : path.endsWith("/memory-settings")
               ? { preferredName: "小明", allowMemory: true }
               : path.endsWith("/emotion")
-                ? { state: {}, narrative: null }
+                ? { state: {} }
                 : [];
     return route.fulfill({ json });
   });
@@ -50,7 +50,6 @@ test("management pages and forms stay centered on wide and narrow screens", asyn
     "/me/settings",
     "/me/memories",
     "/me/maintenance",
-    "/system",
   ];
   for (const width of [1920, 390]) {
     await page.setViewportSize({ width, height: 1080 });

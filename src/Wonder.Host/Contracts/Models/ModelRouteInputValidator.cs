@@ -1,5 +1,4 @@
 using FluentValidation;
-using Wonder.Core;
 using Wonder.Infrastructure.Models;
 
 namespace Wonder.Host.Contracts;
@@ -17,14 +16,14 @@ public sealed class ModelRouteInputValidator : AbstractValidator<ModelRouteInput
         RuleFor(x => x.ImageTokenBudget).InclusiveBetween(0, 100000);
         RuleFor(x => x.ContextWindow).InclusiveBetween(2048, 2_000_000);
         RuleFor(x => x.MaxOutputTokens).InclusiveBetween(16, 1_000_000)
-            .Must((x, max) => x.TaskKind == TaskKind.Embedding || max + 1024 < x.ContextWindow);
+            .Must((x, max) => x.TaskKind == ModelTaskKind.Embedding || max + 1024 < x.ContextWindow);
         RuleFor(x => x.EmbeddingDimensions).InclusiveBetween(1, 8192);
         RuleFor(x => x.InputCostPerMillion).GreaterThanOrEqualTo(0);
         RuleFor(x => x.OutputCostPerMillion).GreaterThanOrEqualTo(0);
-        RuleFor(x => x.SupportsTools).Must((x, tools) => tools != true || x.TaskKind == TaskKind.Chat);
+        RuleFor(x => x.SupportsTools).Must((x, tools) => tools != true || x.TaskKind == ModelTaskKind.Chat);
         RuleFor(x => x.ReasoningEffort).MaximumLength(32)
             .Must((x, effort) => effort is null || x.ThinkingEnabled == true);
-        RuleFor(x => x.ThinkingEnabled).Null().When(x => x.TaskKind == TaskKind.Embedding);
-        RuleFor(x => x.ReasoningEffort).Null().When(x => x.TaskKind == TaskKind.Embedding);
+        RuleFor(x => x.ThinkingEnabled).Null().When(x => x.TaskKind == ModelTaskKind.Embedding);
+        RuleFor(x => x.ReasoningEffort).Null().When(x => x.TaskKind == ModelTaskKind.Embedding);
     }
 }

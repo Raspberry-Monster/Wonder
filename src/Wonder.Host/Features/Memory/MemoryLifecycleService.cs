@@ -10,7 +10,7 @@ public sealed partial class MemoryService
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var user = await db.LogicalUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == actor && x.AllowMemory, ct)
+        var user = await db.LogicalUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == actor, ct)
                    ?? throw new KeyNotFoundException();
         if (!await UserFence.CheckAsync(db, actor, user.RevocationEpoch, ct)) throw new DbUpdateConcurrencyException();
         var memory = await db.Memories.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.SubjectId == actor &&

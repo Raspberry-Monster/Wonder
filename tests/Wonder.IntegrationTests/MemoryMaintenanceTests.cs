@@ -57,7 +57,7 @@ public sealed class MemoryMaintenanceTests
             BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session,
             ExternalMessageId = "reply", Role = MessageRole.Assistant, Text = "你住杭州。",
             ContextSnapshotJson =
-                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, null, 0, 0, [f.Old!.Value], "model"))
+                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, 0, 0, [f.Old!.Value], "model"))
         });
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Vector());
@@ -178,26 +178,6 @@ public sealed class MemoryMaintenanceTests
     }
 
     [Test]
-    public async Task ForgetIsBlockedUntilPreciseCleanupAndRecoveryAreReady()
-    {
-        await using var database = await TestPostgres.CreateAsync();
-        using var app = database.CreateApp();
-        var f = await SeedAsync(app);
-        app.ModelResponses.Enqueue(Vector());
-        app.ModelResponses.Enqueue(Decision(MemoryMaintenanceAction.Update, f.Old, "我现在住上海。"));
-        await RunAsync(app, f.Job);
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var latest = await db.Memories.SingleAsync(x => x.ArchivedAt == null);
-        await Assert.That(() => scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(f.User, latest.Id, null, default)).ThrowsExactly<NotSupportedException>();
-        await RunAsync(app, f.Job);
-        db.ChangeTracker.Clear();
-        await Assert.That(await db.Memories.AnyAsync(x => x.Text != "" && x.Status != MemoryStatus.Revoked)).IsTrue();
-        await Assert.That(await db.Embeddings.AnyAsync()).IsTrue();
-        await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.Text != "")).IsTrue();
-    }
-
-    [Test]
     public async Task NoHistoryPolicyErasesArchivedTextAndReenablingDoesNotRestoreIt()
     {
         await using var database = await TestPostgres.CreateAsync();
@@ -220,8 +200,6 @@ public sealed class MemoryMaintenanceTests
         await service.UpdateSettingsAsync(f.User, true, null, null, null, null, true, default);
         db.ChangeTracker.Clear();
         await Assert.That((await db.Memories.SingleAsync(x => x.Id == f.Old)).Text).IsEqualTo("");
-        var latest = await db.Memories.SingleAsync(x => x.ArchivedAt == null);
-        await Assert.That(() => service.RevokeAsync(f.User, latest.Id, null, default)).ThrowsExactly<NotSupportedException>();
         await Assert.That(await db.Revocations.AnyAsync()).IsFalse();
     }
 

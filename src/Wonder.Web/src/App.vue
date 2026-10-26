@@ -6,13 +6,7 @@ import { useSession } from "./session";
 const route = useRoute(),
   router = useRouter(),
   session = useSession();
-const active = computed(() =>
-  route.path.startsWith("/bots")
-    ? "bots"
-    : route.path.startsWith("/me")
-      ? "me"
-      : "system",
-);
+const active = computed(() => (route.path.startsWith("/me") ? "me" : "bots"));
 const unauthorized = () => {
   session.user = null;
   void router.push("/login");
@@ -41,8 +35,6 @@ async function logout() {
             >我的 Bot</router-link
           ><router-link to="/me/settings" :class="{ active: active === 'me' }"
             >个人空间</router-link
-          ><router-link to="/system" :class="{ active: active === 'system' }"
-            >系统维护</router-link
           >
         </nav>
         <div class="account">

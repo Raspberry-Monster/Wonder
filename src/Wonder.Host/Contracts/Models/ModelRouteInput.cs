@@ -1,9 +1,13 @@
-using Wonder.Core;
-
 namespace Wonder.Host.Contracts;
 
+// Active configuration purposes retain the persisted TaskKind numbers; 3 is historical usage only.
+public enum ModelTaskKind
+{
+    Chat = 0, LightReflection = 1, StrongReflection = 2, RollingSummary = 4, Embedding = 5
+}
+
 public sealed record ModelRouteInput(
-    TaskKind TaskKind,
+    ModelTaskKind TaskKind,
     string Endpoint,
     string Model,
     string? ApiKey,

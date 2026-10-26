@@ -28,44 +28,28 @@ test("internal edit sends a version, preserves its retry key and shows conflicts
   expect(writes[1].key).toBe(writes[0].key);
 });
 
-test("all lifecycle mutations stay hidden before unified release", async ({ page }) => {
-  await page.route("**/api/v1/**", route => {
-    const path = new URL(route.request().url()).pathname;
-    const json = path.endsWith("/me") ? { logicalUserId: "self" } : path.endsWith("/memory-capabilities")
-      ? { edit: false, archive: false, forget: false, erase: false } : path.endsWith("/index-state") ? { state: "Ready" }
-      : path.endsWith("/memories") ? [{ id: "memory", text: "retained", revision: 1 }] : [];
-    return route.fulfill({ json });
-  });
-  await page.goto("/me/memories");
-  await expect(page.getByText("四项记忆管理操作暂未统一开放。")).toBeVisible();
-  for (const name of ["纠正", "归档", "删除", "擦除关联历史"])
-    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
-});
-
-test("release status explains pending recovery and shows all four actions together when ready", async ({ page }) => {
-  let ready = false;
+test("bound users can manage existing memories while automatic learning is off", async ({ page }) => {
+  const requested: string[] = [];
   await page.route('**/api/v1/**', route => {
-    const path = new URL(route.request().url()).pathname;
+    const path = new URL(route.request().url()).pathname; requested.push(path);
     const json = path.endsWith('/me') ? { logicalUserId: 'self' } : path.endsWith('/memory-capabilities')
-      ? { edit: ready, archive: ready, forget: ready, erase: ready } : path.endsWith('/memory-release-status')
-      ? { enabled: true, available: ready, state: ready ? 'Ready' : 'AwaitingRecoveryVerification' } : path.endsWith('/index-state')
-      ? { state: 'Ready' } : path.endsWith('/memories') ? [{ id: 'memory', text: 'retained', revision: 1 }] : [];
+      ? { edit: true, archive: true, forget: true, erase: true } : path.endsWith('/index-state')
+      ? { state: 'Ready' } : path.endsWith('/memory-settings') ? { allowMemory: false }
+      : path.endsWith('/memories') ? [{ id: 'memory', text: 'retained', revision: 1 }] : [];
     return route.fulfill({ json });
   });
+  await page.goto('/me/settings');
+  await expect(page.getByRole('switch').first()).not.toBeChecked();
   await page.goto('/me/memories');
-  await expect(page.getByText('四项记忆管理操作暂未开放，恢复保护仍待核验。')).toBeVisible();
-  for (const name of ['纠正', '归档', '删除记忆', '擦除关联历史'])
-    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
-  ready = true; await page.reload();
   for (const name of ['纠正', '归档', '删除记忆', '擦除关联历史'])
     await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
-  await expect(page.getByText('四项记忆管理操作暂未开放，恢复保护仍待核验。')).toHaveCount(0);
+  expect(requested.some(path => path.endsWith('/memory-release-status'))).toBe(false);
 });
 
 test("Forget displays persistent partial verification and retries without claiming completion", async ({ page }) => {
   const writes: any[] = [];
   const operation = { operationId: 'op', kind: 'Forget', stage: 'NeedsReview', revision: 3, fenced: true,
-    cleanupVerified: false, recoveryVerified: false, completed: false, targetMemoryId: 'memory', targetRevision: 10,
+    cleanupVerified: false, completed: false, targetMemoryId: 'memory', targetRevision: 10,
     items: [{ id: 'i', kind: 'Candidate', state: 'Completed' }, { id: 'm', kind: 'Media', state: 'NeedsReview', errorCode: 'MediaOwnershipUnprovenOrShared' }],
     uncoveredLayers: ['ReadOnlyArchive', 'HistoricalBackups', 'IndependentExports', 'ExternalQQ'] };
   await page.route('**/api/v1/**', route => {
@@ -84,7 +68,7 @@ test("Forget displays persistent partial verification and retries without claimi
   await expect(page.getByText('原对话、摘要与独立笔记仍保留', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: '确定', exact: true }).click();
   await expect(page.getByText('整体尚未完成 · 已隔离不等于已物理清理')).toBeVisible();
-  await expect(page.getByText('独立恢复保护：待核验', { exact: false })).toBeVisible();
+  await expect(page.getByText('副载荷核验：待完成', { exact: false })).toBeVisible();
   await expect(page.getByText('1/2 项完成')).toBeVisible();
   expect(writes[0].url).toContain('expectedRevision=9'); expect(writes[0].key).toBeTruthy();
   await page.getByRole('button', { name: '重试未完成项目' }).click();

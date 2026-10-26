@@ -1,10 +1,8 @@
-using Wonder.Core;
-
 namespace Wonder.Host.Contracts;
 
 public sealed record ModelRouteResponse(
     Guid Id,
-    TaskKind TaskKind,
+    ModelTaskKind TaskKind,
     string Endpoint,
     string Model,
     int ContextWindow,

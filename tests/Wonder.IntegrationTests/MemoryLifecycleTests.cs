@@ -48,7 +48,7 @@ public sealed class MemoryLifecycleTests
         {
             BotId = bot.Id, ConversationId = conversation.Id, SessionId = sessions[0].Id,
             ExternalMessageId = "reply", Role = MessageRole.Assistant, Text = "old belief",
-            ContextSnapshotJson = Json.Write(new ContextSnapshot(bot.Id, sessions[0].Id, 1, 1, null, 0, 0,
+            ContextSnapshotJson = Json.Write(new ContextSnapshot(bot.Id, sessions[0].Id, 1, 1, 0, 0,
                 [memory.Id], "test")), ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
         };
         db.Messages.Add(dependent);
@@ -279,7 +279,7 @@ public sealed class MemoryLifecycleTests
     }
 
     [Test]
-    public async Task InternalApiRequiresVersionAndIdempotencyAndProductionMutationsStayClosed()
+    public async Task ApiRequiresVersionAndIdempotencyInEveryEnvironment()
     {
         await using var pg = await TestPostgres.CreateAsync();
         using var app = new TestApp(environment: "MemoryLifecycleTest", postgresConnection: pg.ConnectionString);
@@ -306,15 +306,15 @@ public sealed class MemoryLifecycleTests
         await Assert.That((await client.PatchAsJsonAsync(path, new { text = "different", expectedRevision = 1 })).StatusCode).IsEqualTo(HttpStatusCode.Conflict);
         client.DefaultRequestHeaders.Remove("Idempotency-Key");
         client.DefaultRequestHeaders.Add("Idempotency-Key", "api-forget-unconfigured");
-        await Assert.That((await client.DeleteAsync(path + "?expectedRevision=1")).StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        await Assert.That((await client.DeleteAsync(path + "?expectedRevision=1")).StatusCode).IsEqualTo(HttpStatusCode.Conflict);
         using var production = new TestApp(environment: "Production", postgresConnection: pg.ConnectionString);
         using var normal = production.CreateClient();
         normal.DefaultRequestHeaders.Add("X-Wonder", "1");
         normal.DefaultRequestHeaders.Add("Idempotency-Key", "production-closed");
         await normal.PostAsJsonAsync("/api/v1/auth/login", login);
-        await Assert.That((await normal.PatchAsJsonAsync(path, args)).StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        await Assert.That((await normal.PatchAsJsonAsync(path, args)).StatusCode).IsEqualTo(HttpStatusCode.Conflict);
         var caps = await normal.GetFromJsonAsync<JsonElement>("/api/v1/me/memory-capabilities");
-        await Assert.That(caps.EnumerateObject().All(x => !x.Value.GetBoolean())).IsTrue();
+        await Assert.That(caps.EnumerateObject().All(x => x.Value.GetBoolean())).IsTrue();
         using var owner = app.CreateClient();
         owner.DefaultRequestHeaders.Add("X-Wonder", "1");
         owner.DefaultRequestHeaders.Add("Idempotency-Key", "owner-cannot-edit-other");

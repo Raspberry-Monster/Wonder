@@ -70,31 +70,7 @@ public sealed class AgentAutonomyTests
         await Assert.That(await CallAsync(app, e with { SettingsRevision = 2 }, 2, "notes_create", new() { ["content"] = "撤销后不能新写" })).Contains("NotesAuthorizationRequired");
         await Assert.That(await db.Notes.CountAsync()).IsEqualTo(1);
     }
-    [Test]
-    public async Task PostgreSqlLegacyLedgerWithoutExactResourceBlocksReplay()
-    {
-        await using var pg = await TestPostgres.CreateAsync("20261024144500_VersionedNotesAndPrivacyLedger");
-        using var app = pg.CreateApp();
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"LogicalUsers\" ALTER COLUMN \"AllowCrossGroupMemory\" SET DEFAULT false;");
-        var f = await SeedAsync(app);
-        var user = await db.LogicalUsers.AsNoTracking().SingleAsync();
-        var id = Guid.NewGuid();
-        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"Revocations\" (\"Id\", \"BotId\", \"UserId\", \"Scope\", \"ScopeOwnerId\", \"FactKeyHash\", \"Epoch\", \"CreatedAt\") VALUES ({id}, {f.Bot}, {user.Id}, {0}, {user.Id.ToString()}, {Json.Hash("old-fact")}, {1L}, {DateTimeOffset.UtcNow})");
-        await db.Database.MigrateAsync();
-        var row = await db.Revocations.AsNoTracking().SingleAsync();
-        await Assert.That(row.ResourceId).IsNull();
-        await Assert.That(row.ResourceKind).IsEqualTo(DeletionResourceKind.Memory);
-        var file = Path.GetFullPath(".local/legacy-ledger-" + Guid.NewGuid() + ".json");
-        try
-        {
-            await File.WriteAllTextAsync(file, Json.Write(new[] { row }));
-            await Assert.That(() => app.Services.GetRequiredService<MemoryService>().ReplayLedgerAsync(file, default)).ThrowsExactly<InvalidOperationException>();
-            await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(1);
-        }
-        finally { File.Delete(file); }
-    }
+
     [Test]
     public async Task NoteCorrectionImmediatelyRetiresDerivedHistorySummaryAndPendingOutputAndReplaysOldVersion()
     {
@@ -159,7 +135,7 @@ public sealed class AgentAutonomyTests
     }
 
     [Test]
-    public async Task PostgreSqlNotesPrivacyLedgerErasesRestoredVersionsAndDependenciesBeforeWorkersStart()
+    public async Task PostgreSqlNotesPrivacyDeletionErasesVersionsAndDependencies()
     {
         await using var pg = await TestPostgres.CreateAsync();
         using var app = pg.CreateApp();
@@ -189,27 +165,7 @@ public sealed class AgentAutonomyTests
         await Assert.That((await db.Messages.AsNoTracking().SingleAsync(x => x.Id == derived.Id)).Text).IsEmpty();
         await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).ContextInvalidated).IsTrue();
         await Assert.That(await db.Parts.AllAsync(x => x.Status == DeliveryStatus.Failed && x.Text == "")).IsTrue();
-        // Restore the old plaintext state; then replay the independently retained deletion ledger twice.
-        await db.Notes.ExecuteUpdateAsync(s => s.SetProperty(x => x.PrivacyDeleted, false)
-            .SetProperty(x => x.DeletedAt, (DateTimeOffset?)null).SetProperty(x => x.Content, note.Content));
-        db.NoteRevisions.Add(new NoteRevision { NoteId = note.Id, Version = 1, Content = note.Content, CreatedAt = note.CreatedAt });
-        await db.Messages.Where(x => x.Id == derived.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, note.Content).SetProperty(x => x.ContextInvalidated, false));
-        await db.Summaries.ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, note.Content).SetProperty(x => x.ContextInvalidated, false));
-        await db.Parts.ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, note.Content).SetProperty(x => x.Status, DeliveryStatus.Pending));
-        await db.SaveChangesAsync();
-        var file = Path.GetFullPath(".local/notes-ledger-" + Guid.NewGuid() + ".json");
-        try
-        {
-            await File.WriteAllTextAsync(file, Json.Write(ledger));
-            var service = app.Services.GetRequiredService<MemoryService>();
-            await service.ReplayLedgerAsync(file, default); await service.ReplayLedgerAsync(file, default);
-            await Assert.That((await db.Notes.AsNoTracking().SingleAsync()).Content).IsEmpty();
-            await Assert.That(await db.NoteRevisions.CountAsync()).IsEqualTo(0);
-            await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(1);
-            await Assert.That(await db.Parts.AllAsync(x => x.Status == DeliveryStatus.Failed && x.Text == "")).IsTrue();
-            await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).Text).IsEmpty();
-        }
-        finally { File.Delete(file); }
+        await Assert.That(await db.NoteRevisions.CountAsync()).IsEqualTo(0);
     }
 
     [Test]
@@ -310,7 +266,7 @@ public sealed class AgentAutonomyTests
     private static async Task<NotesController> ControllerAsync(WonderDbContext db, TestApp app, Guid user)
     {
         var account = await db.Users.SingleAsync(x => x.LogicalUserId == user);
-        return new NotesController(db, app.Services.GetRequiredService<IConfiguration>())
+        return new NotesController(db)
         { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(
             new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, account.Id.ToString())], "test")) } } };
     }

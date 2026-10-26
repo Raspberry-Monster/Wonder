@@ -11,6 +11,22 @@ namespace Wonder.IntegrationTests;
 public sealed class InteractionTests
 {
     [Test]
+    public async Task OnlyEnglishEndClosesTheCurrentSegment()
+    {
+        using var app = new TestApp();
+        var f = await SeedAsync(app);
+        await IngestAsync(app, f.Binding, "ordinary-end-text", "/结束");
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var session = await db.Sessions.AsNoTracking().SingleAsync();
+        await Assert.That(session.DeadlineAt).IsGreaterThan(DateTimeOffset.UtcNow);
+        await Assert.That((await db.Messages.SingleAsync(x => x.ExternalMessageId == "ordinary-end-text")).Text).IsEqualTo("/结束");
+        await IngestAsync(app, f.Binding, "end-command", "/end");
+        var ended = await db.Sessions.AsNoTracking().SingleAsync();
+        await Assert.That(ended.DeadlineAt).IsLessThanOrEqualTo(DateTimeOffset.UtcNow);
+    }
+
+    [Test]
     public async Task HelpIsDurableDeduplicatedAndDoesNotEnterAnyAgentSourceEvenWithoutPersistence()
     {
         using var app = new TestApp();
@@ -26,8 +42,9 @@ public sealed class InteractionTests
         await Assert.That(await db.Sessions.CountAsync()).IsEqualTo(0);
         await Assert.That(await db.Outbox.CountAsync(x => x.Type != JobKind.Outgoing)).IsEqualTo(0);
         var text = string.Concat(await db.Parts.OrderBy(x => x.Sequence).Select(x => x.Text).ToArrayAsync());
-        foreach (var command in new[] { "/help", "/bind", "/end", "/结束", "/force" })
+        foreach (var command in new[] { "/help", "/bind", "/end", "/force" })
             await Assert.That(text).Contains(command);
+        await Assert.That(text).DoesNotContain("/结束");
         await scope.ServiceProvider.GetRequiredService<OutgoingWorkflow>().RunAsync((await db.Outbox.SingleAsync()).Id, default);
         await Assert.That(app.Sender.Sent).IsNotEmpty();
         await Assert.That(app.ModelRequests).IsEmpty();
@@ -64,7 +81,7 @@ public sealed class InteractionTests
         // A legitimately admitted pre-mute reply remains deliverable.
         var original = await db.Outbox.SingleAsync(x => x.Id == e.ChatJobId);
         var originalMessage = await db.Messages.AsNoTracking().SingleAsync(x => x.Id == e.MessageId);
-        ChatWorkflow.QueueReply(db, original, session.Id, "我仍然可以发消息", new ContextSnapshot(f.Bot, session.Id, 1, 0, null, 0, 0,
+        ChatWorkflow.QueueReply(db, original, session.Id, "我仍然可以发消息", new ContextSnapshot(f.Bot, session.Id, 1, 0, 0, 0,
             [], "test", [originalMessage.Id], [originalMessage.SenderId!.Value], [ContentSources.Message(originalMessage)]));
         await db.SaveChangesAsync();
         var batch = await db.Batches.SingleAsync(x => x.SourceJobId == original.Id);

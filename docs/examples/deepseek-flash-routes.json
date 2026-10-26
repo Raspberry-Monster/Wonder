@@ -36,18 +36,6 @@
     "reasoningEffort": "high"
   },
   {
-    "taskKind": "DailyNarrative",
-    "endpoint": "https://api.deepseek.com",
-    "model": "deepseek-flash",
-    "apiKey": "REPLACE_WITH_YOUR_DEEPSEEK_API_KEY",
-    "contextWindow": 32768,
-    "maxOutputTokens": 1024,
-    "supportsImages": false,
-    "supportsJson": false,
-    "thinkingEnabled": false,
-    "reasoningEffort": null
-  },
-  {
     "taskKind": "RollingSummary",
     "endpoint": "https://api.deepseek.com",
     "model": "deepseek-flash",

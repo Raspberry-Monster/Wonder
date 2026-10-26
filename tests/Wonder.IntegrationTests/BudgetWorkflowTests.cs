@@ -148,9 +148,9 @@ public sealed class BudgetWorkflowTests
         var f = await SeedAsync(app, 1);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
-        db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 950, OutputTokens = 0 });
-        var job = Jobs.Add(db, f.Bot, JobKind.Narrative, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
+        await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 10000));
+        db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 9950, OutputTokens = 0 });
+        var job = Jobs.Add(db, f.Bot, JobKind.Reflection, new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Light), f.Conversation);
         job.Status = JobStatus.Running;
         job.LeaseId = Guid.NewGuid();
         job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);
@@ -162,6 +162,31 @@ public sealed class BudgetWorkflowTests
         await Assert.That(saved.ErrorCode).IsEqualTo(nameof(TokenQuotaException));
         await Assert.That(saved.Attempts).IsEqualTo(0);
         await Assert.That(saved.NextAttemptAt).IsGreaterThan(DateTimeOffset.UtcNow);
+        await Assert.That(app.ModelRequests).IsEmpty();
+    }
+
+
+    [Test]
+    public async Task RetiredNarrativeJobsAreCancelledWithoutUsingTheModel()
+    {
+        using var app = new TestApp();
+        var f = await SeedAsync(app, 1);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
+        db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 950, OutputTokens = 0 });
+        var job = new OutboxMessage { BotId = f.Bot, Type = JobKind.Narrative, Payload = "{}", ProgressJson = "old narrative draft" };
+        db.Outbox.Add(job);
+        job.Status = JobStatus.Running;
+        job.LeaseId = Guid.NewGuid();
+        job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);
+        job.Attempts = 1;
+        await db.SaveChangesAsync();
+        await scope.ServiceProvider.GetRequiredService<JobProcessor>().ProcessAsync(job, default);
+        var saved = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id);
+        await Assert.That(saved.Status).IsEqualTo(JobStatus.Cancelled);
+        await Assert.That(saved.ErrorCode).IsEqualTo("FeatureRetired");
+        await Assert.That(saved.ProgressJson).IsNull();
         await Assert.That(app.ModelRequests).IsEmpty();
     }
 
@@ -320,8 +345,7 @@ public sealed class BudgetWorkflowTests
         db.Emotions.Add(new GlobalEmotionState { BotId = bot.Id });
         foreach (var kind in new[]
                  {
-                     TaskKind.RollingSummary, TaskKind.LightReflection, TaskKind.StrongReflection, TaskKind.Embedding,
-                     TaskKind.DailyNarrative
+                     TaskKind.RollingSummary, TaskKind.LightReflection, TaskKind.StrongReflection, TaskKind.Embedding
                  })
             db.Models.Add(new ModelProfile
             {

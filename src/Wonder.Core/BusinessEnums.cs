@@ -83,9 +83,9 @@ public enum JobKind
     [JsonStringEnumMemberName("memory-maintenance")] MemoryMaintenance = 6,
     [JsonStringEnumMemberName("embedding")] Embedding = 7,
     [JsonStringEnumMemberName("maintenance")] Maintenance = 8,
-    [JsonStringEnumMemberName("narrative")] Narrative = 9,
+    [JsonStringEnumMemberName("narrative")] Narrative = 9, // Retired; retained for historical queue records.
     [JsonStringEnumMemberName("summary")] Summary = 10,
-    [JsonStringEnumMemberName("deletion-ledger")] Ledger = 11,
+    [JsonStringEnumMemberName("deletion-ledger")] Ledger = 11, // Retired; never reuse this value.
     [JsonStringEnumMemberName("memory-privacy")] MemoryPrivacy = 12
 }
 public enum DeliveryResolutionAction

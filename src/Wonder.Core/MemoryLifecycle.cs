@@ -27,8 +27,6 @@ public sealed class MemoryOperation
     public DateTimeOffset? PreviewExpiresAt { get; set; }
     public bool Fenced { get; set; }
     public bool CleanupVerified { get; set; }
-    public bool RecoveryVerified { get; set; }
-    public string? ProtectionReceiptJson { get; set; }
     public long Revision { get; set; } = 1;
     public string? ErrorCode { get; set; }
 }
@@ -91,7 +89,7 @@ public sealed class RelationshipClaim
 
 public sealed record PrivacyItemView(Guid Id, string Kind, Guid ResourceId, string State, string? ErrorCode);
 public sealed record PrivacyOperationView(Guid OperationId, string Kind, string Stage, long Revision,
-    bool Fenced, bool CleanupVerified, bool RecoveryVerified, bool Completed,
+    bool Fenced, bool CleanupVerified, bool Completed,
     IReadOnlyList<PrivacyItemView> Items, string[] UncoveredLayers, string? ErrorCode, Guid TargetMemoryId, long TargetRevision);
 public sealed record ErasePreviewView(Guid PreviewId, DateTimeOffset ExpiresAt, string ScopeHash,
     long ExpectedRevision, IReadOnlyList<EraseMessageView> Messages, IReadOnlyList<PrivacyTarget> Targets,

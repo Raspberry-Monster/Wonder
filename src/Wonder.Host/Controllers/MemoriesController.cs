@@ -10,15 +10,11 @@ namespace Wonder.Host.Controllers;
 
 [Route("/api/v1/me")]
 public sealed class MemoriesController(WonderDbContext db, MemoryService service,
-    MemoryLifecycleRelease release, PrivacyWorkflow privacy) : WonderControllerBase(db)
+    PrivacyWorkflow privacy) : WonderControllerBase(db)
 {
     [HttpGet("memory-capabilities")]
     [ProducesResponseType<MemoryCapabilities>(200)]
-    public IActionResult Capabilities() => Ok(release.Capabilities());
-
-    [HttpGet("memory-release-status")]
-    [ProducesResponseType<MemoryReleaseStatus>(200)]
-    public IActionResult ReleaseStatus() => Ok(release.Status());
+    public IActionResult Capabilities() => Ok(new MemoryCapabilities(true, true, true, true));
 
     [HttpGet("memory-settings")]
     public async Task<IActionResult> GetSettings(CancellationToken ct)
@@ -88,7 +84,6 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
 
     [HttpDelete("memories/{id:guid}")]
     [ProducesResponseType(404)]
-    [ProducesResponseType(503)]
     [ProducesResponseType<PrivacyOperationView>(200)]
     [ProducesResponseType<PrivacyOperationView>(202)]
     [ProducesResponseType(400)]
@@ -98,7 +93,6 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        if (!release.CanDelete) return StatusCode(503, new { error = "Memory lifecycle release is not ready." });
         var result = await privacy.ForgetAsync(subject.Value, id, expectedRevision, idempotencyKey, ct);
         return result.Completed ? Ok(result) : AcceptedAtAction(nameof(Operation), new { id = result.OperationId }, result);
     }
@@ -107,13 +101,11 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType<MemoryOperationReceipt>(200)]
     [ProducesResponseType(400)]
     [ProducesResponseType(409)]
-    [ProducesResponseType(503)]
     public async Task<IActionResult> Correct(Guid id, CorrectMemory input,
         [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        if (!release.CanManage) return StatusCode(503, new { error = "Memory lifecycle release is not ready." });
         return Ok(await service.EditAsync(subject.Value, id, input.Text, input.ExpectedRevision,
             idempotencyKey, ct));
     }
@@ -122,13 +114,11 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType<MemoryOperationReceipt>(200)]
     [ProducesResponseType(400)]
     [ProducesResponseType(409)]
-    [ProducesResponseType(503)]
     public async Task<IActionResult> Archive(Guid id, ArchiveMemory input,
         [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        if (!release.CanManage) return StatusCode(503, new { error = "Memory lifecycle release is not ready." });
         return Ok(await service.ArchiveAsync(subject.Value, id, input.ExpectedRevision, idempotencyKey, ct));
     }
 
@@ -155,7 +145,6 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     public async Task<IActionResult> RetryIndex(Guid id, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
-        if (!release.CanManage) return StatusCode(503);
         await service.RetryIndexAsync(subject ?? Guid.Empty, id, ct);
         return Accepted();
     }
@@ -163,12 +152,10 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [HttpPost("memories/{id:guid}/erase-preview")]
     [ProducesResponseType<ErasePreviewView>(200)]
     [ProducesResponseType(409)]
-    [ProducesResponseType(503)]
     public async Task<IActionResult> PreviewErase(Guid id, ErasePreviewInput input, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        if (!release.CanDelete) return StatusCode(503);
         return Ok(await privacy.PreviewAsync(subject.Value, id, input.ExpectedRevision, input.MessageIds ?? [], ct));
     }
 
@@ -176,13 +163,11 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType<PrivacyOperationView>(200)]
     [ProducesResponseType<PrivacyOperationView>(202)]
     [ProducesResponseType(409)]
-    [ProducesResponseType(503)]
     public async Task<IActionResult> Erase(Guid id, ConfirmEraseInput input,
         [BindRequired, FromHeader(Name = "Idempotency-Key")] string key, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        if (!release.CanDelete) return StatusCode(503);
         var preview = await Db.MemoryOperations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.PreviewId && x.ActorId == subject &&
             x.TargetMemoryId == id && x.Kind == "ErasePreview", ct);
         if (preview is null) return NotFound();
@@ -216,7 +201,6 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        if (!release.CanDelete) return StatusCode(503);
         await privacy.RetryAsync(subject.Value, id, ct);
         return AcceptedAtAction(nameof(Operation), new { id }, await privacy.GetAsync(subject.Value, id, ct));
     }

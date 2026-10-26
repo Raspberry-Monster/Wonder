@@ -9,7 +9,7 @@ public sealed record NotesSettingsInput(bool AllowNotes);
 public sealed record UserNoteInput(Guid BotId, string Content, long? ExpectedVersion = null, string? Reason = null);
 
 [Route("/api/v1/me/notes")]
-public sealed class NotesController(WonderDbContext db, IConfiguration configuration) : WonderControllerBase(db)
+public sealed class NotesController(WonderDbContext db) : WonderControllerBase(db)
 {
     [HttpGet("settings")]
     public async Task<IActionResult> Settings(CancellationToken ct)
@@ -152,8 +152,6 @@ public sealed class NotesController(WonderDbContext db, IConfiguration configura
                 ResourceVersion = note.Version, BotId = note.BotId, UserId = user.Id, Epoch = user.NotesEpoch });
             await NoteSources.PurgeAsync(Db, note.Id, ct);
         }
-        if (!string.IsNullOrWhiteSpace(configuration["Backups:AgeRecipient"]))
-            foreach (var bot in notes.Select(x => x.BotId).Distinct()) Jobs.Add(Db, bot, JobKind.Ledger, new IdPayload(user.Id));
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return NoContent();

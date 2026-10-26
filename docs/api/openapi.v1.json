@@ -718,35 +718,6 @@
         }
       }
     },
-    "/api/v1/me/memory-release-status": {
-      "get": {
-        "tags": [
-          "Memories"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/MemoryReleaseStatus"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MemoryReleaseStatus"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MemoryReleaseStatus"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/me/memory-settings": {
       "get": {
         "tags": [
@@ -947,9 +918,6 @@
               }
             }
           },
-          "503": {
-            "description": "Service Unavailable"
-          },
           "200": {
             "description": "OK",
             "content": {
@@ -1135,9 +1103,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Service Unavailable"
           }
         }
       }
@@ -1272,9 +1237,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Service Unavailable"
           }
         }
       }
@@ -1418,9 +1380,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Service Unavailable"
           }
         }
       }
@@ -1529,9 +1488,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Service Unavailable"
           }
         }
       }
@@ -2101,30 +2057,6 @@
           }
         }
       }
-    },
-    "/api/v1/system/deletion-ledger": {
-      "post": {
-        "tags": [
-          "System"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/system/backups": {
-      "post": {
-        "tags": [
-          "System"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
     }
   },
   "components": {
@@ -2370,7 +2302,10 @@
         }
       },
       "DeliveryResolutionAction": {
-        "type": "integer"
+        "enum": [
+          "confirm-sent",
+          "retry"
+        ]
       },
       "EraseMessageView": {
         "required": [
@@ -2600,25 +2535,6 @@
           }
         }
       },
-      "MemoryReleaseStatus": {
-        "required": [
-          "enabled",
-          "available",
-          "state"
-        ],
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "available": {
-            "type": "boolean"
-          },
-          "state": {
-            "type": "string"
-          }
-        }
-      },
       "MemorySettingsInput": {
         "required": [
           "allowMemory"
@@ -2661,7 +2577,11 @@
         }
       },
       "MemoryStatus": {
-        "type": "integer"
+        "enum": [
+          "PendingEmbedding",
+          "Active",
+          "Revoked"
+        ]
       },
       "MemoryView": {
         "required": [
@@ -2744,7 +2664,7 @@
         "type": "object",
         "properties": {
           "taskKind": {
-            "$ref": "#/components/schemas/TaskKind"
+            "$ref": "#/components/schemas/ModelTaskKind"
           },
           "endpoint": {
             "type": "string"
@@ -2882,7 +2802,7 @@
             "format": "uuid"
           },
           "taskKind": {
-            "$ref": "#/components/schemas/TaskKind"
+            "$ref": "#/components/schemas/ModelTaskKind"
           },
           "endpoint": {
             "type": "string"
@@ -2978,6 +2898,15 @@
           }
         }
       },
+      "ModelTaskKind": {
+        "enum": [
+          "Chat",
+          "LightReflection",
+          "StrongReflection",
+          "RollingSummary",
+          "Embedding"
+        ]
+      },
       "NotesSettingsInput": {
         "required": [
           "allowNotes"
@@ -3029,7 +2958,6 @@
           "revision",
           "fenced",
           "cleanupVerified",
-          "recoveryVerified",
           "completed",
           "items",
           "uncoveredLayers",
@@ -3061,9 +2989,6 @@
             "type": "boolean"
           },
           "cleanupVerified": {
-            "type": "boolean"
-          },
-          "recoveryVerified": {
             "type": "boolean"
           },
           "completed": {
@@ -3181,9 +3106,6 @@
             "type": "string"
           }
         }
-      },
-      "TaskKind": {
-        "type": "integer"
       },
       "TokenizerResponse": {
         "required": [
@@ -3350,9 +3272,6 @@
     },
     {
       "name": "ReflectionRuns"
-    },
-    {
-      "name": "System"
     }
   ]
 }

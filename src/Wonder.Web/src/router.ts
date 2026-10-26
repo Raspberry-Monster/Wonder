@@ -8,7 +8,6 @@ export const router = createRouter({
     { path: "/bots", component: () => import("./pages/BotsPage.vue") },
     { path: "/bots/:id/:tab?", component: () => import("./pages/BotPage.vue") },
     { path: "/me/:tab?", component: () => import("./pages/PersonalPage.vue") },
-    { path: "/system", component: () => import("./pages/SystemPage.vue") },
     { path: "/:pathMatch(.*)*", redirect: "/bots" },
   ],
 });

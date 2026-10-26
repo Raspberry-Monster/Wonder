@@ -19,7 +19,6 @@ const noteEditor = ref<any>(),
   noteBots = ref<any[]>([]),
   noteHistory = ref<any>();
 const capabilities = ref({ edit: false, archive: false, forget: false, erase: false });
-const releaseStatus = ref<{ state?: string }>({});
 const indexStates = ref<Record<string, string>>({});
 const archiveKeys = new Map<string, string>();
 const privacyKeys = new Map<string, string>();
@@ -28,7 +27,7 @@ const eraseSelected = ref<string[]>([]), eraseAcknowledged = ref(false);
 let progressTimer: ReturnType<typeof setTimeout> | undefined;
 onUnmounted(() => { if (progressTimer) clearTimeout(progressTimer); });
 const itemLabel: Record<string, string> = { Memory: '记忆版本', Candidate: '记忆提案', ReflectionMemory: '反思中的记忆子项', ReflectionDraft: '记忆草稿', SummaryDraft: '摘要草稿', SummaryProjection: '安全投影', Message: '完整消息', Summary: '关联摘要', Media: '媒体', OutgoingPart: '出站分段' };
-const stateLabel: Record<string, string> = { Completed: '已核验完成', Pending: '待处理', Processing: '处理中', Failed: '失败 · 保持隔离', NeedsReview: '待核验 · 保持隔离', Fenced: '已隔离', Deleting: '清理中', PendingCleanup: '清理或恢复保护待完成' };
+const stateLabel: Record<string, string> = { Completed: '已核验完成', Pending: '待处理', Processing: '处理中', Failed: '失败 · 保持隔离', NeedsReview: '待核验 · 保持隔离', Fenced: '已隔离', Deleting: '清理中', PendingCleanup: '清理待完成' };
 const layerLabel: Record<string, string> = { IndependentNotesAndRelationships: '独立 Notes / 关系正文', ReadOnlyArchive: '只读归档', HistoricalBackups: '历史备份', IndependentExports: '独立导出', ExternalQQ: '外部 QQ 已发送内容' };
 const selectionMatchesPreview = computed(() => erasePreview.value && JSON.stringify([...eraseSelected.value].sort()) === JSON.stringify(erasePreview.value.receipt.messages.map((m: any) => m.id).sort()));
 const tab = computed(() => String(route.params.tab || "settings"));
@@ -63,7 +62,6 @@ async function load() {
       noteBots.value = await api("/me/notes/bots");
     if (tab.value === "memories") {
       capabilities.value = await api("/me/memory-capabilities");
-      releaseStatus.value = await api("/me/memory-release-status");
       const states = await Promise.all(data.value.map(async (item: any) => [item.id, (await api('/me/memories/' + item.id + '/index-state')).state]));
       indexStates.value = Object.fromEntries(states);
       privacyOperations.value = await api('/me/memory-operations');
@@ -327,7 +325,7 @@ async function confirmErase() {
             "
             >包含已归档</a-checkbox
           ></template
-        ><a-alert v-if="!capabilities.edit" type="info" :title="releaseStatus.state === 'AwaitingRecoveryVerification' ? '四项记忆管理操作暂未开放，恢复保护仍待核验。' : '四项记忆管理操作暂未统一开放。'" />
+        >
         <a-list :data="data"
           ><template #item="{ item }"
             ><a-list-item
@@ -477,7 +475,7 @@ async function confirmErase() {
   <a-modal :visible="!!privacyOperation" title="隐私处理进度" :footer="false" @cancel="closeProgress">
     <template v-if="privacyOperation">
       <a-alert :type="privacyOperation.completed ? 'success' : 'warning'" :title="privacyOperation.completed ? '本次在线范围已核验完成' : '整体尚未完成 · 已隔离不等于已物理清理'" />
-      <p>隔离：{{ privacyOperation.fenced ? '已建立' : '未建立' }}；副载荷核验：{{ privacyOperation.cleanupVerified ? '完成' : '待完成' }}；独立恢复保护：{{ privacyOperation.recoveryVerified ? '已核验' : '待核验' }}</p>
+      <p>隔离：{{ privacyOperation.fenced ? '已建立' : '未建立' }}；副载荷核验：{{ privacyOperation.cleanupVerified ? '完成' : '待完成' }}</p>
       <p>{{ privacyOperation.items.filter((i: any) => i.state === 'Completed').length }}/{{ privacyOperation.items.length }} 项完成</p>
       <a-list :data="privacyOperation.items"><template #item="{ item }"><a-list-item>{{ itemLabel[item.kind] || item.kind }}：{{ stateLabel[item.state] || item.state }}<span v-if="item.errorCode"> · {{ item.errorCode }}</span></a-list-item></template></a-list>
       <p>本次未覆盖：{{ privacyOperation.uncoveredLayers.map((l: string) => layerLabel[l] || l).join('、') }}。已发送或在途 QQ 内容不代表已撤回。</p>

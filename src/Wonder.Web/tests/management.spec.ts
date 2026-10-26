@@ -61,7 +61,7 @@ test("Arco management forms, lists and confirmation actions", async ({
         { id: "job-1", type: "chat", status: "DeadLetter", attempts: 5 },
       ]);
     if (p.endsWith("/emotion"))
-      return ok({ state: { valence: 0.5 }, narrative: { text: "今日叙事" } });
+      return ok({ state: { valence: 0.5 } });
     if (p.endsWith("/memory-settings"))
       return ok({
         preferredName: "小明",
@@ -123,7 +123,9 @@ test("Arco management forms, lists and confirmation actions", async ({
   ).toHaveCount(0);
 
   await page.locator(".arco-tabs-tab").filter({ hasText: "运行状态" }).click();
-  await expect(page.getByText("今日叙事", { exact: true })).toBeVisible();
+  await expect(page.getByText("情绪状态", { exact: true })).toBeVisible();
+  await expect(page.getByText("今日叙事", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "系统维护", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "重试", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await expect

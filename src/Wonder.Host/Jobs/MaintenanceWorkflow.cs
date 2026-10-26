@@ -1,17 +1,13 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.AI;
 using Wonder.Core;
 using Wonder.Host.Features.Emotion;
 using Wonder.Infrastructure;
-using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.Host;
 
 public sealed class MaintenanceWorkflow(
     IDbContextFactory<WonderDbContext> factory,
-    ModelRouter models,
     EmotionEngine engine,
-    BackupService backups,
     ConversationClock clock,
     SummaryWorkflow summaries,
     InteractionBoundary interaction)
@@ -137,10 +133,13 @@ public sealed class MaintenanceWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Type == JobKind.Ledger)
+        if (job.Type is JobKind.Narrative or JobKind.Ledger)
         {
-            await backups.ExportLedgerAsync(ct);
-            Jobs.Complete(db, job);
+            job.Status = JobStatus.Cancelled;
+            job.ProgressJson = null;
+            job.LeaseId = null;
+            job.LeaseUntil = null;
+            job.ErrorCode = "FeatureRetired";
             await db.SaveChangesAsync(ct);
             return;
         }
@@ -150,32 +149,13 @@ public sealed class MaintenanceWorkflow(
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var mood = await db.Emotions.SingleAsync(x => x.BotId == job.BotId, ct);
             engine.Evolve(mood, DateTimeOffset.UtcNow);
-            var daily = Json.Read<DailyJob>(job.Payload);
-            Jobs.Add(db, job.BotId, JobKind.Narrative, daily, cause: job.Id).ScheduledDate = daily.Date;
             Jobs.Complete(db, job);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return;
         }
 
-        if (job.Type == JobKind.Narrative)
-        {
-            var date = Json.Read<DailyJob>(job.Payload).Date;
-            if (!await db.Narratives.AnyAsync(x => x.BotId == job.BotId && x.Date == date, ct))
-            {
-                var mood = await db.Emotions.AsNoTracking().SingleAsync(x => x.BotId == job.BotId, ct);
-                var profile = await models.ProfileAsync(job.BotId, TaskKind.DailyNarrative, ct);
-                var result = await models.GenerateAsync(profile,
-                [
-                    new AiMessage(ChatRole.System,
-                        "Write a short expressive daily vignette for a fictional AI character based only on the simulated mood below. Do not invent user events or claim real subjective experience. Reply in Chinese."),
-                    new AiMessage(ChatRole.User, Json.ForPrompt(new { mood.Valence, mood.Arousal, mood.Energy }))
-                ], false, ct);
-                db.Narratives.Add(new DailyNarrative
-                    { BotId = job.BotId, Date = date, StateRevision = mood.Revision, Text = result.Text });
-            }
-        }
-        else if (job.Type == JobKind.Summary)
+        if (job.Type == JobKind.Summary)
         {
             await summaries.RunAsync(jobId, ct, expectedLeaseId);
             return;

@@ -80,7 +80,7 @@ public sealed class ApiTests
             .IsEqualTo(HttpStatusCode.NotFound);
         await Assert.That((await a.GetAsync($"/api/v1/bots/{id}")).StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That((await a.PostAsync("/api/v1/system/backups", null)).StatusCode)
-            .IsEqualTo(HttpStatusCode.Forbidden);
+            .IsEqualTo(HttpStatusCode.NotFound);
     }
 
     [Test]
@@ -94,7 +94,7 @@ public sealed class ApiTests
         var available = (await client.GetFromJsonAsync<TokenizerResponse[]>(url + "/tokenizers"))!;
         await Assert.That(available.Length > 0).IsTrue();
         var selected = available[0].Id;
-        var route = new ModelRouteInput(TaskKind.Chat, "https://model.example/v1", selected, "test-key");
+        var route = new ModelRouteInput(ModelTaskKind.Chat, "https://model.example/v1", selected, "test-key");
         await Assert.That((await client.PutAsJsonAsync(url, new[] { route }, Json.Options)).StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         using var scope = app.Services.CreateScope();
@@ -171,52 +171,6 @@ public sealed class ApiTests
         await Assert.That(await db.Messages.ToListAsync()).HasSingleItem();
         await Assert.That(await db.Outbox.Where(x => x.Type == JobKind.Chat).ToListAsync()).HasSingleItem();
         await Assert.That(await db.Sessions.ToListAsync()).HasSingleItem();
-    }
-
-    [Test]
-    public async Task ForgetRemainsUnavailableWithoutMutatingEvidence()
-    {
-        using var app = new TestApp();
-        var (_, owner) = await LoginAsync(app, "revocation@example.com");
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var bot = new BotInstance { OwnerId = owner };
-        var user = new LogicalUser { AllowMemory = true };
-        db.Bots.Add(bot);
-        db.LogicalUsers.Add(user);
-        var conv = new Conversation { BotId = bot.Id };
-        db.Conversations.Add(conv);
-        var session = new ConversationSession { BotId = bot.Id, ConversationId = conv.Id };
-        db.Sessions.Add(session);
-        var msg = new ChatMessage
-        {
-            BotId = bot.Id, ConversationId = conv.Id, SessionId = session.Id, SenderId = user.Id,
-            AllowReflection = true, ExternalMessageId = "1", Text = "喜欢蓝色", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
-        };
-        db.Messages.Add(msg);
-        var memory = new Memory
-        {
-            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色"
-        };
-        db.Memories.Add(memory);
-        var reflection = new ReflectionResult
-        {
-            BotId = bot.Id,
-            SessionId = session.Id,
-            SubjectId = user.Id,
-            Boundary = 999,
-            RevocationEpoch = 0,
-            Payload = Json.Write(new ReflectionProposal(false, null, [],
-                [new MemoryCandidate("color", "喜欢蓝色", true, false, [msg.Id])]))
-        };
-        db.Reflections.Add(reflection);
-        var job = Jobs.Add(db, bot.Id, JobKind.Memory, new IdPayload(reflection.Id));
-        await db.SaveChangesAsync();
-        await Assert.That(() => scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(user.Id, memory.Id, null, default)).ThrowsExactly<NotSupportedException>();
-        db.ChangeTracker.Clear();
-        await Assert.That(await db.Memories.Where(x => x.Status != MemoryStatus.Revoked).ToListAsync()).HasSingleItem();
-        await Assert.That((await db.Outbox.SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Pending);
-        await Assert.That((await db.Messages.SingleAsync(x => x.Id == msg.Id)).Text).IsEqualTo(msg.Text);
     }
 
     [Test]
@@ -318,6 +272,12 @@ public sealed class ApiTests
         using var json = JsonDocument.Parse(schema);
         await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me/memories/{id}", out _))
             .IsTrue();
+        await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/system/backups", out _)).IsFalse();
+        await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me/memory-release-status", out _)).IsFalse();
+        var schemas = json.RootElement.GetProperty("components").GetProperty("schemas");
+        await Assert.That(schemas.GetProperty("ModelTaskKind").GetProperty("enum").EnumerateArray()
+            .Select(x => x.GetString()!).ToArray()).IsEquivalentTo(new[] { "Chat", "LightReflection", "StrongReflection", "RollingSummary", "Embedding" });
+        await Assert.That(schemas.GetProperty("PrivacyOperationView").GetProperty("properties").TryGetProperty("recoveryVerified", out _)).IsFalse();
         var output = Environment.GetEnvironmentVariable("WONDER_EXPORT_OPENAPI");
         if (!string.IsNullOrEmpty(output)) await File.WriteAllTextAsync(output, schema);
     }
@@ -341,25 +301,11 @@ public sealed class ApiTests
         await db.SaveChangesAsync();
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
         await service.EditAsync(user.Id, memory.Id, "现在更喜欢绿色", 1, "correct", default);
-        var ledger = await db.Revocations.AsNoTracking().ToListAsync();
-        var directory = Path.GetFullPath(".local");
-        Directory.CreateDirectory(directory);
-        var file = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".json");
-        try
-        {
-            await File.WriteAllTextAsync(file, Json.Write(ledger));
-            await service.ReplayLedgerAsync(file, default);
-            await service.ReplayLedgerAsync(file, default);
-            db.ChangeTracker.Clear();
-            var remaining = await db.Memories.Where(x => x.Status != MemoryStatus.Revoked && x.ArchivedAt == null).ToListAsync();
-            await Assert.That(remaining).HasSingleItem();
-            await Assert.That(remaining[0].Text).IsEqualTo("现在更喜欢绿色");
-            await Assert.That(remaining[0].FactKey).IsEqualTo("color");
-        }
-        finally
-        {
-            File.Delete(file);
-        }
+        await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(0);
+        var remaining = await db.Memories.Where(x => x.Status != MemoryStatus.Revoked && x.ArchivedAt == null).ToListAsync();
+        await Assert.That(remaining).HasSingleItem();
+        await Assert.That(remaining[0].Text).IsEqualTo("现在更喜欢绿色");
+        await Assert.That(remaining[0].FactKey).IsEqualTo("color");
     }
 
     [Test]
@@ -429,7 +375,9 @@ public sealed class ApiTests
             }
         });
         await Assert.That(embedding.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-        var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding).ToArray();
+        var rejected = await client.PutAsJsonAsync(url, new[] { new { taskKind = "DailyNarrative", endpoint = "https://model.example/v1/", model = "retired", apiKey = "unused" } });
+        await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding && x != TaskKind.DailyNarrative).ToArray();
         var configured = await client.PutAsJsonAsync(url, tasks.Select(task => new
         {
             taskKind = task.ToString(), endpoint = "https://api.deepseek.com", model = "deepseek-flash",
@@ -441,7 +389,7 @@ public sealed class ApiTests
         }));
         await Assert.That(configured.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         var routes = await client.GetFromJsonAsync<JsonElement>(url);
-        await Assert.That(routes.GetArrayLength()).IsEqualTo(6);
+        await Assert.That(routes.GetArrayLength()).IsEqualTo(5);
         var vector = routes.EnumerateArray().Single(x => x.GetProperty("taskKind").GetString() == "Embedding");
         await Assert.That(vector.GetProperty("model").GetString()).IsEqualTo("vector-model");
         await Assert.That(vector.GetProperty("embeddingDimensions").GetInt32()).IsEqualTo(3);

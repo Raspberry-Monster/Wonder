@@ -26,25 +26,17 @@ public sealed class TestApp : WebApplicationFactory<Program>
     private readonly string? postgresConnection;
     private readonly bool? requireHttps;
     private readonly TimeProvider? time;
-    private readonly IRecoveryAuthority? recoveryAuthority;
     private readonly DbCommandInterceptor? interceptor;
-    private readonly bool? lifecycleEnabled;
-    private readonly bool realRecoveryStartup;
-    private readonly string recoveryKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
     public TestApp(TimeProvider? time = null, string? databaseFile = null,
         string environment = "Development", bool? requireHttps = null, string? postgresConnection = null,
-        IRecoveryAuthority? recoveryAuthority = null, DbCommandInterceptor? interceptor = null,
-        bool? lifecycleEnabled = null, bool realRecoveryStartup = false)
+        DbCommandInterceptor? interceptor = null)
     {
         this.time = time;
         this.environment = environment;
         this.requireHttps = requireHttps;
         this.postgresConnection = postgresConnection;
-        this.recoveryAuthority = recoveryAuthority;
         this.interceptor = interceptor;
-        this.lifecycleEnabled = lifecycleEnabled;
-        this.realRecoveryStartup = realRecoveryStartup;
         if (postgresConnection is null)
         {
             connection = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -69,29 +61,13 @@ public sealed class TestApp : WebApplicationFactory<Program>
                 ["Authentication:AllowRegistration"] = "true", ["Chat:InteractionToolsEnabled"] = "true",
                 ["Chat:ReflectionToolsEnabled"] = "true", ["Chat:NotesToolsEnabled"] = "true"
             };
-            if (environment == "MemoryLifecycleTest") settings["MemoryLifecycle:InternalTesting"] = "true";
-            if (lifecycleEnabled.HasValue) settings["MemoryLifecycle:Enabled"] = lifecycleEnabled.Value.ToString();
-            if (recoveryAuthority is not null)
-            {
-                settings["Recovery:ArchiveKeyBase64"] = recoveryKey;
-                settings["Recovery:ArchiveKeyId"] = "isolated-test-key";
-                settings["Recovery:TrustedBaseline"] = "isolated-test-baseline";
-                settings["Storage:MediaPath"] = Path.GetFullPath(".local/privacy-test-media");
-            }
+            settings["Storage:MediaPath"] = Path.GetFullPath(".local/privacy-test-media");
             if (requireHttps.HasValue) settings["Authentication:RequireHttps"] = requireHttps.Value.ToString();
             c.AddInMemoryCollection(settings);
         });
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IHostedService>();
-            services.RemoveAll<Wonder.Host.IRecoveryStartup>();
-            if (realRecoveryStartup) services.AddSingleton<Wonder.Host.IRecoveryStartup, Wonder.Host.RecoveryBootstrap>();
-            else services.AddSingleton<Wonder.Host.IRecoveryStartup, IsolatedTestStartup>();
-            if (recoveryAuthority is not null)
-            {
-                services.RemoveAll<IRecoveryAuthority>();
-                services.AddSingleton(recoveryAuthority);
-            }
             if (time is not null)
             {
                 services.RemoveAll<TimeProvider>();
@@ -122,11 +98,6 @@ public sealed class TestApp : WebApplicationFactory<Program>
             using var db = new TestDb(options);
             db.Database.EnsureCreated();
         });
-    }
-
-    private sealed class IsolatedTestStartup : Wonder.Host.IRecoveryStartup
-    {
-        public Task<RecoveryProof> VerifyAsync(CancellationToken ct) => Task.FromResult(new RecoveryProof(true, "IsolatedTestOnly"));
     }
 
     protected override void Dispose(bool disposing)

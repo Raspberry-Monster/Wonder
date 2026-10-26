@@ -40,7 +40,6 @@ services:
       ConnectionStrings__Postgres: Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password
     volumes:
       - "~/quadlet.config.d/Wonder/Host:/app/data:z"
-      - "~/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:z"
     ports: ["127.0.0.1:5080:8080"]
     depends_on:
       - postgres

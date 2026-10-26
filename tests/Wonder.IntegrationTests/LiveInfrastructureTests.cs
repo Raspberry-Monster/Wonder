@@ -299,25 +299,25 @@ public sealed class LiveInfrastructureTests
     {
         var queue = new JobQueue(new QueueFactory(options));
         await using var db = new WonderDbContext(options);
-        var job = new OutboxMessage { BotId = botId, Type = JobKind.Ledger, Payload = Json.Write(new IdPayload(botId)) };
+        var job = new OutboxMessage { BotId = botId, Type = JobKind.MemoryPrivacy, Payload = Json.Write(new IdPayload(botId)) };
         var delayed = new OutboxMessage
-            { BotId = botId, Type = JobKind.Ledger, Payload = Json.Write(new IdPayload(botId)) };
+            { BotId = botId, Type = JobKind.MemoryPrivacy, Payload = Json.Write(new IdPayload(botId)) };
         db.Outbox.AddRange(job, delayed);
         delayed.NextAttemptAt = DateTimeOffset.UtcNow.AddHours(1);
         await db.SaveChangesAsync();
         var claims = await Task.WhenAll(Enumerable.Range(0, 8)
-            .Select(_ => queue.TryClaimAsync([JobKind.Ledger], default)));
+            .Select(_ => queue.TryClaimAsync([JobKind.MemoryPrivacy], default)));
         await Assert.That(claims.OfType<OutboxMessage>().ToArray()).HasSingleItem();
         var first = claims.OfType<OutboxMessage>().Single();
         await Assert.That(first.Id).IsEqualTo(job.Id);
         await Assert.That(first.Attempts).IsEqualTo(1);
-        await Assert.That(await queue.TryClaimAsync([JobKind.Ledger], default)).IsNull();
+        await Assert.That(await queue.TryClaimAsync([JobKind.MemoryPrivacy], default)).IsNull();
         await Assert.That(await queue.RenewAsync(first.Id, first.LeaseId!.Value, default)).IsTrue();
         await db.Entry(job).ReloadAsync();
         // Keep an old tracked copy, expire the lease, and verify both reclaim and stale-write fencing.
         await db.Outbox.Where(x => x.Id == job.Id).ExecuteUpdateAsync(s =>
             s.SetProperty(x => x.LeaseUntil, DateTimeOffset.UtcNow.AddSeconds(-1)));
-        var replacement = (await queue.TryClaimAsync([JobKind.Ledger], default))!;
+        var replacement = (await queue.TryClaimAsync([JobKind.MemoryPrivacy], default))!;
         await Assert.That(replacement.LeaseId == first.LeaseId).IsFalse();
         await Assert.That(replacement.Attempts).IsEqualTo(2);
         await Assert.That(await queue.RenewAsync(first.Id, first.LeaseId.Value, default)).IsFalse();
@@ -334,7 +334,7 @@ public sealed class LiveInfrastructureTests
         await Assert.That(() => Jobs.RequireLease(replacement, first.LeaseId))
             .ThrowsExactly<DbUpdateConcurrencyException>();
         await CompleteAsync(options, job.Id);
-        await Assert.That(await queue.TryClaimAsync([JobKind.Ledger], default)).IsNull();
+        await Assert.That(await queue.TryClaimAsync([JobKind.MemoryPrivacy], default)).IsNull();
 
         var conversation = new Conversation { BotId = botId, ExternalId = "queue-order" };
         db.Conversations.Add(conversation);

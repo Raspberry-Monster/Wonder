@@ -549,36 +549,6 @@ namespace Wonder.Infrastructure.Migrations
                     b.ToTable("Summaries");
                 });
 
-            modelBuilder.Entity("Wonder.Core.DailyNarrative", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BotId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("date");
-
-                    b.Property<DateTimeOffset>("GeneratedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("StateRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BotId", "Date")
-                        .IsUnique();
-
-                    b.ToTable("Narratives");
-                });
-
             modelBuilder.Entity("Wonder.Core.EmbeddingProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1111,12 +1081,6 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset?>("PreviewExpiresAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ProtectionReceiptJson")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("RecoveryVerified")
-                        .HasColumnType("boolean");
 
                     b.Property<Guid>("ResultMemoryId")
                         .HasColumnType("uuid");
@@ -2163,15 +2127,6 @@ namespace Wonder.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("Wonder.Core.ConversationSummary", b =>
-                {
-                    b.HasOne("Wonder.Core.BotInstance", null)
-                        .WithMany()
-                        .HasForeignKey("BotId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Wonder.Core.DailyNarrative", b =>
                 {
                     b.HasOne("Wonder.Core.BotInstance", null)
                         .WithMany()

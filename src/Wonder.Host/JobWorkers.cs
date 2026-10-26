@@ -15,7 +15,7 @@ public sealed class JobWorkers(
             ConsumeAsync([JobKind.Outgoing], ct),
             ConsumeAsync([JobKind.Reflection, JobKind.Emotion, JobKind.Relationship], ct),
             ConsumeAsync([JobKind.Memory, JobKind.Embedding, JobKind.MemoryMaintenance, JobKind.MemoryPrivacy], ct),
-            ConsumeAsync([JobKind.Maintenance, JobKind.Narrative, JobKind.Summary, JobKind.Ledger], ct));
+            ConsumeAsync([JobKind.Maintenance, JobKind.Summary], ct));
     }
 
     private async Task ConsumeAsync(JobKind[] types, CancellationToken ct)

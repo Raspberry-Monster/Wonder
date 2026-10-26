@@ -19,6 +19,12 @@ public sealed class JobProcessor(
         var heartbeat = RenewAsync(job, execution, heartbeatStop.Token);
         try
         {
+            if (job.Type is JobKind.Narrative or JobKind.Ledger)
+            {
+                using var retiredScope = scopes.CreateScope();
+                await retiredScope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, execution.Token, job.LeaseId);
+                return;
+            }
             EventContracts.ValidateVersion(job);
             if (job.Attempts > MaxAttempts(job.Type))
                 throw new InvalidOperationException("Task exhausted its attempts after lease expiration.");

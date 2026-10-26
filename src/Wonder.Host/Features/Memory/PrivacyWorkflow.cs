@@ -5,8 +5,7 @@ using Wonder.Infrastructure;
 
 namespace Wonder.Host;
 
-public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> factory, IRecoveryAuthority authority,
-    RecoveryPackages packages, MediaStore media)
+public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> factory, MediaStore media)
 {
     public static readonly string[] UncoveredLayers = ["IndependentNotesAndRelationships", "ReadOnlyArchive", "HistoricalBackups", "IndependentExports", "ExternalQQ"];
 
@@ -52,7 +51,6 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
             if (existing.ArgumentsHash != arguments) throw new DbUpdateConcurrencyException("Idempotency key has different arguments.");
             return await GetAsync(actor, existing.Id, ct);
         }
-        if (!authority.Configured || !packages.Configured) throw new RecoveryUnavailableException("IndependentRecoveryProtectionNotConfigured");
         if (preview is not null && (preview.PreviewExpiresAt <= DateTimeOffset.UtcNow || preview.ScopeHash != scopeHash))
             throw new DbUpdateConcurrencyException("Erase preview expired or changed.");
         var selected = preview is null ? [] : Json.Read<PrivacyTarget[]>(preview.TargetsJson).Where(x => x.Kind == "Message")
@@ -61,14 +59,10 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
         var originalIds = await db.Messages.AsNoTracking().Where(x => selected.Contains(x.Id) && x.SenderId == actor && x.Role == MessageRole.User).Select(x => x.Id).ToArrayAsync(ct);
         var plan = await PrivacyPlans.BuildAsync(db, actor, memoryId, revision, preview is not null, originalIds, ct, media.Root);
         if (preview is not null && plan.ScopeHash != preview.ScopeHash) throw new DbUpdateConcurrencyException("Erase scope changed; preview again.");
-        var operationId = new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
-            $"{authority.InstanceId:N}:{actor:N}:{key}"))[..16]);
+        var operationId = Guid.NewGuid();
         var operation = new MemoryOperation { Id = operationId, ActorId = actor, BotId = plan.BotId, IdempotencyKey = key,
             ArgumentsHash = arguments, Kind = kind, Stage = "Preparing", TargetMemoryId = memoryId, ExpectedRevision = revision,
             ScopeHash = plan.ScopeHash, TargetsJson = Json.Write(plan.Targets) };
-        var intent = new ProtectionIntent(operation.Id, authority.InstanceId, actor, plan.BotId, kind, plan.ScopeHash, plan.Targets, plan.Suppressions);
-        var prepare = await authority.PrepareAsync(intent, ct); // Never hold a PG transaction during external durability.
-        try
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == actor, ct);
@@ -77,16 +71,14 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
             if (existing is not null)
             {
                 await tx.RollbackAsync(ct);
-                if (existing.Id != operation.Id) await authority.ResolveAsync(intent, false, ct);
                 if (existing.ArgumentsHash != arguments) throw new DbUpdateConcurrencyException();
                 return await GetAsync(actor, existing.Id, ct);
             }
             var fresh = await PrivacyPlans.BuildAsync(db, actor, memoryId, revision, preview is not null, originalIds, ct, media.Root);
-            if (fresh.ScopeHash != plan.ScopeHash) throw new DbUpdateConcurrencyException("Scope changed after protection prepare.");
+            if (fresh.ScopeHash != plan.ScopeHash) throw new DbUpdateConcurrencyException("Scope changed; preview again.");
             var candidateIds = plan.Targets.Where(x => x.Kind == "Candidate").Select(x => x.Id).ToArray();
             var hashes = await db.MemoryCandidates.Where(x => candidateIds.Contains(x.Id)).Select(x => x.CandidateHash).ToArrayAsync(ct);
             operation.AssertionHashesJson = Json.Write(hashes);
-            operation.ProtectionReceiptJson = Json.Write(prepare);
             operation.Fenced = true; operation.Stage = "Fenced";
             db.MemoryOperations.Add(operation);
             foreach (var target in plan.Targets)
@@ -114,27 +106,17 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
         }
-        catch (DbUpdateConcurrencyException)
-        {
-            // An ambiguous DB failure is not an Abort. Only a proven rollback scope is eligible for explicit resolution.
-            if (!await db.MemoryOperations.AsNoTracking().AnyAsync(x => x.Id == operation.Id && x.Fenced, ct))
-                await authority.ResolveAsync(intent, false, ct);
-            throw;
-        }
         try
         {
-            var committed = await authority.ResolveAsync(intent, true, ct);
-            await db.MemoryOperations.Where(x => x.Id == operation.Id).ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.ProtectionReceiptJson, Json.Write(committed)).SetProperty(x => x.Stage, "PendingCleanup"), ct);
             // One bounded pass implements synchronous-first completion. Durable Outbox continues after interruption.
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(TimeSpan.FromSeconds(8));
             await ProcessAsync(operation.Id, budget.Token);
         }
-        catch (Exception ex) when (ex is RecoveryUnavailableException or HttpRequestException or IOException or OperationCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException)
         {
             await db.MemoryOperations.Where(x => x.Id == operation.Id && x.Stage != "Completed").ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.ErrorCode, "ProtectionOrCleanupPending").SetProperty(x => x.Revision, x => x.Revision + 1), CancellationToken.None);
+                .SetProperty(x => x.ErrorCode, "CleanupPending").SetProperty(x => x.Revision, x => x.Revision + 1), CancellationToken.None);
         }
         return await GetAsync(actor, operation.Id, CancellationToken.None);
     }
@@ -147,7 +129,7 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
         var items = await db.MemoryOperationItems.AsNoTracking().Where(x => x.OperationId == id).OrderBy(x => x.Kind).ThenBy(x => x.Id)
             .Select(x => new PrivacyItemView(x.Id, x.Kind, x.ResourceId, x.State, x.ErrorCode)).ToArrayAsync(ct);
         return new PrivacyOperationView(id, operation.Kind, operation.Stage, operation.Revision, operation.Fenced,
-            operation.CleanupVerified, operation.RecoveryVerified, operation.Stage == "Completed" && operation.CleanupVerified && operation.RecoveryVerified,
+            operation.CleanupVerified, operation.Stage == "Completed" && operation.CleanupVerified,
             items, UncoveredLayers, operation.ErrorCode, operation.TargetMemoryId,
             await db.Memories.Where(x => x.Id == operation.TargetMemoryId && x.SubjectId == actor).Select(x => x.Revision).SingleOrDefaultAsync(ct));
     }

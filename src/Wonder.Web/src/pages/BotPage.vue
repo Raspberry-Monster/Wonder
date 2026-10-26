@@ -42,7 +42,6 @@ const tasks = [
   "Chat",
   "LightReflection",
   "StrongReflection",
-  "DailyNarrative",
   "RollingSummary",
   "Embedding",
 ];
@@ -50,7 +49,6 @@ const taskNames: Record<string, string> = {
   Chat: "聊天",
   LightReflection: "轻量反思",
   StrongReflection: "深度反思",
-  DailyNarrative: "每日叙事",
   RollingSummary: "滚动摘要",
   Embedding: "向量嵌入",
 };
@@ -420,7 +418,7 @@ const jobColumns = [
           ]"
           :scroll="{ x: 600 }"
       /></a-card>
-      <a-card title="情绪与每日叙事"
+      <a-card title="情绪状态"
         ><a-descriptions :column="3"
           ><a-descriptions-item
             v-for="key in ['valence', 'arousal', 'energy']"
@@ -436,10 +434,7 @@ const jobColumns = [
             "
             >{{ data.emotion.state?.[key] }}</a-descriptions-item
           ></a-descriptions
-        >
-        <p class="preserve">
-          {{ data.emotion.narrative?.text || "暂无每日叙事" }}
-        </p></a-card
+        ></a-card
       >
       <a-card title="任务记录"
         ><a-table

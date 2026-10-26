@@ -55,13 +55,13 @@ public sealed class ArchiveCutoverTests
         var job = Jobs.Add(db, f.Bot, JobKind.Chat, new IdPayload(Guid.NewGuid()), conversation.Id);
         var reply = new ChatMessage { BotId = f.Bot, ConversationId = conversation.Id, SessionId = session.Id,
             Role = MessageRole.Assistant, ExternalMessageId = "generated:" + job.Id, Text = "shared-derived reply",
-            ContextSnapshotJson = Json.Write(new ContextSnapshot(f.Bot,session.Id,1,1,null,0,0,[sharedId],"test")) };
+            ContextSnapshotJson = Json.Write(new ContextSnapshot(f.Bot,session.Id,1,1,0,0,[sharedId],"test")) };
         db.Messages.Add(reply);
         var unproven = new ChatMessage { BotId = f.Bot, ConversationId = conversation.Id, SessionId = session.Id,
             Role = MessageRole.Assistant, ExternalMessageId = "unattributed-old-answer", Text = "old answer without provenance" };
         var unrelated = new ChatMessage { BotId = f.Bot, ConversationId = conversation.Id, SessionId = session.Id,
             Role = MessageRole.Assistant, ExternalMessageId = "unrelated-answer", Text = "unrelated private answer",
-            ContextSnapshotJson = Json.Write(new ContextSnapshot(f.Bot,session.Id,1,1,null,0,0,[],"test")) };
+            ContextSnapshotJson = Json.Write(new ContextSnapshot(f.Bot,session.Id,1,1,0,0,[],"test")) };
         db.Messages.AddRange(unproven, unrelated);
         var unknownSession = new ConversationSession { BotId = f.Bot, ConversationId = conversation.Id, Status = SessionStatus.Closed };
         var unrelatedSession = new ConversationSession { BotId = f.Bot, ConversationId = conversation.Id, Status = SessionStatus.Closed };
@@ -107,8 +107,6 @@ public sealed class ArchiveCutoverTests
         await Assert.That((await db.ReflectionGenerations.SingleAsync(x => x.Id == groupRun.Id)).Status).IsEqualTo(ReflectionGenerationStatus.Cancelled);
         var archivedReason = await db.Database.SqlQuery<string>($"SELECT row_json->>'Reason' AS \"Value\" FROM retired_context.entries WHERE source_table = 'AgentReflectionRequests' AND source_id = {request.Id.ToString()}").SingleAsync();
         await Assert.That(archivedReason).IsEqualTo("old group reason");
-        var exportedRows = await db.Database.SqlQueryRaw<BackupService.RetiredArchiveRow>("SELECT source_table AS \"SourceTable\", source_id AS \"SourceId\", row_json::text AS \"RowJson\", archived_at AS \"ArchivedAt\" FROM retired_context.entries").ToArrayAsync();
-        await Assert.That(exportedRows.Any(x => x.SourceTable == "Memories" && x.SourceId == sharedId.ToString())).IsTrue();
         await Assert.That(async () => { await db.Database.ExecuteSqlRawAsync("UPDATE retired_context.entries SET row_json = row_json"); })
             .ThrowsExactly<PostgresException>();
         var queue = scope.ServiceProvider.GetRequiredService<JobQueue>();
@@ -119,37 +117,6 @@ public sealed class ArchiveCutoverTests
         await Assert.That(app.ModelRequests).IsEmpty();
     }
 
-    [Test]
-    public async Task PostgreSqlConvertedSharedLedgerCannotRevokeUnrelatedPrivateFacts()
-    {
-        await using var pg = await TestPostgres.CreateAsync();
-        using var app = pg.CreateApp();
-        var f = await SeedAsync(app);
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var user = await db.LogicalUsers.SingleAsync();
-        var fact = new Memory { BotId = f.Bot, SubjectId = user.Id, FactKey = "same-fact", Text = "private fact", Status = MemoryStatus.Active };
-        db.Memories.Add(fact); await db.SaveChangesAsync();
-        var legacy = Json.Write(new[] { new { id = Guid.NewGuid(), botId = f.Bot, userId = user.Id, recordVersion = 1,
-            resourceKind = "Memory", scope = "UserShared", scopeOwnerId = user.Id.ToString(), factKeyHash = Json.Hash(fact.FactKey),
-            epoch = 3, createdAt = DateTimeOffset.UtcNow } });
-        await Assert.That(() => DeletionLedger.Read(legacy)).ThrowsExactly<System.Text.Json.JsonException>();
-        var converted = LegacyDeletionLedgerConverter.Convert(legacy);
-        await Assert.That(DeletionLedger.Read(converted).Single().ResourceKind).IsEqualTo(DeletionResourceKind.MemoryContext);
-        var file = Path.GetFullPath(".local/converted-ledger-" + Guid.NewGuid() + ".json");
-        try
-        {
-            await File.WriteAllTextAsync(file, converted);
-            var service = scope.ServiceProvider.GetRequiredService<Wonder.Host.MemoryService>();
-            await Assert.That(() => service.ReplayLedgerAsync(file, default)).ThrowsExactly<InvalidOperationException>();
-            await Assert.That(() => service.ReplayLedgerAsync(file, default)).ThrowsExactly<InvalidOperationException>();
-            db.ChangeTracker.Clear();
-            await Assert.That((await db.Memories.SingleAsync()).Status).IsEqualTo(MemoryStatus.Active);
-            await Assert.That((await db.LogicalUsers.SingleAsync()).RevocationEpoch).IsEqualTo(0);
-            await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(0);
-        }
-        finally { File.Delete(file); }
-    }
 
     [Test]
     public async Task PostgreSqlRejectsUndefinedBusinessTagsWithoutChangingStoredValues()

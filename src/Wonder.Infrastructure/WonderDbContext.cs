@@ -21,7 +21,6 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options)
     public DbSet<ConversationSummary> Summaries => Set<ConversationSummary>();
     public DbSet<GlobalEmotionState> Emotions => Set<GlobalEmotionState>();
     public DbSet<EmotionEvent> EmotionEvents => Set<EmotionEvent>();
-    public DbSet<DailyNarrative> Narratives => Set<DailyNarrative>();
     public DbSet<RelationshipState> Relationships => Set<RelationshipState>();
     public DbSet<RelationshipObservation> Observations => Set<RelationshipObservation>();
     public DbSet<Memory> Memories => Set<Memory>();

@@ -11,43 +11,18 @@ namespace Wonder.IntegrationTests;
 
 public sealed class MemoryReleaseTests
 {
-    // Real PG/bootstrap/HTTP, simulated independent authority and model/QQ only. Not S-04 certification.
-    private static PrivacyTests.TestAuthority Authority(string? receipt = "test-only-authority-receipt") =>
-        new() { StartupProof = new RecoveryProof(true, "Passed", receipt) };
-
     [Test]
-    [Arguments(false, true, "Disabled")]
-    [Arguments(true, false, "AwaitingRecoveryVerification")]
-    public async Task ConfigurationAloneOrAnUnreleasedBuildCannotPartiallyOpenOperations(bool enabled, bool verify, string state)
+    public async Task ProductionWithoutRecoveryConfigurationAllowsAllFourWhileAutomaticLearningIsOff()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = Authority();
-        using var app = new TestApp(environment: "Production", postgresConnection: pg.ConnectionString,
-            recoveryAuthority: authority, lifecycleEnabled: enabled, realRecoveryStartup: verify);
-        var f = await PrivacyTests.SeedAsync(app); using var client = await LoginAsync(app, f.User);
-        await AssertClosedAsync(client, f.Old!.Value);
-        await Assert.That((await client.GetFromJsonAsync<MemoryReleaseStatus>("/api/v1/me/memory-release-status"))!.State).IsEqualTo(state);
-    }
-
-    [Test]
-    public async Task AProofWithoutItsVerifiedReceiptCannotEnableRelease()
-    {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = Authority(null);
-        using var app = new TestApp(environment: "Production", postgresConnection: pg.ConnectionString,
-            recoveryAuthority: authority, lifecycleEnabled: true, realRecoveryStartup: true);
-        var f = await PrivacyTests.SeedAsync(app); using var client = await LoginAsync(app, f.User);
-        await AssertClosedAsync(client, f.Old!.Value);
-    }
-
-    [Test]
-    public async Task ProductionReleasePointEnablesAllFourAndClosingItDisablesAllFour()
-    {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = Authority();
-        using var app = new TestApp(environment: "Production", postgresConnection: pg.ConnectionString,
-            recoveryAuthority: authority, lifecycleEnabled: true, realRecoveryStartup: true);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = new TestApp(environment: "Production", postgresConnection: pg.ConnectionString);
         var f = await PrivacyTests.SeedAsync(app); using var client = await LoginAsync(app, f.User);
         var capabilities = await client.GetFromJsonAsync<MemoryCapabilities>("/api/v1/me/memory-capabilities");
         await Assert.That(capabilities).IsEqualTo(new MemoryCapabilities(true, true, true, true));
-        await Assert.That((await client.GetFromJsonAsync<MemoryReleaseStatus>("/api/v1/me/memory-release-status"))!.State).IsEqualTo("Ready");
+        using (var settingsScope = app.Services.CreateScope())
+            await settingsScope.ServiceProvider.GetRequiredService<WonderDbContext>().LogicalUsers
+                .Where(x => x.Id == f.User).ExecuteUpdateAsync(s => s.SetProperty(x => x.AllowMemory, false));
+        await Assert.That((await client.GetAsync("/api/v1/me/memory-release-status")).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
         var root = "/api/v1/me/memories/" + f.Old;
         using var edit = await SendAsync(client, HttpMethod.Patch, root, new { text = "corrected current fact", expectedRevision = 1 }, "edit");
         await Assert.That(edit.StatusCode).IsEqualTo(HttpStatusCode.OK);
@@ -64,34 +39,7 @@ public sealed class MemoryReleaseTests
         using var erase = await SendAsync(client, HttpMethod.Post, root + "/erase", new { scope.PreviewId, scope.ExpectedRevision, scope.ScopeHash }, "erase");
         await Assert.That(erase.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That((await erase.Content.ReadFromJsonAsync<PrivacyOperationView>())!.Completed).IsTrue();
-        app.Services.GetRequiredService<IConfiguration>()["MemoryLifecycle:Enabled"] = "false";
-        await AssertClosedAsync(client, f.Old!.Value);
-    }
 
-    [Test]
-    public async Task RecoveryConfigurationChangeInvalidatesTheReleaseProofForEveryOperation()
-    {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = Authority();
-        using var app = new TestApp(environment: "Production", postgresConnection: pg.ConnectionString,
-            recoveryAuthority: authority, lifecycleEnabled: true, realRecoveryStartup: true);
-        var f = await PrivacyTests.SeedAsync(app); using var client = await LoginAsync(app, f.User);
-        await Assert.That((await client.GetFromJsonAsync<MemoryCapabilities>("/api/v1/me/memory-capabilities"))!.Forget).IsTrue();
-        app.Services.GetRequiredService<IConfiguration>()["Recovery:ArchiveKeyId"] = "unverified-key-rotation";
-        await AssertClosedAsync(client, f.Old!.Value);
-        await Assert.That((await client.GetFromJsonAsync<MemoryReleaseStatus>("/api/v1/me/memory-release-status"))!.State).IsEqualTo("AwaitingRecoveryVerification");
-    }
-
-    private static async Task AssertClosedAsync(HttpClient client, Guid id)
-    {
-        await Assert.That(await client.GetFromJsonAsync<MemoryCapabilities>("/api/v1/me/memory-capabilities"))
-            .IsEqualTo(new MemoryCapabilities(false, false, false, false));
-        var root = "/api/v1/me/memories/" + id;
-        using var edit = await SendAsync(client, HttpMethod.Patch, root, new { text = "must not write", expectedRevision = 1 }, "closed-edit");
-        using var archive = await SendAsync(client, HttpMethod.Post, root + "/archive", new { expectedRevision = 1 }, "closed-archive");
-        using var forget = await SendAsync(client, HttpMethod.Delete, root + "?expectedRevision=1", null, "closed-forget");
-        using var erase = await SendAsync(client, HttpMethod.Post, root + "/erase", new { previewId = Guid.NewGuid(), expectedRevision = 1, scopeHash = new string('A', 64) }, "closed-erase");
-        foreach (var response in new[] { edit, archive, forget, erase })
-            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
     }
 
     private static async Task<HttpClient> LoginAsync(TestApp app, Guid actor)

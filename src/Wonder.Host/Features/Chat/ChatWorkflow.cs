@@ -249,7 +249,7 @@ public sealed class ChatWorkflow(
             throw new ModelResponseException("Model did not return a final answer after tool use.");
         var text = final.Text.Trim();
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
-        var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision, null,
+        var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision,
             relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(),
             sourceMessageIds.ToArray(), sourceUserIds.ToArray(), consumedSources.ToArray());
         await using var tx = await db.Database.BeginTransactionAsync(ct);

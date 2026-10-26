@@ -13,21 +13,6 @@ public sealed partial class PrivacyWorkflow
         await using var db = await factory.CreateDbContextAsync(ct);
         var operation = await db.MemoryOperations.AsNoTracking().SingleAsync(x => x.Id == operationId && x.Fenced, ct);
         if (operation.Stage == "Completed") return;
-        // Prepare/Commit hashes are canonical: order suppressions exactly as recorded at initial admission.
-        var intent = await packages.IntentAsync(db, operation, authority.InstanceId, ct);
-        if (!operation.RecoveryVerified)
-        {
-            await authority.ResolveAsync(intent, true, ct);
-            var archive = await packages.CreateAsync(db, operation.ActorId, authority.InstanceId, ct);
-            var receipt = await authority.ProtectAsync(intent, archive, ct);
-            if (receipt.OperationId != operationId || receipt.IntentHash != Json.Hash(Json.Write(intent)) || receipt.Phase != "Protect" ||
-                receipt.ArchiveDigest != archive.Digest || receipt.ManifestDigest != Json.Hash(archive.ManifestJson))
-                throw new RecoveryUnavailableException("RecoveryProtectionScopeMismatch");
-            await db.MemoryOperations.Where(x => x.Id == operationId && x.Fenced && !x.RecoveryVerified)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.RecoveryVerified, true)
-                    .SetProperty(x => x.ProtectionReceiptJson, Json.Write(receipt)).SetProperty(x => x.Stage, "Deleting")
-                    .SetProperty(x => x.Revision, x => x.Revision + 1), ct);
-        }
         var ids = await db.MemoryOperationItems.Where(x => x.OperationId == operationId && x.State != "Completed")
             .OrderBy(x => x.Kind).ThenBy(x => x.Id).Select(x => x.Id).Take(256).ToArrayAsync(ct);
         foreach (var id in ids)
@@ -78,7 +63,7 @@ public sealed partial class PrivacyWorkflow
         var complete = await db.MemoryOperationItems.Where(x => x.OperationId == operationId).AllAsync(x => x.State == "Completed", ct);
         var review = await db.MemoryOperationItems.AnyAsync(x => x.OperationId == operationId && x.State == "NeedsReview", ct);
         current.CleanupVerified = complete;
-        current.Stage = complete && current.RecoveryVerified ? "Completed" : review ? "NeedsReview" : "PendingCleanup";
+        current.Stage = complete ? "Completed" : review ? "NeedsReview" : "PendingCleanup";
         current.ErrorCode = review ? "ItemsRequireReview" : null;
         current.Revision++;
         await db.SaveChangesAsync(ct); await finish.CommitAsync(ct);
@@ -172,7 +157,7 @@ public sealed partial class PrivacyWorkflow
             var asset = await db.Media.AsNoTracking().SingleOrDefaultAsync(x => x.Id == item.ResourceId, ct);
             var target = Json.Read<PrivacyTarget[]>(operation.TargetsJson).Single(x => x.Kind == "Media" && x.Id == item.ResourceId);
             if (string.IsNullOrWhiteSpace(target.MediaLocator) || target.ContentHash?.Length != 64 || Path.IsPathRooted(target.MediaLocator))
-            { await SetMediaResultAsync(db, item.Id, "NeedsReview", "MediaRecoveryLocatorOrContentHashUnknown", ct); return; }
+            { await SetMediaResultAsync(db, item.Id, "NeedsReview", "MediaLocatorOrContentHashUnknown", ct); return; }
             var path = Path.GetFullPath(Path.Combine(media.Root, target.MediaLocator));
             var root = Path.TrimEndingDirectorySeparator(media.Root) + Path.DirectorySeparatorChar;
             if (!path.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ||

@@ -26,7 +26,7 @@ public enum TaskKind
     Chat = 0,
     LightReflection = 1,
     StrongReflection = 2,
-    DailyNarrative = 3,
+    DailyNarrative = 3, // Retained only for historical usage statistics.
     RollingSummary = 4,
     Embedding = 5
 }
@@ -75,7 +75,6 @@ public sealed record ContextSnapshot(
     Guid SessionId,
     long IdentityRevision,
     long EmotionRevision,
-    long? DailyNarrativeRevision,
     long RelationshipRevision,
     long SummaryRevision,
     IReadOnlyList<Guid> RetrievedMemoryIds,
@@ -273,16 +272,6 @@ public sealed class EmotionEvent
     public string SourceEventKey { get; set; } = "mood";
     public string DeltaJson { get; set; } = "{}";
     public DateTimeOffset AppliedAt { get; set; } = DateTimeOffset.UtcNow;
-}
-
-public sealed class DailyNarrative
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid BotId { get; set; }
-    public DateOnly Date { get; set; }
-    public long StateRevision { get; set; }
-    public string Text { get; set; } = "";
-    public DateTimeOffset GeneratedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class RelationshipState

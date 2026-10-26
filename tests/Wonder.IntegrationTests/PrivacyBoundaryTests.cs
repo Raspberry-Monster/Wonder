@@ -20,8 +20,8 @@ public sealed class PrivacyBoundaryTests
     [Arguments("UnprovenChangedAssertion")]
     public async Task ProducerCleanupHandlesOldRecordShapesAndNeverCompletesUnprovenPayloads(string shape)
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var reflection = await db.Reflections.SingleAsync(); var node = System.Text.Json.Nodes.JsonNode.Parse(reflection.Payload)!;
         var assertion = node["memories"]![0]!;
@@ -45,8 +45,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task ReflectionRechecksInFlightDeletionAndOnlyReceivesMaskedRetainedEvidenceAfterward()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         db.Models.Add(new ModelProfile { BotId = f.Bot, TaskKind = TaskKind.LightReflection, Endpoint = "https://model.example/v1/",
             Model = "light", ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-only"), SupportsJson = true });
@@ -80,8 +80,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task PrivacyHttpRequiresCurrentIdentityVersionKeyAndProtectsForeignReceipts()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority { FailProtect = true };
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var self = app.CreateClient(); using var stranger = app.CreateClient();
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var other = new LogicalUser { AllowMemory = true }; db.LogicalUsers.Add(other); await db.SaveChangesAsync();
@@ -96,9 +96,9 @@ public sealed class PrivacyBoundaryTests
         await Assert.That((await self.DeleteAsync(path)).StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         self.DefaultRequestHeaders.Add("Idempotency-Key", "http-forget"); stranger.DefaultRequestHeaders.Add("Idempotency-Key", "foreign");
         var response = await self.DeleteAsync(path + "?expectedRevision=1");
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         var receipt = (await response.Content.ReadFromJsonAsync<PrivacyOperationView>(Json.Options))!;
-        await Assert.That(receipt.Completed).IsFalse(); await Assert.That(response.Headers.Location).IsNotNull();
+        await Assert.That(receipt.Completed).IsTrue();
         var again = await self.DeleteAsync(path + "?expectedRevision=1");
         await Assert.That((await again.Content.ReadFromJsonAsync<PrivacyOperationView>(Json.Options))!.OperationId).IsEqualTo(receipt.OperationId);
         await Assert.That((await self.DeleteAsync(path + "?expectedRevision=2")).StatusCode).IsEqualTo(HttpStatusCode.Conflict);
@@ -110,8 +110,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task MediaResumeFindsAnOrphanFileFromFrozenMetadataAndRefusesChangedContent()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority { FailProtect = true };
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var root = scope.ServiceProvider.GetRequiredService<MediaStore>().Root; Directory.CreateDirectory(root);
         var path = Path.Combine(root, Guid.NewGuid().ToString("N")); var bytes = Encoding.UTF8.GetBytes("private file");
@@ -121,9 +121,10 @@ public sealed class PrivacyBoundaryTests
         db.Media.Add(media); await db.SaveChangesAsync();
         var privacy = scope.ServiceProvider.GetRequiredService<PrivacyWorkflow>();
         var preview = await privacy.PreviewAsync(f.User, f.Old!.Value, 1, [f.Evidence], default);
+        // Changing the file after preview forces an online cleanup failure, independent of recovery services.
+        await File.WriteAllTextAsync(path, "changed file owned by something else");
         var pending = await privacy.EraseAsync(f.User, preview.PreviewId, preview.ScopeHash, "file", default);
-        await db.Media.Where(x => x.Id == media.Id).ExecuteDeleteAsync(); // Snapshot restores can omit a row while the physical file survives.
-        await File.WriteAllTextAsync(path, "changed file owned by something else"); authority.FailProtect = false;
+        await db.Media.Where(x => x.Id == media.Id).ExecuteDeleteAsync(); // A row may disappear while a failed physical cleanup leaves its file.
         var job = await db.Outbox.AsNoTracking().SingleAsync(x => x.Type == JobKind.MemoryPrivacy);
         await privacy.RunAsync(job.Id, default);
         var partial = await privacy.GetAsync(f.User, pending.OperationId, default);
@@ -138,8 +139,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task RetainedMixedEvidenceOnlyExposesProvenUnrelatedSpans()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await scope.ServiceProvider.GetRequiredService<PrivacyWorkflow>().ForgetAsync(f.User, f.Old!.Value, 1, "forget", default);
         var safe = await SafeReflectionEvidence.ReadAsync(db, f.Bot, f.User, f.Session, 0, long.MaxValue, 0, false, default);
@@ -160,8 +161,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task EraseCanFollowForgetUsingTheRetainedAuthorizedEvidenceScope()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var privacy = scope.ServiceProvider.GetRequiredService<PrivacyWorkflow>();
         var forgotten = await privacy.ForgetAsync(f.User, f.Old!.Value, 1, "forget", default);
         var preview = await privacy.PreviewAsync(f.User, forgotten.TargetMemoryId, forgotten.TargetRevision, [f.Evidence], default);
@@ -174,8 +175,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task UnknownProducerIsFencedWithoutClearingIndependentReflectionChildren()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await db.MemoryCandidates.ExecuteDeleteAsync();
         var result = await scope.ServiceProvider.GetRequiredService<PrivacyWorkflow>().ForgetAsync(f.User, f.Old!.Value, 1, "unknown", default);
@@ -189,8 +190,8 @@ public sealed class PrivacyBoundaryTests
     [Test]
     public async Task IndependentBoundariesSurviveWhileInferredClaimsLoseQualification()
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
-        using var app = PrivacyTests.App(pg, authority); var f = await PrivacyTests.SeedAsync(app);
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = PrivacyTests.App(pg); var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var state = await db.Relationships.SingleAsync();
         foreach (var origin in new[] { "Explicit", "Unknown", "Inferred" })
@@ -215,17 +216,17 @@ public sealed class PrivacyBoundaryTests
     [Arguments(true, false, "Relationship")]
     public async Task OutgoingAndForgetUseTheSamePgFenceAndOnlyStopTheAffectedRound(bool sendFirst, bool deliveryUnknown, string sourceKind)
     {
-        await using var pg = await TestPostgres.CreateAsync(); var authority = new PrivacyTests.TestAuthority();
+        await using var pg = await TestPostgres.CreateAsync();
         var barrier = new FenceBarrier();
         using var app = new TestApp(environment: "MemoryLifecycleTest", postgresConnection: pg.ConnectionString,
-            recoveryAuthority: authority, interceptor: barrier);
+            interceptor: barrier);
         var f = await PrivacyTests.SeedAsync(app);
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         db.Bindings.Add(new PlatformBinding { BotId = f.Bot, Enabled = true });
         var memory = await db.Memories.AsNoTracking().SingleAsync(x => x.Id == f.Old);
         var secondMemory = new Memory { BotId = f.Bot, SubjectId = f.User, Text = "independent current memory", FactKey = "independent" };
         db.Memories.Add(secondMemory);
-        var snapshot = new ContextSnapshot(f.Bot, f.Session, 1, 1, null, 0, 0, [memory.Id, secondMemory.Id], "race",
+        var snapshot = new ContextSnapshot(f.Bot, f.Session, 1, 1, 0, 0, [memory.Id, secondMemory.Id], "race",
             SourceUserIds: [f.User], Sources: [ContentSources.Memory(memory), ContentSources.Memory(secondMemory)]);
         if (sourceKind == "Summary")
         {

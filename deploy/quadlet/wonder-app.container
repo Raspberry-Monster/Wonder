@@ -12,7 +12,6 @@ Network=wonder
 Environment=TZ=Asia/Shanghai
 Environment="ConnectionStrings__Postgres=Host=postgres;Database=wonder;Username=wonder;Password=replace-with-a-long-random-password"
 Volume=%h/quadlet.config.d/Wonder/Host:/app/data:U,z
-Volume=%h/quadlet.config.d/Wonder/DeletionLedger:/app/data/deletion-ledger:U,z
 PublishPort=127.0.0.1:5080:8080
 StopTimeout=60
 

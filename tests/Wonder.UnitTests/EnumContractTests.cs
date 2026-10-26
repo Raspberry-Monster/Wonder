@@ -19,6 +19,11 @@ public sealed class EnumContractTests
         await Assert.That(EnumWire.Name(DeliveryResolutionAction.ConfirmSent)).IsEqualTo("confirm-sent");
         await Assert.That(Convert.ToInt32(Enum.Parse<JobStatus>("DeadLetter"))).IsEqualTo(3);
         await Assert.That(Convert.ToInt32(Enum.Parse<MemoryStatus>("Revoked"))).IsEqualTo(2);
+        await Assert.That(Convert.ToInt32(Enum.Parse<TaskKind>("DailyNarrative"))).IsEqualTo(3);
+        await Assert.That(Convert.ToInt32(Enum.Parse<Wonder.Host.Contracts.ModelTaskKind>("RollingSummary"))).IsEqualTo(4);
+        await Assert.That(Convert.ToInt32(Enum.Parse<Wonder.Host.Contracts.ModelTaskKind>("Embedding"))).IsEqualTo(5);
+        await Assert.That(Convert.ToInt32(Enum.Parse<JobKind>("Summary"))).IsEqualTo(10);
+        await Assert.That(Convert.ToInt32(Enum.Parse<JobKind>("MemoryPrivacy"))).IsEqualTo(12);
     }
 
     [Test]
@@ -47,18 +52,4 @@ public sealed class EnumContractTests
         await Assert.That(priority.GetProperty("enum").EnumerateArray().Select(x => x.GetString()!).ToArray()).IsEquivalentTo(new[] { "Normal", "Important" });
     }
 
-    [Test]
-    public async Task LegacyLedgerConversionSeparatesResourceKindsFromNoteRevisions()
-    {
-        var noteId = Guid.NewGuid();
-        var legacy = Json.Write(new[] { new { id = Guid.NewGuid(), botId = Guid.NewGuid(), userId = Guid.NewGuid(), recordVersion = 2,
-            resourceKind = "Note", resourceId = noteId, resourceVersion = 7, scope = "Private", scopeOwnerId = "", epoch = 2 } });
-        var converted = LegacyDeletionLedgerConverter.Convert(legacy);
-        var row = DeletionLedger.Read(converted).Single();
-        await Assert.That(row.ResourceKind).IsEqualTo(DeletionResourceKind.Note);
-        await Assert.That(row.ResourceVersion).IsEqualTo(7);
-        await Assert.That(row.ResourceId).IsEqualTo(noteId);
-        await Assert.That(converted).DoesNotContain("recordVersion");
-        await Assert.That(LegacyDeletionLedgerConverter.Convert(converted)).IsEqualTo(converted);
-    }
 }
