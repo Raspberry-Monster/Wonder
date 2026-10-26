@@ -22,9 +22,11 @@ public sealed class JobProcessor(
             if (job.Type is JobKind.Narrative or JobKind.Ledger)
             {
                 using var retiredScope = scopes.CreateScope();
-                await retiredScope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, execution.Token, job.LeaseId);
+                await retiredScope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>()
+                    .RunAsync(job.Id, execution.Token, job.LeaseId);
                 return;
             }
+
             EventContracts.ValidateVersion(job);
             if (job.Attempts > MaxAttempts(job.Type))
                 throw new InvalidOperationException("Task exhausted its attempts after lease expiration.");
@@ -105,6 +107,7 @@ public sealed class JobProcessor(
             await tx.CommitAsync(ct);
             return;
         }
+
         var deferredQuota = ex is TokenQuotaException && job.Type != JobKind.Chat;
         var terminal = !deferredQuota && (failed.Attempts >= MaxAttempts(job.Type) ||
                                           ex is ModelConfigurationException or DeliveryUnknownException
@@ -144,6 +147,7 @@ public sealed class JobProcessor(
             using var scope = scopes.CreateScope();
             await scope.ServiceProvider.GetRequiredService<InteractionBoundary>().CompensateAsync(job.Id, ct);
         }
+
         logger.LogWarning("Task {EventId} ({Type}) failed: {ErrorType}, terminal={Terminal}",
             job.Id, job.Type, ex.GetType().Name, terminal);
     }

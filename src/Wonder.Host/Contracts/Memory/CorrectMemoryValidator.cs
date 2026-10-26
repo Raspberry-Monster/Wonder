@@ -13,5 +13,8 @@ public sealed class CorrectMemoryValidator : AbstractValidator<CorrectMemory>
 
 public sealed class ArchiveMemoryValidator : AbstractValidator<ArchiveMemory>
 {
-    public ArchiveMemoryValidator() => RuleFor(x => x.ExpectedRevision).GreaterThan(0);
+    public ArchiveMemoryValidator()
+    {
+        RuleFor(x => x.ExpectedRevision).GreaterThan(0);
+    }
 }

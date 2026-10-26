@@ -99,7 +99,6 @@ public sealed class SpeakerContextTests
         await scope.ServiceProvider.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, default);
         await Assert.That(app.ModelRequests).IsEmpty();
         await Assert.That(await db.Summaries.CountAsync()).IsEqualTo(0);
-
     }
 
     private static async Task<(Guid BotId, Guid BindingId)> CreateBotAsync(TestApp app)

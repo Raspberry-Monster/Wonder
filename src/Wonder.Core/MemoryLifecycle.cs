@@ -3,6 +3,7 @@ namespace Wonder.Core;
 // A message uses a content fingerprint; mutable versioned resources use their revision.
 // These describe actual consumed resources, never inferred sentence-level attribution.
 public sealed record ContentSource(string Kind, Guid Id, string Version);
+
 public sealed record SafeSummaryProjection(string Text, IReadOnlyList<ContentSource> Sources);
 
 // HTTP idempotency is durable and independent of Outbox delivery/lease state.
@@ -31,16 +32,38 @@ public sealed class MemoryOperation
     public string? ErrorCode { get; set; }
 }
 
-public sealed record MemoryOperationReceipt(Guid OperationId, string Kind, Guid TargetMemoryId,
-    Guid ResultMemoryId, long Revision, string FactState);
+public sealed record MemoryOperationReceipt(
+    Guid OperationId,
+    string Kind,
+    Guid TargetMemoryId,
+    Guid ResultMemoryId,
+    long Revision,
+    string FactState);
 
-public sealed record MemoryView(Guid Id, Guid BotId, string FactKey, string Text, MemoryStatus Status,
-    DateTimeOffset CreatedAt, DateTimeOffset? ArchivedAt, Guid? SupersedesMemoryId,
-    DateTimeOffset? LastConfirmedAt, long Revision, bool IsOutdated);
+public sealed record MemoryView(
+    Guid Id,
+    Guid BotId,
+    string FactKey,
+    string Text,
+    MemoryStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ArchivedAt,
+    Guid? SupersedesMemoryId,
+    DateTimeOffset? LastConfirmedAt,
+    long Revision,
+    bool IsOutdated);
+
 public sealed record MemoryCapabilities(bool Edit, bool Archive, bool Forget, bool Erase);
+
 public sealed record MemoryIndexState(long Revision, string State, int Attempts);
 
-public sealed record PrivacyTarget(string Kind, Guid Id, string Version, string? MediaLocator = null, string? ContentHash = null);
+public sealed record PrivacyTarget(
+    string Kind,
+    Guid Id,
+    string Version,
+    string? MediaLocator = null,
+    string? ContentHash = null);
+
 public sealed class MemoryOperationItem
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -69,8 +92,14 @@ public sealed class EvidenceSuppression
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed record EvidenceAssertion(Guid MessageId, string Role, int Start, int Length,
-    string Anchor, int? ConfirmationStart = null, string? ConfirmationAnchor = null);
+public sealed record EvidenceAssertion(
+    Guid MessageId,
+    string Role,
+    int Start,
+    int Length,
+    string Anchor,
+    int? ConfirmationStart = null,
+    string? ConfirmationAnchor = null);
 
 public sealed class RelationshipClaim
 {
@@ -88,11 +117,35 @@ public sealed class RelationshipClaim
 }
 
 public sealed record PrivacyItemView(Guid Id, string Kind, Guid ResourceId, string State, string? ErrorCode);
-public sealed record PrivacyOperationView(Guid OperationId, string Kind, string Stage, long Revision,
-    bool Fenced, bool CleanupVerified, bool Completed,
-    IReadOnlyList<PrivacyItemView> Items, string[] UncoveredLayers, string? ErrorCode, Guid TargetMemoryId, long TargetRevision);
-public sealed record ErasePreviewView(Guid PreviewId, DateTimeOffset ExpiresAt, string ScopeHash,
-    long ExpectedRevision, IReadOnlyList<EraseMessageView> Messages, IReadOnlyList<PrivacyTarget> Targets,
-    string Warning, string[] UncoveredLayers);
-public sealed record EraseMessageView(Guid Id, Guid BotId, Guid AuthorId, DateTimeOffset SentAt, string Text,
+
+public sealed record PrivacyOperationView(
+    Guid OperationId,
+    string Kind,
+    string Stage,
+    long Revision,
+    bool Fenced,
+    bool CleanupVerified,
+    bool Completed,
+    IReadOnlyList<PrivacyItemView> Items,
+    string[] UncoveredLayers,
+    string? ErrorCode,
+    Guid TargetMemoryId,
+    long TargetRevision);
+
+public sealed record ErasePreviewView(
+    Guid PreviewId,
+    DateTimeOffset ExpiresAt,
+    string ScopeHash,
+    long ExpectedRevision,
+    IReadOnlyList<EraseMessageView> Messages,
+    IReadOnlyList<PrivacyTarget> Targets,
+    string Warning,
+    string[] UncoveredLayers);
+
+public sealed record EraseMessageView(
+    Guid Id,
+    Guid BotId,
+    Guid AuthorId,
+    DateTimeOffset SentAt,
+    string Text,
     string Version);

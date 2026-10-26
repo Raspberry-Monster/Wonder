@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wonder.Core;
@@ -17,17 +18,23 @@ public static class EnumModelConfiguration
             if (!type.IsEnum) continue;
             var asString = type.IsDefined(typeof(StringStoredEnumAttribute));
             if (asString)
-                property.SetValueConverter((ValueConverter)Activator.CreateInstance(typeof(StableEnumConverter<>).MakeGenericType(type))!);
+                property.SetValueConverter(
+                    (ValueConverter)Activator.CreateInstance(typeof(StableEnumConverter<>).MakeGenericType(type))!);
             var values = Enum.GetValues(type).Cast<object>().Select(value => asString
                 ? "'" + WireName(type, value).Replace("'", "''") + "'"
                 : Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture));
             builder.Entity(entity.ClrType).ToTable(t => t.HasCheckConstraint(
-                $"CK_{entity.GetTableName()}_{property.Name}", $"\"{property.GetColumnName()}\" IN ({string.Join(",", values)})"));
+                $"CK_{entity.GetTableName()}_{property.Name}",
+                $"\"{property.GetColumnName()}\" IN ({string.Join(",", values)})"));
         }
     }
 
-    private static string WireName(Type type, object value) => type.GetField(value.ToString()!)!
-        .GetCustomAttribute<System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute>()?.Name ?? value.ToString()!;
+    private static string WireName(Type type, object value)
+    {
+        return type.GetField(value.ToString()!)!
+                   .GetCustomAttribute<JsonStringEnumMemberNameAttribute>()?.Name ??
+               value.ToString()!;
+    }
 }
 
 public sealed class StableEnumConverter<T>() : ValueConverter<T, string>(value => EnumWire.Name(value),

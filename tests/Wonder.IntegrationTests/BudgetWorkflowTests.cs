@@ -150,7 +150,8 @@ public sealed class BudgetWorkflowTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 10000));
         db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 9950, OutputTokens = 0 });
-        var job = Jobs.Add(db, f.Bot, JobKind.Reflection, new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Light), f.Conversation);
+        var job = Jobs.Add(db, f.Bot, JobKind.Reflection,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Light), f.Conversation);
         job.Status = JobStatus.Running;
         job.LeaseId = Guid.NewGuid();
         job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);
@@ -175,7 +176,8 @@ public sealed class BudgetWorkflowTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
         db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 950, OutputTokens = 0 });
-        var job = new OutboxMessage { BotId = f.Bot, Type = JobKind.Narrative, Payload = "{}", ProgressJson = "old narrative draft" };
+        var job = new OutboxMessage
+            { BotId = f.Bot, Type = JobKind.Narrative, Payload = "{}", ProgressJson = "old narrative draft" };
         db.Outbox.Add(job);
         job.Status = JobStatus.Running;
         job.LeaseId = Guid.NewGuid();

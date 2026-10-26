@@ -40,8 +40,10 @@ public sealed class SchedulingTests
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var owner = new ApplicationUser { Id = Guid.NewGuid() };
         var bot = new BotInstance { OwnerId = owner.Id };
-        db.Users.Add(owner); db.Bots.Add(bot);
-        var mood = new GlobalEmotionState { BotId = bot.Id, Valence = .8, LastEvolvedAt = DateTimeOffset.UtcNow.AddHours(-24) };
+        db.Users.Add(owner);
+        db.Bots.Add(bot);
+        var mood = new GlobalEmotionState
+            { BotId = bot.Id, Valence = .8, LastEvolvedAt = DateTimeOffset.UtcNow.AddHours(-24) };
         db.Emotions.Add(mood);
         var job = Jobs.Add(db, bot.Id, JobKind.Maintenance, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
         await db.SaveChangesAsync();

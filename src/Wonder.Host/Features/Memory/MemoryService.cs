@@ -40,7 +40,8 @@ public sealed partial class MemoryService(
                 }
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or ModelConfigurationException or ModelResponseException or TokenQuotaException
+        catch (Exception ex) when (ex is HttpRequestException or ModelConfigurationException or ModelResponseException
+                                       or TokenQuotaException
                                        or ContextLimitException or TaskCanceledException &&
                                    !ct.IsCancellationRequested)
         {
@@ -48,9 +49,12 @@ public sealed partial class MemoryService(
         }
 
         var unindexed = await allowed.Where(m => !db.Embeddings.Any(e => e.MemoryId == m.Id &&
-                e.ProfileId == space.Id && e.SourceRevision == m.Revision))
+                                                                         e.ProfileId == space.Id &&
+                                                                         e.SourceRevision == m.Revision))
             .OrderByDescending(m => m.CreatedAt).ThenBy(m => m.Id).Take(5).ToListAsync(ct);
-        return unindexed.Concat(ranked.Values.OrderByDescending(x => x.Score).ThenBy(x => x.Memory.Id).Take(5).Select(x => x.Memory)).DistinctBy(x => x.Id).Take(5).ToArray();
+        return unindexed
+            .Concat(ranked.Values.OrderByDescending(x => x.Score).ThenBy(x => x.Memory.Id).Take(5)
+                .Select(x => x.Memory)).DistinctBy(x => x.Id).Take(5).ToArray();
     }
 
     public static async Task<MemoryAccess?> ResolveAccessAsync(WonderDbContext db, MemoryAccess access,

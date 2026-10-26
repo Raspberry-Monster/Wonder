@@ -62,8 +62,10 @@ public sealed class SummaryWorkflow(
                     await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 }
             }
+
             return;
         }
+
         if (await db.Summaries.AnyAsync(
                 x => x.SessionId == input.SessionId && !x.ContextInvalidated &&
                      x.ThroughSequence >= input.ThroughSequence, ct))
@@ -74,12 +76,14 @@ public sealed class SummaryWorkflow(
         }
 
         var session = await db.Sessions.AsNoTracking().SingleAsync(x => x.Id == input.SessionId, ct);
-        if (await db.Conversations.AnyAsync(x => x.Id == session.ConversationId && x.Kind == ConversationKind.Group, ct))
+        if (await db.Conversations.AnyAsync(x => x.Id == session.ConversationId && x.Kind == ConversationKind.Group,
+                ct))
         {
             Jobs.Complete(db, job);
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
+
         var profile = await models.ProfileAsync(job.BotId, TaskKind.RollingSummary, ct);
         var budget = models.Context(profile);
         var visible = ConversationHistory.Visible(db, job.BotId, session.ConversationId, input.ThroughSequence + 1,
@@ -98,13 +102,16 @@ public sealed class SummaryWorkflow(
                 SettingsRevision = await db.Bots.Where(x => x.Id == job.BotId).Select(x => x.SettingsRevision)
                     .SingleAsync(ct),
                 BeforeTurn = tail.Length >= 6 ? tail[^1] : input.ThroughSequence,
-                CursorTurn = previous?.ThroughSequence ?? 0, Text = previous is null ? "" : ConversationHistory.TextForModel(previous),
+                CursorTurn = previous?.ThroughSequence ?? 0,
+                Text = previous is null ? "" : ConversationHistory.TextForModel(previous),
                 MemoryIds = previous is null ? [] : ConversationHistory.MemoryIdsForModel(previous).ToHashSet(),
                 MessageIds = previous is null ? [] : ConversationHistory.MessageIdsForModel(previous).ToHashSet()
             };
             if (previous is not null)
             {
-                progress.Sources.Add(ContentSources.ProjectionReady(previous) ? ContentSources.Projection(previous) : ContentSources.Summary(previous));
+                progress.Sources.Add(ContentSources.ProjectionReady(previous)
+                    ? ContentSources.Projection(previous)
+                    : ContentSources.Summary(previous));
                 progress.Sources.AddRange(await ContentSources.SummaryRootsAsync(db, previous, ct));
                 var subjects = Json.Read<Guid[]>(previous.SubjectIdsJson);
                 progress.Epochs = await db.LogicalUsers.Where(x => subjects.Contains(x.Id))
@@ -127,7 +134,8 @@ public sealed class SummaryWorkflow(
             .OrderBy(x => x.InReplyToSequence ?? x.Sequence).ThenBy(x => x.Sequence).Take(80).ToListAsync(ct);
         var safeRows = new List<StoredMessage>();
         foreach (var row in rows)
-            if (await ContentSources.MessageValidAsync(db, row, ct, now: clock.UtcNow)) safeRows.Add(row);
+            if (await ContentSources.MessageValidAsync(db, row, ct, now: clock.UtcNow))
+                safeRows.Add(row);
         rows = safeRows;
         if (rows.Count == 0)
         {
@@ -144,8 +152,8 @@ public sealed class SummaryWorkflow(
         {
             return
             [
-                new(ChatRole.System, Instructions),
-                new(ChatRole.User, Json.ForPrompt(new
+                new AiMessage(ChatRole.System, Instructions),
+                new AiMessage(ChatRole.User, Json.ForPrompt(new
                 {
                     previous = progress.Text, messages = fragments.Select(f => new
                     {
@@ -244,13 +252,16 @@ public sealed class SummaryWorkflow(
             target.BaseSummaryId = progress.BaseId;
             target.BaseSummaryRevision = progress.BaseRevision;
             // Same-row rolling updates consume the old revision, then retain its complete root sources.
-            var outputSources = progress.Sources.Where(x => x.Id != target.Id || x.Kind is not ("Summary" or "SummaryProjection")).ToList();
+            var outputSources = progress.Sources
+                .Where(x => x.Id != target.Id || x.Kind is not ("Summary" or "SummaryProjection")).ToList();
             if (progress.BaseId == target.Id)
             {
                 if (ContentSources.ProjectionReady(target))
                     outputSources.AddRange(Json.Read<SafeSummaryProjection>(target.SafeProjectionJson!).Sources);
-                else if (ContentSources.TryRead(target.SourcesJson, out var inherited)) outputSources.AddRange(inherited);
+                else if (ContentSources.TryRead(target.SourcesJson, out var inherited))
+                    outputSources.AddRange(inherited);
             }
+
             target.SourcesJson = Json.Write(outputSources.Distinct());
             target.SafeProjectionJson = null;
             target.ProjectionState = "Invalid";
@@ -262,8 +273,9 @@ public sealed class SummaryWorkflow(
             target.MessageIdsJson = Json.Write(progress.MessageIds);
             target.ContextInvalidated = false;
             target.Revision++;
-            await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Summary, target.Id, progress.MessageIds.ToArray(),
-                progress.BaseProjection ? null : progress.BaseId, ct, replace: true);
+            await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Summary, target.Id,
+                progress.MessageIds.ToArray(),
+                progress.BaseProjection ? null : progress.BaseId, ct, true);
             progress.BaseId = target.Id;
             progress.BaseRevision = target.Revision;
             progress.BaseProjection = false;

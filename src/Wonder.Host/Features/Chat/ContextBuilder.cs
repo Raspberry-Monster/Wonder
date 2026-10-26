@@ -73,7 +73,8 @@ public sealed class ContextBuilder(PromptComposer composer)
         var budget = input.Budget;
         var system = composer.Compile(input.Identity, input.Mood);
         if (input.Tools is not { Count: > 0 })
-            system += "\nLive time and action tools are unavailable. Do not invent the current time or claim tool actions.";
+            system +=
+                "\nLive time and action tools are unavailable. Do not invent the current time or claim tool actions.";
         if (input.TimeContext is { } time) system += "\n\n[Application time context]\n" + time;
         var toolMode = input.Tools is { Count: > 0 };
         var current = input.Current.ToMessage(toolMode, input.SupportsImages);
@@ -125,7 +126,8 @@ public sealed class ContextBuilder(PromptComposer composer)
                         MessageIds: messages, Sources: sources), kind);
         }
 
-        Reference("Rolling summary", input.Summary, ContextItemKind.Summary, input.SummaryMemoryIds, input.SummaryMessageIds,
+        Reference("Rolling summary", input.Summary, ContextItemKind.Summary, input.SummaryMemoryIds,
+            input.SummaryMessageIds,
             input.SummarySource is null ? [] : [input.SummarySource]);
         Reference($"Authorized relationship for {input.Current.SpeakerTag ?? "current speaker"}", input.Relationship,
             ContextItemKind.Relationship, sources: input.RelationshipSource is null ? [] : [input.RelationshipSource]);
@@ -135,7 +137,8 @@ public sealed class ContextBuilder(PromptComposer composer)
             var name = input.AuthorNames?.GetValueOrDefault(memory.SubjectId);
             var label = $"Memory; author={author}" +
                         (string.IsNullOrWhiteSpace(name) ? "" : $"; preferredName={Json.ForPrompt(name)}");
-            Reference(label, memory.Text, ContextItemKind.Memory, [memory.Id], sources: [ContentSources.Memory(memory)]);
+            Reference(label, memory.Text, ContextItemKind.Memory, [memory.Id],
+                sources: [ContentSources.Memory(memory)]);
         }
 
         foreach (var group in groups.SkipLast(1).Reverse())
@@ -160,16 +163,30 @@ public sealed class ContextBuilder(PromptComposer composer)
             messages, optional, pressure, turns.SelectMany(x => x.Sources ?? []).Distinct().ToArray());
     }
 
-    private static bool IsHistory(ContextItemKind kind) => kind is ContextItemKind.OlderHistory or ContextItemKind.LatestHistory;
-    private static int RetentionWeight(ContextItemKind kind) => kind switch
+    private static bool IsHistory(ContextItemKind kind)
     {
-        ContextItemKind.OlderHistory => 40,
-        ContextItemKind.Memory => 60,
-        ContextItemKind.Relationship => 70,
-        ContextItemKind.LatestHistory => 90,
-        ContextItemKind.Summary => 100,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind))
-    };
+        return kind is ContextItemKind.OlderHistory or ContextItemKind.LatestHistory;
+    }
+
+    private static int RetentionWeight(ContextItemKind kind)
+    {
+        return kind switch
+        {
+            ContextItemKind.OlderHistory => 40,
+            ContextItemKind.Memory => 60,
+            ContextItemKind.Relationship => 70,
+            ContextItemKind.LatestHistory => 90,
+            ContextItemKind.Summary => 100,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        };
+    }
 }
 
-public enum ContextItemKind { OlderHistory = 0, Memory = 1, Relationship = 2, LatestHistory = 3, Summary = 4 }
+public enum ContextItemKind
+{
+    OlderHistory = 0,
+    Memory = 1,
+    Relationship = 2,
+    LatestHistory = 3,
+    Summary = 4
+}

@@ -14,26 +14,35 @@ public sealed partial class MemoryService
                    ?? throw new KeyNotFoundException();
         if (!await UserFence.CheckAsync(db, actor, user.RevocationEpoch, ct)) throw new DbUpdateConcurrencyException();
         var memory = await db.Memories.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.SubjectId == actor &&
-            x.Status != MemoryStatus.Revoked && x.ArchivedAt == null && !x.IsOutdated, ct) ?? throw new KeyNotFoundException();
+                         x.Status != MemoryStatus.Revoked && x.ArchivedAt == null && !x.IsOutdated, ct) ??
+                     throw new KeyNotFoundException();
         var payload = Json.Write(new IdPayload(id));
-        if (!await db.Outbox.AnyAsync(x => x.BotId == memory.BotId && x.Type == JobKind.Embedding && x.Payload == payload &&
-                (x.Status == JobStatus.Pending || x.Status == JobStatus.Running), ct))
+        if (!await db.Outbox.AnyAsync(x => x.BotId == memory.BotId && x.Type == JobKind.Embedding &&
+                                           x.Payload == payload &&
+                                           (x.Status == JobStatus.Pending || x.Status == JobStatus.Running), ct))
             Jobs.Add(db, memory.BotId, JobKind.Embedding, new IdPayload(id));
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
     }
 
     public Task<MemoryOperationReceipt> EditAsync(Guid actor, Guid id, string text, long expectedRevision,
-        string key, CancellationToken ct) => ApplyLifecycleAsync(actor, id, text.Trim(), expectedRevision, key, ct);
+        string key, CancellationToken ct)
+    {
+        return ApplyLifecycleAsync(actor, id, text.Trim(), expectedRevision, key, ct);
+    }
 
     public Task<MemoryOperationReceipt> ArchiveAsync(Guid actor, Guid id, long expectedRevision,
-        string key, CancellationToken ct) => ApplyLifecycleAsync(actor, id, null, expectedRevision, key, ct);
+        string key, CancellationToken ct)
+    {
+        return ApplyLifecycleAsync(actor, id, null, expectedRevision, key, ct);
+    }
 
     private async Task<MemoryOperationReceipt> ApplyLifecycleAsync(Guid actor, Guid id, string? text,
         long expectedRevision, string key, CancellationToken ct)
     {
         if (expectedRevision < 1 || string.IsNullOrWhiteSpace(key) || key.Length > 128 ||
-            text is { Length: 0 or > 1000 }) throw new ArgumentException("Revision, idempotency key and body are required.");
+            text is { Length: 0 or > 1000 })
+            throw new ArgumentException("Revision, idempotency key and body are required.");
         var kind = text is null ? "Archive" : "Edit";
         var hash = Json.Hash(Json.Write(new { kind, id, text, expectedRevision }));
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -47,11 +56,14 @@ public sealed partial class MemoryService
             .SingleOrDefaultAsync(x => x.ActorId == actor && x.IdempotencyKey == key, ct);
         if (prior is not null)
         {
-            if (prior.ArgumentsHash != hash) throw new DbUpdateConcurrencyException("Idempotency key was used for different arguments.");
+            if (prior.ArgumentsHash != hash)
+                throw new DbUpdateConcurrencyException("Idempotency key was used for different arguments.");
             return Receipt(prior);
         }
+
         var memory = await db.Memories.SingleOrDefaultAsync(x => x.Id == id && x.SubjectId == actor &&
-            x.Status != MemoryStatus.Revoked, ct) ?? throw new KeyNotFoundException();
+                                                                 x.Status != MemoryStatus.Revoked, ct) ??
+                     throw new KeyNotFoundException();
         if (memory.Revision != expectedRevision || memory.ArchivedAt is not null || memory.IsOutdated)
             throw new DbUpdateConcurrencyException("The current memory changed; reload.");
         await ValidateFamilyAsync(db, memory, ct);
@@ -62,6 +74,7 @@ public sealed partial class MemoryService
             if (profile is not null && models.Context(profile).Text(text) > models.Context(profile).InputLimit)
                 throw new ArgumentException("The replacement exceeds the embedding input limit.");
         }
+
         memory.ArchivedAt = DateTimeOffset.UtcNow;
         memory.IsOutdated = text is not null;
         memory.Revision++;
@@ -80,6 +93,7 @@ public sealed partial class MemoryService
             db.Memories.Add(result);
             Jobs.Add(db, memory.BotId, JobKind.Embedding, new IdPayload(result.Id));
         }
+
         if (!user.RetainMemoryHistory)
         {
             memory.FactKeyHash = Json.Hash(memory.FactKey);
@@ -87,6 +101,7 @@ public sealed partial class MemoryService
             memory.EvidenceJson = "[]";
             await MemoryMaintenanceWorkflow.ScrubAuditAsync(db, actor, [id], ct);
         }
+
         var operation = new MemoryOperation
         {
             ActorId = actor, BotId = memory.BotId, IdempotencyKey = key, ArgumentsHash = hash,
@@ -99,14 +114,17 @@ public sealed partial class MemoryService
         return Receipt(operation);
     }
 
-    private static MemoryOperationReceipt Receipt(MemoryOperation operation) => new(operation.Id, operation.Kind,
-        operation.TargetMemoryId, operation.ResultMemoryId, operation.ResultRevision,
-        operation.Kind == "Edit" ? "Current" : "Archived");
+    private static MemoryOperationReceipt Receipt(MemoryOperation operation)
+    {
+        return new MemoryOperationReceipt(operation.Id, operation.Kind,
+            operation.TargetMemoryId, operation.ResultMemoryId, operation.ResultRevision,
+            operation.Kind == "Edit" ? "Current" : "Archived");
+    }
 
     internal static async Task ValidateFamilyAsync(WonderDbContext db, Memory selected, CancellationToken ct)
     {
         var rows = await db.Memories.AsNoTracking().Where(x => x.BotId == selected.BotId &&
-            x.SubjectId == selected.SubjectId).ToListAsync(ct);
+                                                               x.SubjectId == selected.SubjectId).ToListAsync(ct);
         var visited = new HashSet<Guid>();
         var cursor = selected;
         while (true)

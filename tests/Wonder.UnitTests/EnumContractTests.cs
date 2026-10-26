@@ -1,8 +1,8 @@
 using System.Text.Json;
+using Microsoft.Extensions.AI;
 using Wonder.Core;
 using Wonder.Host;
-using Wonder.Infrastructure;
-using Microsoft.Extensions.AI;
+using Wonder.Host.Contracts;
 
 namespace Wonder.UnitTests;
 
@@ -20,8 +20,8 @@ public sealed class EnumContractTests
         await Assert.That(Convert.ToInt32(Enum.Parse<JobStatus>("DeadLetter"))).IsEqualTo(3);
         await Assert.That(Convert.ToInt32(Enum.Parse<MemoryStatus>("Revoked"))).IsEqualTo(2);
         await Assert.That(Convert.ToInt32(Enum.Parse<TaskKind>("DailyNarrative"))).IsEqualTo(3);
-        await Assert.That(Convert.ToInt32(Enum.Parse<Wonder.Host.Contracts.ModelTaskKind>("RollingSummary"))).IsEqualTo(4);
-        await Assert.That(Convert.ToInt32(Enum.Parse<Wonder.Host.Contracts.ModelTaskKind>("Embedding"))).IsEqualTo(5);
+        await Assert.That(Convert.ToInt32(Enum.Parse<ModelTaskKind>("RollingSummary"))).IsEqualTo(4);
+        await Assert.That(Convert.ToInt32(Enum.Parse<ModelTaskKind>("Embedding"))).IsEqualTo(5);
         await Assert.That(Convert.ToInt32(Enum.Parse<JobKind>("Summary"))).IsEqualTo(10);
         await Assert.That(Convert.ToInt32(Enum.Parse<JobKind>("MemoryPrivacy"))).IsEqualTo(12);
     }
@@ -40,16 +40,18 @@ public sealed class EnumContractTests
     {
         await Assert.That(EnumWire.TryParse<AgentAction>("notes_invented", out _)).IsFalse();
         await Assert.That(AgentToolContract.Capability(AgentAction.NoteRead)).IsEqualTo(AgentCapability.Notes);
-        await Assert.That(AgentToolContract.Capability(AgentAction.ReflectionRequest)).IsEqualTo(AgentCapability.Reflection);
+        await Assert.That(AgentToolContract.Capability(AgentAction.ReflectionRequest))
+            .IsEqualTo(AgentCapability.Reflection);
         await Assert.That(() => EnumWire.Name((AgentAction)999)).ThrowsExactly<ArgumentOutOfRangeException>();
     }
 
     [Test]
     public async Task ToolSchemasAdvertiseOnlyTheAcceptedEnumValues()
     {
-        var reflection = InteractionBoundary.ReflectionDefinitions.OfType<AIFunction>().Single(x => x.Name == "reflection_request_review");
+        var reflection = InteractionBoundary.ReflectionDefinitions.OfType<AIFunction>()
+            .Single(x => x.Name == "reflection_request_review");
         var priority = reflection.JsonSchema.GetProperty("properties").GetProperty("priority");
-        await Assert.That(priority.GetProperty("enum").EnumerateArray().Select(x => x.GetString()!).ToArray()).IsEquivalentTo(new[] { "Normal", "Important" });
+        await Assert.That(priority.GetProperty("enum").EnumerateArray().Select(x => x.GetString()!).ToArray())
+            .IsEquivalentTo(new[] { "Normal", "Important" });
     }
-
 }

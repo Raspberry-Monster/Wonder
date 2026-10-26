@@ -1,6 +1,6 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Host.Contracts;
@@ -9,12 +9,17 @@ using Wonder.Infrastructure;
 namespace Wonder.Host.Controllers;
 
 [Route("/api/v1/me")]
-public sealed class MemoriesController(WonderDbContext db, MemoryService service,
+public sealed class MemoriesController(
+    WonderDbContext db,
+    MemoryService service,
     PrivacyWorkflow privacy) : WonderControllerBase(db)
 {
     [HttpGet("memory-capabilities")]
     [ProducesResponseType<MemoryCapabilities>(200)]
-    public IActionResult Capabilities() => Ok(new MemoryCapabilities(true, true, true, true));
+    public IActionResult Capabilities()
+    {
+        return Ok(new MemoryCapabilities(true, true, true, true));
+    }
 
     [HttpGet("memory-settings")]
     public async Task<IActionResult> GetSettings(CancellationToken ct)
@@ -88,13 +93,17 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType<PrivacyOperationView>(202)]
     [ProducesResponseType(400)]
     [ProducesResponseType(409)]
-    public async Task<IActionResult> Delete(Guid id, [BindRequired, FromQuery, Range(1, long.MaxValue)] long expectedRevision,
-        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CancellationToken ct)
+    public async Task<IActionResult> Delete(Guid id,
+        [BindRequired] [FromQuery] [Range(1, long.MaxValue)] long expectedRevision,
+        [BindRequired] [FromHeader(Name = "Idempotency-Key")]
+        string idempotencyKey, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
         var result = await privacy.ForgetAsync(subject.Value, id, expectedRevision, idempotencyKey, ct);
-        return result.Completed ? Ok(result) : AcceptedAtAction(nameof(Operation), new { id = result.OperationId }, result);
+        return result.Completed
+            ? Ok(result)
+            : AcceptedAtAction(nameof(Operation), new { id = result.OperationId }, result);
     }
 
     [HttpPatch("memories/{id:guid}")]
@@ -102,7 +111,8 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType(400)]
     [ProducesResponseType(409)]
     public async Task<IActionResult> Correct(Guid id, CorrectMemory input,
-        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CancellationToken ct)
+        [BindRequired] [FromHeader(Name = "Idempotency-Key")]
+        string idempotencyKey, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
@@ -115,7 +125,8 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType(400)]
     [ProducesResponseType(409)]
     public async Task<IActionResult> Archive(Guid id, ArchiveMemory input,
-        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CancellationToken ct)
+        [BindRequired] [FromHeader(Name = "Idempotency-Key")]
+        string idempotencyKey, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
@@ -130,15 +141,22 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
         var memory = await Db.Memories.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.SubjectId == subject &&
             x.Status != MemoryStatus.Revoked, ct);
         if (memory is null) return NotFound();
-        var profile = await Db.Models.AsNoTracking().SingleOrDefaultAsync(x => x.BotId == memory.BotId && x.TaskKind == TaskKind.Embedding, ct);
-        var ready = profile is not null && await Db.Embeddings.AnyAsync(e => e.MemoryId == id && e.SourceRevision == memory.Revision &&
-            Db.EmbeddingProfiles.Any(p => p.Id == e.ProfileId && p.BotId == memory.BotId && p.Provider == profile.Endpoint &&
-                p.Model == profile.Model && p.Dimensions == profile.EmbeddingDimensions && p.Version == 1), ct);
+        var profile = await Db.Models.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.BotId == memory.BotId && x.TaskKind == TaskKind.Embedding, ct);
+        var ready = profile is not null && await Db.Embeddings.AnyAsync(e =>
+            e.MemoryId == id && e.SourceRevision == memory.Revision &&
+            Db.EmbeddingProfiles.Any(p => p.Id == e.ProfileId && p.BotId == memory.BotId &&
+                                          p.Provider == profile.Endpoint &&
+                                          p.Model == profile.Model && p.Dimensions == profile.EmbeddingDimensions &&
+                                          p.Version == 1), ct);
         var payload = Json.Write(new IdPayload(id));
-        var job = await Db.Outbox.AsNoTracking().Where(x => x.BotId == memory.BotId && x.Type == JobKind.Embedding && x.Payload == payload)
+        var job = await Db.Outbox.AsNoTracking()
+            .Where(x => x.BotId == memory.BotId && x.Type == JobKind.Embedding && x.Payload == payload)
             .OrderByDescending(x => x.Sequence).FirstOrDefaultAsync(ct);
-        return Ok(new MemoryIndexState(memory.Revision, memory.ArchivedAt != null ? "Inactive" : ready ? "Ready" :
-            job?.Status == JobStatus.DeadLetter ? "Failed" : job?.Attempts > 0 ? "Retrying" : "Pending", job?.Attempts ?? 0));
+        return Ok(new MemoryIndexState(memory.Revision, memory.ArchivedAt != null ? "Inactive" :
+            ready ? "Ready" :
+            job?.Status == JobStatus.DeadLetter ? "Failed" :
+            job?.Attempts > 0 ? "Retrying" : "Pending", job?.Attempts ?? 0));
     }
 
     [HttpPost("memories/{id:guid}/retry-index")]
@@ -164,16 +182,20 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     [ProducesResponseType<PrivacyOperationView>(202)]
     [ProducesResponseType(409)]
     public async Task<IActionResult> Erase(Guid id, ConfirmEraseInput input,
-        [BindRequired, FromHeader(Name = "Idempotency-Key")] string key, CancellationToken ct)
+        [BindRequired] [FromHeader(Name = "Idempotency-Key")]
+        string key, CancellationToken ct)
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        var preview = await Db.MemoryOperations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.PreviewId && x.ActorId == subject &&
+        var preview = await Db.MemoryOperations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.PreviewId &&
+            x.ActorId == subject &&
             x.TargetMemoryId == id && x.Kind == "ErasePreview", ct);
         if (preview is null) return NotFound();
         if (preview.ExpectedRevision != input.ExpectedRevision) return Conflict();
         var result = await privacy.EraseAsync(subject.Value, input.PreviewId, input.ScopeHash, key, ct);
-        return result.Completed ? Ok(result) : AcceptedAtAction(nameof(Operation), new { id = result.OperationId }, result);
+        return result.Completed
+            ? Ok(result)
+            : AcceptedAtAction(nameof(Operation), new { id = result.OperationId }, result);
     }
 
     [HttpGet("memory-operations/{id:guid}")]
@@ -189,7 +211,8 @@ public sealed class MemoriesController(WonderDbContext db, MemoryService service
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return NotFound();
-        var ids = await Db.MemoryOperations.AsNoTracking().Where(x => x.ActorId == subject && (x.Kind == "Forget" || x.Kind == "Erase"))
+        var ids = await Db.MemoryOperations.AsNoTracking()
+            .Where(x => x.ActorId == subject && (x.Kind == "Forget" || x.Kind == "Erase"))
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(50).Select(x => x.Id).ToArrayAsync(ct);
         var result = new List<PrivacyOperationView>();
         foreach (var id in ids) result.Add(await privacy.GetAsync(subject.Value, id, ct));

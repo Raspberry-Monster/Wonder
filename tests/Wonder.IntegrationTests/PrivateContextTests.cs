@@ -16,10 +16,15 @@ public sealed class PrivateContextTests
     {
         using var app = new TestApp();
         var f = await SeedAsync(app);
-        await Assert.That((await f.Alice.GetAsync($"/api/v1/me/memories/{f.SourceId}/sharing-options")).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That((await f.Alice.PostAsJsonAsync($"/api/v1/me/memories/{f.SourceId}/sharing", new { scope = "UserShared" })).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That((await f.Owner.GetAsync($"/api/v1/bots/{f.BotId}/context-spaces")).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That((await f.Alice.GetAsync($"/api/v1/me/memories/{f.PersonalId}")).StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That((await f.Alice.GetAsync($"/api/v1/me/memories/{f.SourceId}/sharing-options")).StatusCode)
+            .IsEqualTo(HttpStatusCode.NotFound);
+        await Assert
+            .That((await f.Alice.PostAsJsonAsync($"/api/v1/me/memories/{f.SourceId}/sharing",
+                new { scope = "UserShared" })).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That((await f.Owner.GetAsync($"/api/v1/bots/{f.BotId}/context-spaces")).StatusCode)
+            .IsEqualTo(HttpStatusCode.NotFound);
+        await Assert.That((await f.Alice.GetAsync($"/api/v1/me/memories/{f.PersonalId}")).StatusCode)
+            .IsEqualTo(HttpStatusCode.OK);
     }
 
     [Test]
@@ -113,7 +118,8 @@ public sealed class PrivateContextTests
         await db.SaveChangesAsync();
 
         f.Alice.DefaultRequestHeaders.Add("Idempotency-Key", "cache-correction");
-        var response = await f.Alice.PatchAsJsonAsync($"/api/v1/me/memories/{f.SourceId}", new { text = "修正后的项目状态", expectedRevision = 1 });
+        var response = await f.Alice.PatchAsJsonAsync($"/api/v1/me/memories/{f.SourceId}",
+            new { text = "修正后的项目状态", expectedRevision = 1 });
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         db.ChangeTracker.Clear();
         var oldMemory = await db.Memories.SingleAsync(x => x.Id == f.SourceId);
@@ -123,11 +129,15 @@ public sealed class PrivateContextTests
                                                        x.Status != MemoryStatus.Revoked).ToListAsync()).HasSingleItem();
         var cachedMessage = await db.Messages.SingleAsync(x => x.Id == message.Id);
         await Assert.That(cachedMessage.ContextInvalidated).IsFalse();
-        if (invalidSnapshot) await Assert.That(await ContentSources.MessageValidAsync(db, cachedMessage, default)).IsFalse();
+        if (invalidSnapshot)
+            await Assert.That(await ContentSources.MessageValidAsync(db, cachedMessage, default)).IsFalse();
         await Assert.That(cachedMessage.Text).IsEqualTo("legacy cached answer");
         var cachedSummary = await db.Summaries.SingleAsync(x => x.Id == summary.Id);
         await Assert.That(cachedSummary.ContextInvalidated).IsFalse();
-        if (invalidSummary || summaryIds == "[]") await Assert.That(await ContentSources.ValidAsync(db, f.BotId, [ContentSources.Summary(cachedSummary)], default)).IsFalse();
+        if (invalidSummary || summaryIds == "[]")
+            await Assert
+                .That(await ContentSources.ValidAsync(db, f.BotId, [ContentSources.Summary(cachedSummary)], default))
+                .IsFalse();
         await Assert.That(cachedSummary.Text).IsEqualTo("legacy summary");
         await Assert.That((await db.Parts.SingleAsync(x => x.Id == part.Id)).Status)
             .IsEqualTo(DeliveryStatus.Pending);
@@ -202,7 +212,8 @@ public sealed class PrivateContextTests
 
     private static async Task EnableAsync(HttpClient client, string name)
     {
-        var response = await client.PutAsJsonAsync("/api/v1/me/memory-settings", new { allowMemory = true, preferredName = name });
+        var response = await client.PutAsJsonAsync("/api/v1/me/memory-settings",
+            new { allowMemory = true, preferredName = name });
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
     }
 
@@ -222,7 +233,8 @@ public sealed class PrivateContextTests
         var owner = await AccountAsync(app, "owner");
         var alice = await AccountAsync(app, "alice");
         var bob = await AccountAsync(app, "bob");
-        var created = await owner.Client.PostAsJsonAsync("/api/v1/bots", new { name = "Tree", identity = "你的名字是树莓，你是助手。" });
+        var created =
+            await owner.Client.PostAsJsonAsync("/api/v1/bots", new { name = "Tree", identity = "你的名字是树莓，你是助手。" });
         var bot = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -231,17 +243,37 @@ public sealed class PrivateContextTests
         db.LogicalUsers.AddRange(a, b);
         (await db.Users.SingleAsync(x => x.Id == alice.Id)).LogicalUserId = a.Id;
         (await db.Users.SingleAsync(x => x.Id == bob.Id)).LogicalUserId = b.Id;
-        db.PlatformIdentities.AddRange(new PlatformIdentity { UserId = a.Id, ExternalId = "11111" }, new PlatformIdentity { UserId = b.Id, ExternalId = "22222" });
-        db.GroupPolicies.AddRange(new GroupPolicy { BotId = bot, GroupId = "10002" }, new GroupPolicy { BotId = bot, GroupId = "10003" });
+        db.PlatformIdentities.AddRange(new PlatformIdentity { UserId = a.Id, ExternalId = "11111" },
+            new PlatformIdentity { UserId = b.Id, ExternalId = "22222" });
+        db.GroupPolicies.AddRange(new GroupPolicy { BotId = bot, GroupId = "10002" },
+            new GroupPolicy { BotId = bot, GroupId = "10003" });
         var binding = new PlatformBinding { BotId = bot, PlatformAccountId = "999" };
         db.Bindings.Add(binding);
-        db.Models.Add(new ModelProfile { BotId = bot, TaskKind = TaskKind.Chat, Endpoint = "https://model.example/v1/", Model = "test", ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key") });
-        var source = new Memory { BotId = bot, SubjectId = a.Id, FactKey = "project-progress", Text = "项目已完成测试，下一步部署。", Status = MemoryStatus.Active };
-        var personal = new Memory { BotId = bot, SubjectId = a.Id, FactKey = "answer-style", Text = "偏好简洁回答。", Status = MemoryStatus.Active };
+        db.Models.Add(new ModelProfile
+        {
+            BotId = bot, TaskKind = TaskKind.Chat, Endpoint = "https://model.example/v1/", Model = "test",
+            ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-key")
+        });
+        var source = new Memory
+        {
+            BotId = bot, SubjectId = a.Id, FactKey = "project-progress", Text = "项目已完成测试，下一步部署。",
+            Status = MemoryStatus.Active
+        };
+        var personal = new Memory
+            { BotId = bot, SubjectId = a.Id, FactKey = "answer-style", Text = "偏好简洁回答。", Status = MemoryStatus.Active };
         db.Memories.AddRange(source, personal);
         await db.SaveChangesAsync();
         return new Fixture(owner.Client, alice.Client, bob.Client, bot, a.Id, b.Id, source.Id, personal.Id, binding.Id);
     }
 
-    private sealed record Fixture(HttpClient Owner, HttpClient Alice, HttpClient Bob, Guid BotId, Guid AliceId, Guid BobId, Guid SourceId, Guid PersonalId, Guid BindingId);
+    private sealed record Fixture(
+        HttpClient Owner,
+        HttpClient Alice,
+        HttpClient Bob,
+        Guid BotId,
+        Guid AliceId,
+        Guid BobId,
+        Guid SourceId,
+        Guid PersonalId,
+        Guid BindingId);
 }

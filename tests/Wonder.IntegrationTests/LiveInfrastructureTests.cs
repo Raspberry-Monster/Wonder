@@ -83,13 +83,15 @@ public sealed class LiveInfrastructureTests
             var authorized = await MemoryQueries
                 .Nearest(db, new MemoryAccess(bot.Id, alice.Id, false), profile.Id, [1, 0, 0]).ToListAsync();
             await Assert.That(authorized).IsEmpty();
-            var privateMatches = await MemoryQueries.Nearest(db, new MemoryAccess(bot.Id, alice.Id), profile.Id, [1, 0, 0]).ToListAsync();
+            var privateMatches = await MemoryQueries
+                .Nearest(db, new MemoryAccess(bot.Id, alice.Id), profile.Id, [1, 0, 0]).ToListAsync();
             await Assert.That(privateMatches.Count).IsEqualTo(5);
             await Assert.That(privateMatches.All(x => x.ArchivedAt == null && x.SubjectId == alice.Id)).IsTrue();
 
             bob.AllowMemory = true;
             await db.SaveChangesAsync();
-            var ownMatches = await MemoryQueries.Nearest(db, new MemoryAccess(bot.Id, bob.Id), profile.Id, [1, 0, 0]).ToListAsync();
+            var ownMatches = await MemoryQueries.Nearest(db, new MemoryAccess(bot.Id, bob.Id), profile.Id, [1, 0, 0])
+                .ToListAsync();
             await Assert.That(ownMatches).HasSingleItem();
             await Assert.That(ownMatches[0].Id).IsEqualTo(otherUserFact.Id);
 
@@ -161,7 +163,8 @@ public sealed class LiveInfrastructureTests
                 using var scope = app.Services.CreateScope();
                 await scope.ServiceProvider.GetRequiredService<MemoryService>()
                     .ArchiveAsync(fixture.User, active.Id, active.Revision, "archive", default);
-                await Assert.That(await db.Memories.AnyAsync(x => x.BotId == fixture.Bot && x.ArchivedAt == null)).IsFalse();
+                await Assert.That(await db.Memories.AnyAsync(x => x.BotId == fixture.Bot && x.ArchivedAt == null))
+                    .IsFalse();
                 await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.BotId == fixture.Bot && x.Text != ""))
                     .IsTrue();
             }
@@ -262,13 +265,14 @@ public sealed class LiveInfrastructureTests
         db.Bots.Add(bot);
         var profile = new EmbeddingProfile { BotId = bot.Id, Model = "legacy", Dimensions = 3 };
         var memory = new Memory { BotId = bot.Id, SubjectId = Guid.NewGuid(), Text = "legacy vector" };
-        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Memories\" ALTER COLUMN \"Scope\" SET DEFAULT 0; ALTER TABLE \"Memories\" ALTER COLUMN \"ScopeOwnerId\" SET DEFAULT '';");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"Memories\" ALTER COLUMN \"Scope\" SET DEFAULT 0; ALTER TABLE \"Memories\" ALTER COLUMN \"ScopeOwnerId\" SET DEFAULT '';");
         db.EmbeddingProfiles.Add(profile);
         await db.SaveChangesAsync();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "Memories" ("Id","BotId","SubjectId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision")
-            VALUES ({memory.Id},{memory.BotId},{memory.SubjectId},'legacy','legacy vector',0,{Guid.Empty},'[]',{DateTimeOffset.UtcNow},'',1)
-            """);
+                                                       INSERT INTO "Memories" ("Id","BotId","SubjectId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision")
+                                                       VALUES ({memory.Id},{memory.BotId},{memory.SubjectId},'legacy','legacy vector',0,{Guid.Empty},'[]',{DateTimeOffset.UtcNow},'',1)
+                                                       """);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
                                                        INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
                                                        """);
@@ -299,7 +303,8 @@ public sealed class LiveInfrastructureTests
     {
         var queue = new JobQueue(new QueueFactory(options));
         await using var db = new WonderDbContext(options);
-        var job = new OutboxMessage { BotId = botId, Type = JobKind.MemoryPrivacy, Payload = Json.Write(new IdPayload(botId)) };
+        var job = new OutboxMessage
+            { BotId = botId, Type = JobKind.MemoryPrivacy, Payload = Json.Write(new IdPayload(botId)) };
         var delayed = new OutboxMessage
             { BotId = botId, Type = JobKind.MemoryPrivacy, Payload = Json.Write(new IdPayload(botId)) };
         db.Outbox.AddRange(job, delayed);

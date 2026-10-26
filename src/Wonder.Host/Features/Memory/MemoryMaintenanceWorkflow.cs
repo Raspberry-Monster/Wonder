@@ -14,7 +14,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
     private static IQueryable<Memory> Scope(WonderDbContext db, MemoryMaintenanceCandidate c)
     {
         return db.Memories.AsNoTracking().Where(m => m.BotId == c.BotId && m.SubjectId == c.SubjectId &&
-                                                     m.Status != MemoryStatus.Revoked && m.ArchivedAt == null && !m.IsOutdated);
+                                                     m.Status != MemoryStatus.Revoked && m.ArchivedAt == null &&
+                                                     !m.IsOutdated);
     }
 
     public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
@@ -56,7 +57,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             var embedded = space is null
                 ? []
                 : await db.Embeddings.Where(x => x.ProfileId == space.Id &&
-                                                 Scope(db, candidate).Any(m => m.Id == x.MemoryId && m.Revision == x.SourceRevision))
+                                                 Scope(db, candidate).Any(m =>
+                                                     m.Id == x.MemoryId && m.Revision == x.SourceRevision))
                     .Select(x => x.MemoryId).ToListAsync(ct);
             var missing = snapshot.Where(x => !embedded.Contains(x.Id)).Take(50).ToArray();
             if (missing.Length > 0)
@@ -102,10 +104,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
             if (values.All(x => x == 0)) throw new ModelResponseException("Cannot compare a zero embedding.");
             Guid[] nearest = [];
             if (space is not null && snapshot.Count > 0)
-            {
                 nearest = await MemoryQueries.Ranked(db, Scope(db, candidate), space.Id, values)
                     .Take(10).Select(x => x.MemoryId).ToArrayAsync(ct);
-            }
 
             related = snapshot.Where(x => nearest.Contains(x.Id) || x.FactKey == candidate.FactKey).ToArray();
             if (related.Length == 0)
@@ -118,9 +118,10 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                 var ids = Json.Read<Guid[]>(candidate.EvidenceJson)
                     .Concat(related.SelectMany(x => Json.Read<Guid[]>(x.EvidenceJson))).Distinct().ToArray();
                 var evidenceRows = await db.Messages.AsNoTracking().Where(x => ids.Contains(x.Id) &&
-                                                                           x.BotId == candidate.BotId &&
-                                                                           x.SenderId == candidate.SubjectId &&
-                                                                           x.AllowReflection && !x.ContextInvalidated)
+                                                                               x.BotId == candidate.BotId &&
+                                                                               x.SenderId == candidate.SubjectId &&
+                                                                               x.AllowReflection &&
+                                                                               !x.ContextInvalidated)
                     .OrderBy(x => x.Sequence)
                     .ToListAsync(ct);
                 var evidence = new List<MaintenanceEvidence>();
@@ -223,15 +224,19 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
         await db.Entry(candidate).ReloadAsync(ct);
         await db.Entry(job).ReloadAsync(ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (expectedLeaseId is not null && (job.LeaseUntil is null || job.LeaseUntil <= await InteractionBoundary.DatabaseNowAsync(db, DateTimeOffset.UtcNow, ct)))
+        if (expectedLeaseId is not null && (job.LeaseUntil is null ||
+                                            job.LeaseUntil <=
+                                            await InteractionBoundary.DatabaseNowAsync(db, DateTimeOffset.UtcNow, ct)))
             throw new DbUpdateConcurrencyException("Maintenance lease expired.");
         if (embedding is not null)
         {
             var freshProfile = await db.Models.AsNoTracking().SingleOrDefaultAsync(x => x.Id == embedding.Id, ct);
-            if (freshProfile is null || freshProfile.Endpoint != embedding.Endpoint || freshProfile.Model != embedding.Model ||
+            if (freshProfile is null || freshProfile.Endpoint != embedding.Endpoint ||
+                freshProfile.Model != embedding.Model ||
                 freshProfile.EmbeddingDimensions != embedding.EmbeddingDimensions)
                 throw new DbUpdateConcurrencyException("Embedding profile changed during maintenance.");
         }
+
         if (job.Status == JobStatus.Completed || candidate.Status != MemoryMaintenanceStatus.Pending) return;
         user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == candidate.SubjectId, ct);
         if (!await ValidAsync(db, candidate, user, ct))
@@ -310,7 +315,10 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                 }
 
                 db.Embeddings.Add(new MemoryEmbedding
-                    { MemoryId = memory.Id, ProfileId = profile.Id, SourceRevision = memory.Revision, Values = new Vector(values!) });
+                {
+                    MemoryId = memory.Id, ProfileId = profile.Id, SourceRevision = memory.Revision,
+                    Values = new Vector(values!)
+                });
                 candidate.ResultMemoryId = memory.Id;
             }
         }
@@ -427,12 +435,16 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
         if (!u.AllowMemory || u.RevocationEpoch != c.RevocationEpoch) return false;
         var evidence = Json.Read<Guid[]>(c.EvidenceJson);
         if (!await EvidencePolicy.MayAdmitAsync(db, c.BotId, c.SubjectId, new MemoryCandidate(c.FactKey, c.Text,
-                true, false, evidence, c.AssertionsJson is null ? null : Json.Read<EvidenceAssertion[]>(c.AssertionsJson)), ct)) return false;
+                true, false, evidence,
+                c.AssertionsJson is null ? null : Json.Read<EvidenceAssertion[]>(c.AssertionsJson)), ct)) return false;
         var reflection = await db.Reflections.AsNoTracking().SingleOrDefaultAsync(x => x.Id == c.SourceReflectionId &&
             x.BotId == c.BotId && x.SubjectId == c.SubjectId && x.RevocationEpoch == c.RevocationEpoch &&
             x.Payload != "{}", ct);
         if (reflection is null || !await db.Sessions.AnyAsync(s => s.Id == reflection.SessionId &&
-            db.Conversations.Any(c => c.Id == s.ConversationId && c.Kind == ConversationKind.Private), ct)) return false;
+                                                                   db.Conversations.Any(c =>
+                                                                       c.Id == s.ConversationId &&
+                                                                       c.Kind == ConversationKind.Private), ct))
+            return false;
         return evidence.Length > 0 && await db.Messages.CountAsync(x => evidence.Contains(x.Id) &&
                                                                         x.BotId == c.BotId &&
                                                                         x.SenderId == c.SubjectId &&
@@ -450,7 +462,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
         c.CompletedAt = DateTimeOffset.UtcNow;
     }
 
-    private static async Task ArchiveAsync(WonderDbContext db, Guid id, bool retain, bool superseded, CancellationToken ct)
+    private static async Task ArchiveAsync(WonderDbContext db, Guid id, bool retain, bool superseded,
+        CancellationToken ct)
     {
         var memory = await db.Memories.SingleAsync(x => x.Id == id, ct);
         memory.ArchivedAt = DateTimeOffset.UtcNow;
@@ -473,7 +486,8 @@ public sealed class MemoryMaintenanceWorkflow(IDbContextFactory<WonderDbContext>
                                               ((x.TargetMemoryId != null && ids.Contains(x.TargetMemoryId.Value)) ||
                                                (x.ResultMemoryId != null && ids.Contains(x.ResultMemoryId.Value))))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, "").SetProperty(x => x.FactKey, "")
-                .SetProperty(x => x.EvidenceJson, "[]").SetProperty(x => x.AssertionsJson, (string?)null).SetProperty(x => x.Reason, ""), ct);
+                .SetProperty(x => x.EvidenceJson, "[]").SetProperty(x => x.AssertionsJson, (string?)null)
+                .SetProperty(x => x.Reason, ""), ct);
     }
 
     private sealed record MaintenanceEvidence(Guid Id, string Text, DateTimeOffset CreatedAt);

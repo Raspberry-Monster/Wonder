@@ -132,7 +132,8 @@ public sealed class DomainTests
                 2048,
                 512)))).ThrowsExactly<ContextLimitException>();
         var context = builder.Build(new ContextInput("身份", new GlobalEmotionState(), "", "", [],
-            [new ContextTurn(MessageRole.User, new string('旧', 10000))], new ContextTurn(MessageRole.User, "现在的问题"), Budget(4096, 512)));
+            [new ContextTurn(MessageRole.User, new string('旧', 10000))], new ContextTurn(MessageRole.User, "现在的问题"),
+            Budget(4096, 512)));
         await Assert.That(context.Turns.Last().Text).IsEqualTo("现在的问题");
         await Assert.That(context.Turns).HasSingleItem();
     }

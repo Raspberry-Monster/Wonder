@@ -23,6 +23,7 @@ TokenCounter 实例初始化时扫描目录和别名清单，词表在首次计�
 
 `auto` 和 `estimate` 是保留名称，不用于词表目录。模型配置页自动列出已发现的词表，无需编辑程序代码或配置文件中的路径、哈希。
 
-本地开发使用 `src/Wonder.Host/Tokenizer`，运行时按 Host ContentRoot 定位。构建与发布会把目录复制到输出中的 `Tokenizer`，容器内为 `/app/Tokenizer`。新增或替换文件后重启应用，词表文件需要随发布包部署。
+本地开发使用 `src/Wonder.Host/Tokenizer`，运行时按 Host ContentRoot 定位。构建与发布会把目录复制到输出中的 `Tokenizer`
+，容器内为 `/app/Tokenizer`。新增或替换文件后重启应用，词表文件需要随发布包部署。
 
 每个模型路由分别保存选择。词表只计算文本，消息、工具和图片还有协议或估算开销，计数及额度规则见 [统一上下文预算](../../../docs/context-budget.md)。

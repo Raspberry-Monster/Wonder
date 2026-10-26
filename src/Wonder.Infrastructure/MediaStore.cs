@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
@@ -76,7 +77,7 @@ public sealed class MediaStore(
             MessageId = message.Id,
             Path = file,
             Hash = key,
-            ContentHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)),
+            ContentHash = Convert.ToHexString(SHA256.HashData(bytes)),
             ContentType = type,
             Size = bytes.Length,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)

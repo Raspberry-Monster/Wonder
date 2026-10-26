@@ -24,10 +24,12 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        var routes = await Db.Models.AsNoTracking().Where(x => x.BotId == id && x.TaskKind != TaskKind.DailyNarrative).OrderBy(x => x.TaskKind).ToListAsync(ct);
+        var routes = await Db.Models.AsNoTracking().Where(x => x.BotId == id && x.TaskKind != TaskKind.DailyNarrative)
+            .OrderBy(x => x.TaskKind).ToListAsync(ct);
         return Ok(routes.Select(x =>
             new ModelRouteResponse(
-                x.Id, (ModelTaskKind)x.TaskKind, x.Endpoint, x.Model, x.ContextWindow, x.MaxOutputTokens, x.SupportsImages,
+                x.Id, (ModelTaskKind)x.TaskKind, x.Endpoint, x.Model, x.ContextWindow, x.MaxOutputTokens,
+                x.SupportsImages,
                 x.SupportsJson, x.SupportsTools, x.ThinkingEnabled, x.ReasoningEffort, x.EmbeddingDimensions,
                 x.InputCostPerMillion, x.OutputCostPerMillion, x.TokenizerId, x.MessageTokenOverhead,
                 x.ImageTokenBudget,
@@ -41,7 +43,8 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
         foreach (var input in inputs)
         {
-            var profile = await Db.Models.SingleOrDefaultAsync(x => x.BotId == id && x.TaskKind == (TaskKind)input.TaskKind, ct);
+            var profile =
+                await Db.Models.SingleOrDefaultAsync(x => x.BotId == id && x.TaskKind == (TaskKind)input.TaskKind, ct);
             if (profile is null)
             {
                 if (string.IsNullOrWhiteSpace(input.ApiKey)) return BadRequest();

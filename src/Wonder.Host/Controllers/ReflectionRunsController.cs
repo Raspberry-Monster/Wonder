@@ -12,7 +12,8 @@ public sealed class ReflectionRunsController(WonderDbContext db) : WonderControl
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return Conflict();
-        return Ok(await ReflectionRunHistory.ReadAsync(Db, subject.Value, null, Math.Clamp(skip ?? 0, 0, 100000), 100, ct));
+        return Ok(await ReflectionRunHistory.ReadAsync(Db, subject.Value, null, Math.Clamp(skip ?? 0, 0, 100000), 100,
+            ct));
     }
 
     [HttpGet("{runId:guid}")]
@@ -29,7 +30,8 @@ public sealed class ReflectionRunsController(WonderDbContext db) : WonderControl
     {
         var subject = await FindLogicalUserIdAsync(ct);
         if (subject is null) return Conflict();
-        if (!await Db.ReflectionGenerations.AnyAsync(x => x.Id == runId && x.SubjectId == subject, ct)) return NotFound();
+        if (!await Db.ReflectionGenerations.AnyAsync(x => x.Id == runId && x.SubjectId == subject, ct))
+            return NotFound();
         await Db.AgentReflectionRequests.Where(x => x.GenerationId == runId && x.UserId == subject)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Reason, ""), ct);
         return NoContent();

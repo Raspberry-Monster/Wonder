@@ -24,7 +24,7 @@ public sealed class ReflectionWorkflow(
         Jobs.RequireLease(job, expectedLeaseId);
         if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
         var input = Json.Read<ReflectionJob>(job.Payload);
-        ReflectionGeneration? generation = await db.ReflectionGenerations.SingleOrDefaultAsync(x => x.JobId == job.Id, ct);
+        var generation = await db.ReflectionGenerations.SingleOrDefaultAsync(x => x.JobId == job.Id, ct);
         var user = await db.LogicalUsers.AsNoTracking().SingleAsync(x => x.Id == input.SubjectId, ct);
         if (!user.AllowMemory || user.RevocationEpoch != input.Epoch)
         {
@@ -42,16 +42,19 @@ public sealed class ReflectionWorkflow(
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
+
         if (input.Kind == ReflectionKind.Full)
         {
             if (generation is not null && (generation.Status == ReflectionGenerationStatus.Cancelled ||
-                generation.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct)))
+                                           generation.SourceSignature !=
+                                           await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct)))
             {
                 ReflectionRuns.Cancel(generation, ReflectionCancellationReason.SourceChanged);
                 Jobs.Complete(db, job);
                 await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
                 return;
             }
+
             await using var admission = await db.Database.BeginTransactionAsync(ct);
             if (!await UserFence.CheckAsync(db, user.Id, input.Epoch, ct))
             {
@@ -62,10 +65,12 @@ public sealed class ReflectionWorkflow(
             {
                 var (run, status) = await ReflectionRuns.AdmitAsync(db, job.BotId, conv.Id, input, ct, job);
                 generation = run;
-                if (run is null || run.JobId != job.Id || run.Status is ReflectionGenerationStatus.Completed or ReflectionGenerationStatus.Cancelled)
+                if (run is null || run.JobId != job.Id ||
+                    run.Status is ReflectionGenerationStatus.Completed or ReflectionGenerationStatus.Cancelled)
                     Jobs.Complete(db, job);
                 else run.Status = ReflectionGenerationStatus.Running;
             }
+
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             await admission.CommitAsync(ct);
             if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
@@ -77,6 +82,7 @@ public sealed class ReflectionWorkflow(
                 return;
             }
         }
+
         var progress = job.ProgressJson is null
             ? new ReflectionProgress()
             : Json.Read<ReflectionProgress>(job.ProgressJson);
@@ -202,7 +208,8 @@ public sealed class ReflectionWorkflow(
         if (proposal.Emotion is { } emotionProposal) progress.Emotions.Add(emotionProposal);
         progress.Proposal = ReflectionBatches.Merge([progress.Proposal, proposal]) with { Emotion = null };
         foreach (var fragment in batch)
-            progress.SourceHashes[fragment.Source.Id] = safe.OriginalHashes.GetValueOrDefault(fragment.Source.Id) ?? TextBatch.Fingerprint(fragment.Source.Text);
+            progress.SourceHashes[fragment.Source.Id] = safe.OriginalHashes.GetValueOrDefault(fragment.Source.Id) ??
+                                                        TextBatch.Fingerprint(fragment.Source.Text);
         var last = batch[^1];
         progress.Sequence = last.Source.Sequence;
         progress.Offset = last.Offset + last.Text.Length < last.Source.Text.Length ? last.Offset + last.Text.Length : 0;
@@ -219,7 +226,8 @@ public sealed class ReflectionWorkflow(
         var sourceIds = progress.SourceHashes.Keys.ToArray();
         var unchanged = await db.Messages.AsNoTracking()
             .Where(x => sourceIds.Contains(x.Id) && x.AllowReflection && !x.ContextInvalidated).ToListAsync(ct);
-        if ((generation is not null && generation.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct)) ||
+        if ((generation is not null &&
+             generation.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct)) ||
             unchanged.Count != sourceIds.Length ||
             unchanged.Any(x => TextBatch.Fingerprint(x.Text) != progress.SourceHashes[x.Id]))
         {
@@ -233,7 +241,8 @@ public sealed class ReflectionWorkflow(
         // A Forget may have won while the model was running. Do not persist its stale memory subpayloads.
         var admitted = new List<MemoryCandidate>();
         foreach (var candidate in progress.Proposal.Memories)
-            if (await EvidencePolicy.MayAdmitAsync(db, job.BotId, user.Id, candidate, ct)) admitted.Add(candidate);
+            if (await EvidencePolicy.MayAdmitAsync(db, job.BotId, user.Id, candidate, ct))
+                admitted.Add(candidate);
         progress.Proposal = progress.Proposal with { Memories = admitted.ToArray() };
         if (progress.Offset > 0 || await db.Messages.AnyAsync(x => x.SessionId == session.Id && x.SenderId == user.Id &&
                                                                    x.AllowReflection && !x.ContextInvalidated &&
@@ -271,6 +280,7 @@ public sealed class ReflectionWorkflow(
             generation.Status = ReflectionGenerationStatus.Completed;
             generation.ResultId = result.Id;
         }
+
         foreach (var type in new[] { JobKind.Emotion, JobKind.Relationship, JobKind.Memory })
             Jobs.Add(db, job.BotId, type, new IdPayload(result.Id), conv.Id, job.Id, job.CorrelationId);
         Jobs.Complete(db, job);
@@ -361,7 +371,8 @@ public sealed class ReflectionWorkflow(
             {
                 if (candidate.Kind is not ("Preference" or "Boundary") ||
                     !await EvidencePolicy.MayAdmitAsync(db, job.BotId, user.Id,
-                        new MemoryCandidate("relationship:" + candidate.Preference, candidate.Preference, candidate.Explicit, false,
+                        new MemoryCandidate("relationship:" + candidate.Preference, candidate.Preference,
+                            candidate.Explicit, false,
                             candidate.EvidenceMessageIds, candidate.Assertions), ct)) continue;
                 if (await db.Observations.AnyAsync(
                         x => x.ReflectionId == result.Id && x.Candidate == candidate.Preference, ct)) continue;
@@ -387,7 +398,10 @@ public sealed class ReflectionWorkflow(
                     db.Relationships.Add(state);
                 }
 
-                var preferences = Json.Read<List<string>>(candidate.Kind == "Boundary" ? state.BoundariesJson : state.PreferencesJson);
+                var preferences =
+                    Json.Read<List<string>>(candidate.Kind == "Boundary"
+                        ? state.BoundariesJson
+                        : state.PreferencesJson);
                 if (!preferences.Contains(candidate.Preference))
                 {
                     preferences.Add(candidate.Preference);
@@ -395,15 +409,22 @@ public sealed class ReflectionWorkflow(
                     else state.PreferencesJson = Json.Write(preferences.TakeLast(20));
                     state.Revision++;
                 }
+
                 var claim = await db.RelationshipClaims.SingleOrDefaultAsync(x => x.RelationshipId == state.Id &&
                     x.Kind == candidate.Kind && x.Text == candidate.Preference, ct);
                 if (claim is null)
                 {
-                    claim = new RelationshipClaim { RelationshipId = state.Id, BotId = job.BotId, SubjectId = user.Id,
-                        Kind = candidate.Kind, Text = candidate.Preference, Origin = candidate.Explicit ? "Explicit" : "Inferred" };
+                    claim = new RelationshipClaim
+                    {
+                        RelationshipId = state.Id, BotId = job.BotId, SubjectId = user.Id,
+                        Kind = candidate.Kind, Text = candidate.Preference,
+                        Origin = candidate.Explicit ? "Explicit" : "Inferred"
+                    };
                     db.RelationshipClaims.Add(claim);
                 }
-                var roots = Json.Read<Guid[]>(claim.EvidenceJson).Concat(candidate.EvidenceMessageIds).Distinct().ToArray();
+
+                var roots = Json.Read<Guid[]>(claim.EvidenceJson).Concat(candidate.EvidenceMessageIds).Distinct()
+                    .ToArray();
                 claim.EvidenceJson = Json.Write(roots);
                 claim.Qualification = candidate.Explicit ? "Current" : "Tentative";
                 claim.Revision++;
@@ -466,6 +487,7 @@ public sealed class ReflectionWorkflow(
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             return;
         }
+
         if (memory.BotId != job.BotId) throw new InvalidOperationException("Embedding job bot mismatch.");
         var sourceRevision = memory.Revision;
         var sourceText = memory.Text;
@@ -486,11 +508,14 @@ public sealed class ReflectionWorkflow(
         // Fence the original lease (including expiry) after the provider call, before any vector write.
         await db.Entry(job).ReloadAsync(ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (expectedLeaseId is not null && (job.LeaseUntil is null || job.LeaseUntil <= await InteractionBoundary.DatabaseNowAsync(db, DateTimeOffset.UtcNow, ct)))
+        if (expectedLeaseId is not null && (job.LeaseUntil is null ||
+                                            job.LeaseUntil <=
+                                            await InteractionBoundary.DatabaseNowAsync(db, DateTimeOffset.UtcNow, ct)))
             throw new DbUpdateConcurrencyException("Embedding lease expired.");
         if (memory.Revision != sourceRevision || memory.Text != sourceText || memory.IsOutdated ||
             currentProfile is null || currentProfile.Id != profile.Id || currentProfile.Endpoint != profile.Endpoint ||
-            currentProfile.Model != profile.Model || currentProfile.EmbeddingDimensions != profile.EmbeddingDimensions ||
+            currentProfile.Model != profile.Model ||
+            currentProfile.EmbeddingDimensions != profile.EmbeddingDimensions ||
             memory.Status == MemoryStatus.Revoked || memory.ArchivedAt != null)
         {
             Jobs.Complete(db, job);
@@ -509,15 +534,21 @@ public sealed class ReflectionWorkflow(
             db.EmbeddingProfiles.Add(space);
         }
 
-        var existing = await db.Embeddings.SingleOrDefaultAsync(x => x.MemoryId == memory.Id && x.ProfileId == space.Id, ct);
+        var existing =
+            await db.Embeddings.SingleOrDefaultAsync(x => x.MemoryId == memory.Id && x.ProfileId == space.Id, ct);
         if (existing is null)
+        {
             db.Embeddings.Add(new MemoryEmbedding
-                { MemoryId = memory.Id, ProfileId = space.Id, SourceRevision = sourceRevision, Values = new Vector(values) });
+            {
+                MemoryId = memory.Id, ProfileId = space.Id, SourceRevision = sourceRevision, Values = new Vector(values)
+            });
+        }
         else
         {
             existing.Values = new Vector(values);
             existing.SourceRevision = sourceRevision;
         }
+
         memory.Status = MemoryStatus.Active;
         Jobs.Complete(db, job);
         await db.SaveChangesAsync(ct);

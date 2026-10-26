@@ -54,7 +54,8 @@ public sealed class BotDiagnosticsController(WonderDbContext db) : WonderControl
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
         var job = await Db.Outbox.SingleOrDefaultAsync(
-            x => x.Id == jobId && x.BotId == id && x.Status == JobStatus.DeadLetter && x.Type != JobKind.Narrative && x.Type != JobKind.Ledger, ct);
+            x => x.Id == jobId && x.BotId == id && x.Status == JobStatus.DeadLetter && x.Type != JobKind.Narrative &&
+                 x.Type != JobKind.Ledger, ct);
         if (job is null) return NotFound();
         job.Status = JobStatus.Pending;
         job.Attempts = 0;

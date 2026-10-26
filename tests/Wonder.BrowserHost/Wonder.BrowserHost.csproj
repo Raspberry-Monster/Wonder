@@ -1,3 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <ItemGroup><ProjectReference Include="../../src/Wonder.Core/Wonder.Core.csproj" /></ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../src/Wonder.Core/Wonder.Core.csproj"/>
+    </ItemGroup>
 </Project>

@@ -20,8 +20,8 @@ public sealed class ContextBudgetTests
         {
             return
             [
-                new(ChatRole.System, new string('s', 200)),
-                new(ChatRole.User, Json.ForPrompt(parts.Select(x => new { x.Text, x.Offset, x.Truncated })))
+                new AiMessage(ChatRole.System, new string('s', 200)),
+                new AiMessage(ChatRole.User, Json.ForPrompt(parts.Select(x => new { x.Text, x.Offset, x.Truncated })))
             ];
         }
 

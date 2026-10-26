@@ -13,7 +13,7 @@ using Wonder.Host.Contracts;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
 using Wonder.Platforms;
-using ChatMessage = Wonder.Core.ChatMessage;
+using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.IntegrationTests;
 
@@ -105,9 +105,11 @@ public sealed class ApiTests
         await Assert.That(counter.Resolve(profile)).IsEqualTo(selected);
         await Assert.That(counter.Text(profile, "Hello world") > 0).IsTrue();
         await Assert
-            .That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } }, Json.Options)).StatusCode)
+            .That((await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = selected } }, Json.Options))
+                .StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
-        var invalid = await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = "not-installed" } }, Json.Options);
+        var invalid =
+            await client.PutAsJsonAsync(url, new[] { route with { TokenizerId = "not-installed" } }, Json.Options);
         await Assert.That(invalid.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         await Assert.That((await invalid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors")
             .GetProperty("x[0].TokenizerId").GetArrayLength() > 0).IsTrue();
@@ -132,7 +134,7 @@ public sealed class ApiTests
         db.Bots.Add(bot);
         var memory = new Memory
         {
-            BotId = bot.Id, SubjectId = subject.Id, FactKey = "color", Text = "喜欢蓝色",
+            BotId = bot.Id, SubjectId = subject.Id, FactKey = "color", Text = "喜欢蓝色"
         };
         db.Memories.Add(memory);
         await db.SaveChangesAsync();
@@ -225,7 +227,8 @@ public sealed class ApiTests
             x.GetProperty("content").GetString()!.EndsWith("这是上一轮的回复。", StringComparison.Ordinal))).IsTrue();
         await Assert.That(app.Sender.Sent).HasSingleItem();
         await Assert.That(await db.Messages.CountAsync(x => x.Role == MessageRole.Assistant)).IsEqualTo(2);
-        await Assert.That((await db.Messages.FirstAsync(x => x.Role == MessageRole.Assistant)).ContextSnapshotJson).IsNotNull();
+        await Assert.That((await db.Messages.FirstAsync(x => x.Role == MessageRole.Assistant)).ContextSnapshotJson)
+            .IsNotNull();
         // Inbox completion means an already completed chat job cannot generate another reply.
         await scope.ServiceProvider.GetRequiredService<ChatWorkflow>().RunAsync(jobs[0].Id, default);
         await Assert.That(app.ModelRequests.Count).IsEqualTo(2);
@@ -245,7 +248,8 @@ public sealed class ApiTests
         db.Bindings.Add(new PlatformBinding { BotId = bot.Id });
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conv.Id };
         db.Sessions.Add(session);
-        var batch = new OutgoingMessageBatch { BotId = bot.Id, ConversationId = conv.Id, SessionId = session.Id, IsSystemNotice = true };
+        var batch = new OutgoingMessageBatch
+            { BotId = bot.Id, ConversationId = conv.Id, SessionId = session.Id, IsSystemNotice = true };
         db.Batches.Add(batch);
         db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Text = "hello" });
         var job = Jobs.Add(db, bot.Id, JobKind.Outgoing, new IdPayload(batch.Id), conv.Id);
@@ -272,12 +276,17 @@ public sealed class ApiTests
         using var json = JsonDocument.Parse(schema);
         await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me/memories/{id}", out _))
             .IsTrue();
-        await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/system/backups", out _)).IsFalse();
-        await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me/memory-release-status", out _)).IsFalse();
+        await Assert.That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/system/backups", out _))
+            .IsFalse();
+        await Assert
+            .That(json.RootElement.GetProperty("paths").TryGetProperty("/api/v1/me/memory-release-status", out _))
+            .IsFalse();
         var schemas = json.RootElement.GetProperty("components").GetProperty("schemas");
         await Assert.That(schemas.GetProperty("ModelTaskKind").GetProperty("enum").EnumerateArray()
-            .Select(x => x.GetString()!).ToArray()).IsEquivalentTo(new[] { "Chat", "LightReflection", "StrongReflection", "RollingSummary", "Embedding" });
-        await Assert.That(schemas.GetProperty("PrivacyOperationView").GetProperty("properties").TryGetProperty("recoveryVerified", out _)).IsFalse();
+            .Select(x => x.GetString()!).ToArray()).IsEquivalentTo(new[]
+            { "Chat", "LightReflection", "StrongReflection", "RollingSummary", "Embedding" });
+        await Assert.That(schemas.GetProperty("PrivacyOperationView").GetProperty("properties")
+            .TryGetProperty("recoveryVerified", out _)).IsFalse();
         var output = Environment.GetEnvironmentVariable("WONDER_EXPORT_OPENAPI");
         if (!string.IsNullOrEmpty(output)) await File.WriteAllTextAsync(output, schema);
     }
@@ -295,14 +304,16 @@ public sealed class ApiTests
         db.LogicalUsers.Add(user);
         var memory = new Memory
         {
-            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色", CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
+            BotId = bot.Id, SubjectId = user.Id, FactKey = "color", Text = "喜欢蓝色",
+            CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
         };
         db.Memories.Add(memory);
         await db.SaveChangesAsync();
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
         await service.EditAsync(user.Id, memory.Id, "现在更喜欢绿色", 1, "correct", default);
         await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(0);
-        var remaining = await db.Memories.Where(x => x.Status != MemoryStatus.Revoked && x.ArchivedAt == null).ToListAsync();
+        var remaining = await db.Memories.Where(x => x.Status != MemoryStatus.Revoked && x.ArchivedAt == null)
+            .ToListAsync();
         await Assert.That(remaining).HasSingleItem();
         await Assert.That(remaining[0].Text).IsEqualTo("现在更喜欢绿色");
         await Assert.That(remaining[0].FactKey).IsEqualTo("color");
@@ -375,9 +386,18 @@ public sealed class ApiTests
             }
         });
         await Assert.That(embedding.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-        var rejected = await client.PutAsJsonAsync(url, new[] { new { taskKind = "DailyNarrative", endpoint = "https://model.example/v1/", model = "retired", apiKey = "unused" } });
+        var rejected = await client.PutAsJsonAsync(url,
+            new[]
+            {
+                new
+                {
+                    taskKind = "DailyNarrative", endpoint = "https://model.example/v1/", model = "retired",
+                    apiKey = "unused"
+                }
+            });
         await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding && x != TaskKind.DailyNarrative).ToArray();
+        var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding && x != TaskKind.DailyNarrative)
+            .ToArray();
         var configured = await client.PutAsJsonAsync(url, tasks.Select(task => new
         {
             taskKind = task.ToString(), endpoint = "https://api.deepseek.com", model = "deepseek-flash",
@@ -402,7 +422,7 @@ public sealed class ApiTests
                 .IsEqualTo(task == TaskKind.StrongReflection);
             var profile = await router.ProfileAsync(id, task, default);
             await router.GenerateAsync(profile,
-                [new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, "Return JSON.")],
+                [new ChatMessage(ChatRole.User, "Return JSON.")],
                 profile.SupportsJson, default);
             using var sent = JsonDocument.Parse(app.ModelRequests[^1]);
             await Assert.That(sent.RootElement.GetProperty("model").GetString()).IsEqualTo("deepseek-flash");

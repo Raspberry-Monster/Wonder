@@ -30,8 +30,10 @@ public sealed class MaintenanceWorkflow(
             session.ClosingBoundary =
                 await db.Messages.Where(x => x.SessionId == session.Id).MaxAsync(x => (long?)x.Sequence, ct) ?? 0;
             var subjects = await db.Messages
-                .Where(x => x.SessionId == session.Id && x.SenderId != null && x.AllowReflection && !x.ContextInvalidated &&
-                            db.Conversations.Any(c => c.Id == session.ConversationId && c.Kind == ConversationKind.Private))
+                .Where(x => x.SessionId == session.Id && x.SenderId != null && x.AllowReflection &&
+                            !x.ContextInvalidated &&
+                            db.Conversations.Any(c =>
+                                c.Id == session.ConversationId && c.Kind == ConversationKind.Private))
                 .Select(x => x.SenderId!.Value).Distinct().ToListAsync(ct);
             foreach (var subject in subjects)
             {
@@ -70,7 +72,9 @@ public sealed class MaintenanceWorkflow(
         await db.SaveChangesAsync(ct);
         // Recover a crash after a permanent Chat failure committed but before its refund was recorded.
         var uncompensated = await db.ForceReceipts.Where(x => x.CompensationStatus == null &&
-                db.Outbox.Any(j => j.Id == x.ChatJobId && j.Status == JobStatus.DeadLetter))
+                                                              db.Outbox.Any(j =>
+                                                                  j.Id == x.ChatJobId &&
+                                                                  j.Status == JobStatus.DeadLetter))
             .OrderBy(x => x.AcceptedAt).ThenBy(x => x.Id).Select(x => x.ChatJobId).Take(50).ToArrayAsync(ct);
         foreach (var chat in uncompensated) await interaction.CompensateAsync(chat, ct);
     }
@@ -96,7 +100,8 @@ public sealed class MaintenanceWorkflow(
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = clock.UtcNow;
-        var projections = await db.Summaries.AsNoTracking().Where(x => x.ProjectionExpiresAt <= now && x.SafeProjectionJson != null)
+        var projections = await db.Summaries.AsNoTracking()
+            .Where(x => x.ProjectionExpiresAt <= now && x.SafeProjectionJson != null)
             .OrderBy(x => x.ProjectionExpiresAt).ThenBy(x => x.Id).Take(100)
             .Select(x => new { x.Id, x.ProjectionRevision }).ToListAsync(ct);
         foreach (var projection in projections)

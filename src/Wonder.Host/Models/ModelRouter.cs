@@ -144,7 +144,8 @@ public sealed class ModelRouter(
         IChatClient inner,
         ModelRouter router,
         ModelProfile profile,
-        Action<List<ChatMessage>>? prepare, Func<CancellationToken, Task>? beforeSend) : DelegatingChatClient(inner)
+        Action<List<ChatMessage>>? prepare,
+        Func<CancellationToken, Task>? beforeSend) : DelegatingChatClient(inner)
     {
         private int calls;
         private int rounds;

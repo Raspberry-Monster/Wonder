@@ -32,7 +32,8 @@ public static class MemoryQueries
         var query = new Vector(vector);
         // Scope authorization stays in SQL before ordering and applying Top-K.
         var distances = db.Embeddings.Where(e => e.ProfileId == profileId &&
-                db.Memories.Any(m => m.Id == e.MemoryId && m.Revision == e.SourceRevision))
+                                                 db.Memories.Any(m =>
+                                                     m.Id == e.MemoryId && m.Revision == e.SourceRevision))
             .Select(e => new VectorDistance { MemoryId = e.MemoryId, Distance = e.Values.CosineDistance(query) });
         return from memory in scope
             join distance in distances on memory.Id equals distance.MemoryId

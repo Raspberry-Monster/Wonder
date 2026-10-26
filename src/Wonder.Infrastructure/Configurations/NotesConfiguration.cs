@@ -12,10 +12,15 @@ public sealed class NoteConfiguration : IEntityTypeConfiguration<Note>
         b.Property(x => x.Version).IsConcurrencyToken();
     }
 }
+
 public sealed class NoteRevisionConfiguration : IEntityTypeConfiguration<NoteRevision>
 {
-    public void Configure(EntityTypeBuilder<NoteRevision> b) => b.HasKey(x => new { x.NoteId, x.Version });
+    public void Configure(EntityTypeBuilder<NoteRevision> b)
+    {
+        b.HasKey(x => new { x.NoteId, x.Version });
+    }
 }
+
 public sealed class NoteDependencyConfiguration : IEntityTypeConfiguration<NoteDependency>
 {
     public void Configure(EntityTypeBuilder<NoteDependency> b)

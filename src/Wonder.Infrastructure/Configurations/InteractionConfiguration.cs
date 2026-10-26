@@ -10,7 +10,8 @@ public sealed class MuteSessionConfiguration : IEntityTypeConfiguration<MuteSess
     {
         b.HasIndex(x => new { x.ConversationId, x.ExpiresAt });
         b.Property(x => x.Revision).IsConcurrencyToken();
-        b.ToTable(t => t.HasCheckConstraint("CK_Mute_ForceRemaining", "\"ForceRemaining\" >= 0 AND \"ForceRemaining\" <= 3"));
+        b.ToTable(t =>
+            t.HasCheckConstraint("CK_Mute_ForceRemaining", "\"ForceRemaining\" >= 0 AND \"ForceRemaining\" <= 3"));
         b.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
     }
 }

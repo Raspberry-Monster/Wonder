@@ -18,7 +18,8 @@ public sealed class AgentReflectionQuotaConfiguration : IEntityTypeConfiguration
     public void Configure(EntityTypeBuilder<AgentReflectionQuota> b)
     {
         b.HasKey(x => new { x.BotId, x.Date });
-        b.ToTable(t => t.HasCheckConstraint("CK_Reflection_Quota", "\"UsedNormal\" BETWEEN 0 AND 2 AND \"UsedImportant\" BETWEEN 0 AND 1"));
+        b.ToTable(t => t.HasCheckConstraint("CK_Reflection_Quota",
+            "\"UsedNormal\" BETWEEN 0 AND 2 AND \"UsedImportant\" BETWEEN 0 AND 1"));
     }
 }
 

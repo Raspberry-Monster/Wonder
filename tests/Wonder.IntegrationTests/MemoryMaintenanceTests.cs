@@ -69,7 +69,8 @@ public sealed class MemoryMaintenanceTests
         var candidate = await db.MemoryCandidates.SingleAsync();
         await Assert.That(candidate.Action).IsEqualTo(action);
         var old = await db.Memories.SingleAsync(x => x.Id == f.Old);
-        await Assert.That(old.IsOutdated).IsEqualTo(action is MemoryMaintenanceAction.Update or MemoryMaintenanceAction.Supplement);
+        await Assert.That(old.IsOutdated)
+            .IsEqualTo(action is MemoryMaintenanceAction.Update or MemoryMaintenanceAction.Supplement);
         if (action is MemoryMaintenanceAction.Merge or MemoryMaintenanceAction.Defer)
         {
             await Assert.That(old.ArchivedAt).IsNull();
@@ -151,7 +152,8 @@ public sealed class MemoryMaintenanceTests
         db.LogicalUsers.Add(other);
         var foreign = new Memory
         {
-            BotId = f.Bot, SubjectId = other.Id, Text = "FOREIGN_AUTHOR_SECRET", FactKey = "new-home-key", Status = MemoryStatus.Active
+            BotId = f.Bot, SubjectId = other.Id, Text = "FOREIGN_AUTHOR_SECRET", FactKey = "new-home-key",
+            Status = MemoryStatus.Active
         };
         var foreignBot = new BotInstance { OwnerId = (await db.Bots.SingleAsync(x => x.Id == f.Bot)).OwnerId };
         db.Bots.Add(foreignBot);
@@ -276,7 +278,8 @@ public sealed class MemoryMaintenanceTests
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
             db.Memories.Add(new Memory
             {
-                BotId = f.Bot, SubjectId = f.User, Text = "我现在住上海。", FactKey = "concurrently-added", Status = MemoryStatus.Active
+                BotId = f.Bot, SubjectId = f.User, Text = "我现在住上海。", FactKey = "concurrently-added",
+                Status = MemoryStatus.Active
             });
             await db.SaveChangesAsync();
         };
@@ -451,7 +454,8 @@ public sealed class MemoryMaintenanceTests
         {
             memory = new Memory
             {
-                BotId = bot.Id, SubjectId = user.Id, FactKey = "old-home-key", Text = "我住杭州。", Status = MemoryStatus.Active,
+                BotId = bot.Id, SubjectId = user.Id, FactKey = "old-home-key", Text = "我住杭州。",
+                Status = MemoryStatus.Active,
                 CreatedAt = DateTimeOffset.UtcNow.AddDays(-2)
             };
             var profile = new EmbeddingProfile

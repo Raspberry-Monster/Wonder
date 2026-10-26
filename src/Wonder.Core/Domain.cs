@@ -90,8 +90,12 @@ public sealed record EmotionProposal(
     string Reason,
     Guid[] EvidenceMessageIds);
 
-public sealed record RelationshipProposal(string Preference, bool Explicit, Guid[] EvidenceMessageIds,
-    string Kind = "Preference", EvidenceAssertion[]? Assertions = null);
+public sealed record RelationshipProposal(
+    string Preference,
+    bool Explicit,
+    Guid[] EvidenceMessageIds,
+    string Kind = "Preference",
+    EvidenceAssertion[]? Assertions = null);
 
 public sealed record MemoryCandidate(
     string FactKey,
@@ -174,7 +178,6 @@ public sealed class GroupPolicy
     public bool RespondToReply { get; set; } = true;
     public string CommandPrefix { get; set; } = "/wonder";
     public bool PersistMessages { get; set; } = true;
-
 }
 
 public sealed class PersonaIdentityRevision
@@ -241,7 +244,9 @@ public sealed class ConversationSummary
     public string MessageIdsJson { get; set; } = "[]";
     public bool ContextInvalidated { get; set; }
     public long Revision { get; set; }
+
     public string Text { get; set; } = "";
+
     // Null is legacy/unknown provenance, never an asserted empty source set.
     public string? SourcesJson { get; set; }
     public Guid? BaseSummaryId { get; set; }

@@ -1,15 +1,18 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Wonder.Core;
+using Wonder.Host.Features.Chat;
 using Wonder.Infrastructure;
 using Wonder.Platforms;
-using Wonder.Host.Features.Chat;
 
 namespace Wonder.Host;
 
-public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, ConversationClock clock,
-    ModelRouter models, ContextBuilder contexts, InteractionBoundary tools)
+public sealed class MessageIngestor(
+    IDbContextFactory<WonderDbContext> factory,
+    ConversationClock clock,
+    ModelRouter models,
+    ContextBuilder contexts,
+    InteractionBoundary tools)
 {
     public async Task IngestAsync(Guid bindingId, NormalizedEvent e, CancellationToken ct)
     {
@@ -104,41 +107,55 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, 
         var isForce = UserCommands.IsForce(text);
         var mute = await db.Mutes.Where(x => x.ConversationId == conv.Id && x.EndedAt == null && x.ExpiresAt > now)
             .OrderByDescending(x => x.StartedAt).ThenBy(x => x.Id).FirstOrDefaultAsync(ct);
-        string? systemReply = isHelp ? UserCommands.Help(e.Kind, policy) : null;
+        var systemReply = isHelp ? UserCommands.Help(e.Kind, policy) : null;
         var bound = await db.Users.AnyAsync(x => x.LogicalUserId == user.Id, ct);
         if (isForce)
         {
             systemReply = e.Kind != ConversationKind.Private || !bound
                 ? "[Wonder 系统通知] /force 仅限已绑定的私聊用户使用。"
-                : mute is null ? "[Wonder 系统通知] 当前未静音；未扣次数，请直接发送消息。"
-                : !decision.ShouldPersist ? "[Wonder 系统通知] 当前未启用消息保存，无法受理 Force；未扣次数。"
-                : mute.UserId != user.Id ? "[Wonder 系统通知] 你无权使用该静音周期的 Force。"
-                : mute.ForceRemaining <= 0 ? "[Wonder 系统通知] 本轮 Force 次数已用完；请等待静音到期。/help 仍可用。"
-                : text.Length <= 6 ? "[Wonder 系统通知] 用法：/force <完整内容>；未扣次数。" : null;
+                : mute is null
+                    ? "[Wonder 系统通知] 当前未静音；未扣次数，请直接发送消息。"
+                    : !decision.ShouldPersist
+                        ? "[Wonder 系统通知] 当前未启用消息保存，无法受理 Force；未扣次数。"
+                        : mute.UserId != user.Id
+                            ? "[Wonder 系统通知] 你无权使用该静音周期的 Force。"
+                            : mute.ForceRemaining <= 0
+                                ? "[Wonder 系统通知] 本轮 Force 次数已用完；请等待静音到期。/help 仍可用。"
+                                : text.Length <= 6
+                                    ? "[Wonder 系统通知] 用法：/force <完整内容>；未扣次数。"
+                                    : null;
             if (systemReply is null)
             {
                 var profile = await models.ProfileAsync(bot.Id, TaskKind.Chat, ct);
                 if (e.Segments.Count(x => x.Kind == SegmentKind.Image) > 3 ||
                     (e.Segments.Any(x => x.Kind == SegmentKind.Image) && !profile.SupportsImages))
+                {
                     systemReply = "[Wonder 系统通知] 当前模型无法完整处理这些图片；Force 未受理、未扣次数。";
+                }
                 else
                 {
-                    var identityText = await db.Identities.Where(x => x.BotId == bot.Id).OrderByDescending(x => x.Revision)
+                    var identityText = await db.Identities.Where(x => x.BotId == bot.Id)
+                        .OrderByDescending(x => x.Revision)
                         .Select(x => x.Content).FirstAsync(ct);
                     var mood = await db.Emotions.AsNoTracking().SingleAsync(x => x.BotId == bot.Id, ct);
-                    var definitions = profile.SupportsTools ? ConversationTools.Definitions
-                        .Concat(tools.Enabled ? InteractionBoundary.Definitions : [])
-                        .Concat(tools.ReflectionEnabled ? InteractionBoundary.ReflectionDefinitions : [])
-                        .Concat(tools.NotesEnabled && user.AllowNotes ? InteractionBoundary.NotesDefinitions : []).ToList() : null;
+                    var definitions = profile.SupportsTools
+                        ? ConversationTools.Definitions
+                            .Concat(tools.Enabled ? InteractionBoundary.Definitions : [])
+                            .Concat(tools.ReflectionEnabled ? InteractionBoundary.ReflectionDefinitions : [])
+                            .Concat(tools.NotesEnabled && user.AllowNotes ? InteractionBoundary.NotesDefinitions : [])
+                            .ToList()
+                        : null;
                     try
                     {
                         contexts.Build(new ContextInput(identityText, mood, "", "", [], [],
-                            new ContextTurn(MessageRole.User, $"[Server: authorized Force input; remaining at admission={mute!.ForceRemaining - 1}. " +
+                            new ContextTurn(MessageRole.User,
+                                $"[Server: authorized Force input; remaining at admission={mute!.ForceRemaining - 1}. " +
                                 "Replying does not unmute. You may explicitly choose interaction_no_reply.]\n" +
                                 string.Concat(e.Segments.Where(x => x.Kind == SegmentKind.Text).Select(x => x.Value)),
                                 e.Segments, SpeakerTags.For(conv.Id, user.Id), user.PreferredName,
                                 SentAt: clock.Local(e.OccurredAt)), models.Context(profile), TimeContext:
-                            clock.Context(e.OccurredAt, null, false), Tools: definitions, SupportsImages: profile.SupportsImages));
+                            clock.Context(e.OccurredAt, null, false), Tools: definitions,
+                            SupportsImages: profile.SupportsImages));
                     }
                     catch (ContextLimitException)
                     {
@@ -194,7 +211,9 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, 
             SenderId = user.Id,
             ExternalMessageId = e.MessageId,
             SegmentsJson = Json.Write(e.Segments),
-            Text = isForce ? string.Concat(e.Segments.Where(x => x.Kind == SegmentKind.Text).Select(x => x.Value)) : text,
+            Text = isForce
+                ? string.Concat(e.Segments.Where(x => x.Kind == SegmentKind.Text).Select(x => x.Value))
+                : text,
             CreatedAt = e.OccurredAt,
             AllowReflection = decision.ShouldReflect,
             ShouldRespond = decision.ShouldRespond,
@@ -218,10 +237,12 @@ public sealed class MessageIngestor(IDbContextFactory<WonderDbContext> factory, 
                     $"[Wonder 系统通知] Force 已受理，剩余 {mute.ForceRemaining} 次；Miku 可以回复或选择不回复。");
             }
         }
+
         await db.SaveChangesAsync(ct);
         if (decision.ShouldReflect && session is not null)
             Jobs.Add(db, bot.Id, JobKind.Reflection,
-                new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, ReflectionKind.Light), conv.Id);
+                new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, ReflectionKind.Light),
+                conv.Id);
         if (UserCommands.IsEnd(text) && session is not null)
         {
             session.DeadlineAt = DateTimeOffset.UtcNow;

@@ -23,10 +23,10 @@ public sealed class TestApp : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection? connection;
     private readonly string environment;
+    private readonly DbCommandInterceptor? interceptor;
     private readonly string? postgresConnection;
     private readonly bool? requireHttps;
     private readonly TimeProvider? time;
-    private readonly DbCommandInterceptor? interceptor;
 
     public TestApp(TimeProvider? time = null, string? databaseFile = null,
         string environment = "Development", bool? requireHttps = null, string? postgresConnection = null,

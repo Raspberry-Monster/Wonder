@@ -25,7 +25,8 @@ public sealed class MemoryOperationItemConfiguration : IEntityTypeConfiguration<
     {
         builder.HasIndex(x => new { x.OperationId, x.Kind, x.ResourceId }).IsUnique();
         builder.Property(x => x.Revision).IsConcurrencyToken();
-        builder.HasOne<MemoryOperation>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<MemoryOperation>().WithMany().HasForeignKey(x => x.OperationId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -35,7 +36,8 @@ public sealed class EvidenceSuppressionConfiguration : IEntityTypeConfiguration<
     {
         builder.HasIndex(x => new { x.BotId, x.SubjectId, x.MessageId });
         builder.HasIndex(x => new { x.OperationId, x.MemoryId, x.MessageId }).IsUnique();
-        builder.HasOne<MemoryOperation>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<MemoryOperation>().WithMany().HasForeignKey(x => x.OperationId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -45,6 +47,7 @@ public sealed class RelationshipClaimConfiguration : IEntityTypeConfiguration<Re
     {
         builder.HasIndex(x => new { x.BotId, x.SubjectId });
         builder.Property(x => x.Revision).IsConcurrencyToken();
-        builder.HasOne<RelationshipState>().WithMany().HasForeignKey(x => x.RelationshipId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<RelationshipState>().WithMany().HasForeignKey(x => x.RelationshipId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
