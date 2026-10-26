@@ -10,23 +10,17 @@
 | --- | --- | --- |
 | `ConnectionStrings:Postgres` | `ConnectionStrings__Postgres` | 必填，PostgreSQL + pgvector 数据库 |
 | `Workers:Enabled` | `Workers__Enabled` | `true`；关闭时不启动 OneBot、Outbox 消费者和 Quartz |
-| `MemoryLifecycle:Enabled` | `MemoryLifecycle__Enabled` | 四项管理操作统一启用配置；不能替代独立启动恢复证明 |
 | `Storage:KeysPath` | `Storage__KeysPath` | `data/keys`；Data Protection 密钥环 |
 | `Storage:MediaPath` | `Storage__MediaPath` | `data/media` |
-| `Backups:Path` | `Backups__Path` | `data/backups` |
-| `Backups:DeletionLedgerPath` | `Backups__DeletionLedgerPath` | `data/deletion-ledger` |
-| `Backups:RetiredContextPath` | `Backups__RetiredContextPath` | `data/retired-context`，退役数据的独立加密导出目录 |
-| `Backups:AgeRecipient` | `Backups__AgeRecipient` | age 公钥收件人，备份和账本导出需要 |
-| `SystemAdminIds` | `SystemAdminIds__0` 等 | 可执行备份 API 的账号 UUID |
 | `Chat:TimeZone` | `Chat__TimeZone` | `Asia/Shanghai`，用于时间上下文和日常调度 |
 | `Authentication:AllowRegistration` | `Authentication__AllowRegistration` | `true` |
 | `Authentication:RequireHttps` | `Authentication__RequireHttps` | `false`；启用时 Cookie 始终带 Secure |
 
 存储配置中的相对路径按进程工作目录解析。IDE、仓库根目录、发布目录的启动方式可能不同；需要固定存储位置时使用绝对路径。词表目录则按 Host ContentRoot 下的 `Tokenizer` 查找。
 
-容器工作目录为 `/app`，宿主 `~/quadlet.config.d/Wonder/Host` 挂载到 `/app/data`，其中 `keys`、`media` 和 `backups` 分别保存密钥、媒体和备份。删除账本另挂载到 `/app/data/deletion-ledger`。目录布局见 [Quadlet 指南](../deploy/quadlet/README.md#宿主机目录)。
+容器工作目录为 `/app`，宿主 `~/quadlet.config.d/Wonder/Host` 挂载到 `/app/data`，其中 `keys`、`media` 分别保存 Data Protection 密钥和媒体。目录布局见 [Quadlet 指南](../deploy/quadlet/README.md#宿主机目录)。
 
-`Recovery:*` 配置、独立介质/基线与加密包接口见 [独立恢复协议](memory-lifecycle.md#独立恢复协议)。普通 Host 即便 Workers=false 也必须先通过恢复门禁；该开关不是维护模式或恢复旁路。
+记忆管理权限见 [Memory 生命周期](memory-lifecycle.md)；工具配置与独立 Notes 授权见 [交互工具与 Notes](agent-tools.md)。
 
 ## 首次部署和更新应用
 
@@ -42,11 +36,11 @@
    ```
 
 4. 发布包使用 `dotnet Wonder.Host.dll --migrate`；容器使用对应指南中的手动迁移入口。普通启动不会自动执行迁移，不要让旧 Host 同时使用正在升级的数据库。
-5. 保持数据库与原密钥目录，完成最新独立恢复材料重放及 `--verify-recovery`，并在隔离恢复克隆完成验收。通过后才启动新版；四项操作共用配置及启动恢复证明。迁移或校验失败不启动普通业务。事务及信任边界见 [生命周期架构](memory-lifecycle.md)。
+5. 保持数据库与原密钥目录，迁移完成后启动新版并检查健康探针、本人身份和任务状态。迁移失败应先修复，再启动普通业务。
 
-迁移链位于 `src/Wonder.Infrastructure/Migrations`，由 EF Core 按数据库记录依次应用。运行时任务只接受事件 v2。Memory v1.3 新迁移只允许前向；恢复旧 PG 也必须先按最新独立账本重放及验证，不能回到旧二进制绕过栅栏或执行旧广域清理。
+迁移链位于 `src/Wonder.Infrastructure/Migrations`，由 EF Core 按数据库记录依次应用。运行时任务只接受事件 v2。隐私与功能精简迁移只允许前向；升级会取消旧叙事／账本导出任务、清空其进度、删除叙事配置及数据表，并将已隔离的隐私操作重新排入在线核验。已有完成操作也按在线目标重新核验，不生成恢复成功回执。
 
-配置六类模型路由：Chat、LightReflection、StrongReflection、DailyNarrative、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在“状态与任务”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
+配置五类模型路由：Chat、LightReflection、StrongReflection、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在“状态与任务”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
 
 ## 密钥解密失败
 
@@ -69,7 +63,7 @@ Data Protection 使用应用名 `Wonder`。迁移机器时，数据库和原密�
 
 ## 任务失败与重试
 
-Outbox 是任务状态的权威来源。消费者查询到期候选，再通过资格条件和 LeaseId 的 EF 条件更新竞争领取；租约 10 分钟，每 30 秒续期。空队列等待 1 秒；过期 Running 可以被重新领取。Completed 与 DeadLetter 不会自动执行。
+Outbox 是任务状态的权威来源。消费者查询到期候选，再通过资格条件和 LeaseId 的 EF 条件更新竞争领取；租约 10 分钟，每 30 秒续期。空队列等待 1 秒；过期 Running 可以被重新领取。Completed、DeadLetter 和 Cancelled 不会自动执行。
 
 | 情况 | 当前处理 |
 | --- | --- |
@@ -88,7 +82,7 @@ Outbox 是任务状态的权威来源。消费者查询到期候选，再通过�
 
 ## 日志与健康检查
 
-任务失败和租约异常的 Warning 包含任务 UUID、异常消息和堆栈；默认 Information 级别可见。任务列表只存错误类型，另显示进度是否存在。日志不主动记录聊天正文、完整 Prompt、反思结果或密钥。
+任务失败 Warning 记录任务 UUID、类型及错误类型，租约异常也会记录；默认 Information 级别可见。任务列表显示错误类型及是否保存了分批进度。日志不主动记录聊天正文、完整 Prompt、反思结果或密钥。
 
 ```bash
 # Podman / Quadlet
@@ -101,35 +95,43 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 
 `/health/live` 检查进程，`/health/ready` 检查数据库连接。ready 成功不代表 QQ 已登录、模型路由可调用或全部迁移已经应用，仍需分别检查控制台和任务记录。
 
-## 手动备份
+## 运维备份与恢复
 
-应用镜像内包含 PostgreSQL 18 客户端及 age。源码运行时需自行提供 `pg_dump` 和 age。使用 age-keygen 生成密钥，仅将公开 `age1...` 收件人填入 `Backups:AgeRecipient`，私钥另存。
+应用不提供备份、删除账本导出、恢复包或恢复重放入口。由运维在应用外使用匹配数据库版本的 PostgreSQL 客户端；应用镜像不再包含 pg_dump、pg_restore 或 age。
 
-将管理员账号 UUID 写入 SystemAdminIds。登录后调用 `POST /api/v1/system/backups`，携带 `X-Wonder: 1`。接口将 pg_dump 自定义格式流式 age 加密，并输出独立的加密删除账本，不写明文数据库转储。Data Protection 密钥和媒体文件需另外备份。
+备份可在运维终端执行以下命令。连接参数可通过 PGHOST、PGPORT、PGUSER、PGDATABASE 与受限权限的 .pgpass 提供，避免将密码放入命令历史。
 
-配置收件人后，删除会排入账本导出任务，也可调用 `POST /api/v1/system/deletion-ledger` 手动导出。默认账本仍在同一主机，应另行安排异盘或异机保存，并关注失败和积压。
+~~~bash
+pg_dump --format=custom --file=wonder.dump --dbname=wonder
+~~~
 
-## 恢复流程
+数据库转储包含在线隐私操作和撤销记录，以及只读 schema retired_context。另行安全保存整个 Storage:KeysPath 目录；API Key、QQ Token 与登录 Cookie 使用 Data Protection，数据库转储不能替代原密钥环。需要保留图片时，另行备份 Storage:MediaPath。备份保留、加密、异机保存和定期恢复演练由运维安排。
 
-1. 停止 Host，保留最新独立删除账本和密钥，暂不启动 OneBot 或消费者。
-2. 用 age 私钥解密数据库备份，在空的 PostgreSQL + pgvector 数据库中用 pg_restore 恢复。
-3. 恢复原密钥及必要媒体，确认目录权限，显式执行 `--migrate`。
-4. 历史 JSON 账本须先显式转换再按精确类型处理；`--convert-ledger` 不覆盖原件，`--replay-ledger` 不启动 HTTP/消费者。此兼容入口不能替代 v1.3 最新独立加密恢复包；Unknown MemoryContext/Hash-only 范围需要离线核验，不能直接扩大重放。
-5. 从独立可信最新度依据核对加密 SQLite 包和 manifest 的连续覆盖，使用 `--replay-recovery-package <db.aesgcm> <manifest.json>` 精确重放并验证幂等；执行 `--verify-recovery`，确认栅栏、实际载荷和独立恢复证明通过。缺失、过旧、密钥不可用或范围未知保持诊断/停机。
-6. 验证通过后才启动普通 Host，检查 ready、本人身份、任务与发送不确定状态。协议与故障窗口见 [独立恢复协议](memory-lifecycle.md#独立恢复协议)。
+恢复步骤：
 
-恢复点之后的删除只有在独立账本已成功保存且可取得时才能重放；数据库与最新账本同时丢失时不能保证保留这些删除记录。
+1. 停止 Host、Worker 和 OneBot，在隔离环境先演练恢复。
+2. 准备空的 PostgreSQL + pgvector 数据库，由运维执行：
+
+   ~~~bash
+   pg_restore --exit-on-error --no-owner --dbname=wonder_restored wonder.dump
+   ~~~
+
+3. 恢复配套密钥目录及需要的媒体，确认运行账号权限，将连接串指向恢复库。
+4. 显式执行 dotnet Wonder.Host.dll --migrate，再启动 Host。
+5. 检查 /health/ready、登录、本人记忆、隐私清理进度及发送不确定状态。
+
+**恢复后的数据状态以备份时点为准。备份之后的更正、Forget、Erase 或 Notes 删除不会自动重放，旧数据可能重新出现。** 应根据运维恢复范围重新核对并处理；应用不提供后续删除记录的恢复保障。
 
 ## 群／共享退役归档
 
-用户已授权完整归档后退出在线表。停止 Host 并先备份，再依次应用 TypedBusinessTags、ArchiveRetiredContext、PrivateMemoryOnly。归档记录保存在独立只读 schema `retired_context.entries`，没有应用读取入口；迁移不可通过降级恢复旧群功能。运行 `dotnet Wonder.Host.dll --export-retired-context`，使用 Backups:AgeRecipient 流式加密导出到 Backups:RetiredContextPath，输出文件名与 SHA-256；请将密文另存异盘／异机。命令不启动 HTTP 或 Worker。旧备份和删除账本不删除；归档不会被恢复入口自动导入在线表。
+旧群／共享记录保存在只读 schema retired_context.entries，没有应用读取入口，不会自动导入在线表。迁移只允许前向。归档随外部数据库备份保存；需要单独导出时由运维使用 PostgreSQL 工具处理。媒体文件需另行备份。
 
 ## 保留与清理
 
-ADR-013 新增迁移应按原 stop-backup-migrate-start 流程部署。`Chat__InteractionToolsEnabled`、`Chat__ReflectionToolsEnabled`、`Chat__NotesToolsEnabled` 默认 false；需显式开放模块并配置 Chat SupportsTools。Notes 还需本人独立授权。未对旧只读设置自动追加写权限。
+交互、主动整理与 Notes 写工具默认关闭，启用方式及授权见 [交互工具与 Notes](agent-tools.md#启用工具)。迁移统一按停止应用、外部备份、执行迁移、启动应用的流程部署。
 
-删除账本使用 DeletionResourceKind 区分 Memory、Note 和退役上下文 MemoryContext；不存在产品层的 Memory v1 / Note v2。旧格式只在离线转换器处理，在线重放拒绝未转换文件。Note 的 ResourceVersion 是实际修订号，继续保留。恢复仍须在任何 Worker/OneBot/外部查询前重放最新账本。Notes 与整理原因按本人确认保留到主动删除/清除，不自动过期。验收边界见 [实施附录](adr-013-implementation.md)。
+数据库撤销记录继续使用 DeletionResourceKind 区分 Memory、Note 和退役上下文 MemoryContext，保留业务栅栏、防回写及审计所需的 ResourceId／ResourceVersion。Notes 与整理原因按本人确认保留到主动删除／清除，不自动过期。
 
 原始消息默认保留 90 天，创建时记录 ExpiresAt，修改 Bot 保留期只影响后续消息；图片缓存 7 天。清理每 5 分钟分批执行，符合条件的完成发送正文按 30 天清理。Memory / Relationship 不随原始消息自动过期。
 
-记忆更正、撤回和删除的范围见 [跨群记忆](shared-context.md) 及 [自主维护记忆](memory-maintenance.md)，整体结构见 [核心架构](architecture.md)。
+记忆管理的操作范围见 [Memory 生命周期](memory-lifecycle.md)，自动维护规则见 [自主维护记忆](memory-maintenance.md)。

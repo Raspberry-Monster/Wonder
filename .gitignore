@@ -85,6 +85,7 @@ BenchmarkDotNet.Artifacts/
 # .NET Core
 project.lock.json
 project.fragment.lock.json
+# Build, publish, and local verification artifacts
 artifacts/
 src/Wonder.Web/node_modules/
 src/Wonder.Web/dist/
@@ -440,5 +441,4 @@ FodyWeavers.xsd
 .env
 **/appsettings.Local.json
 TestResults/
-artifacts/
 **/data/

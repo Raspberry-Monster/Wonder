@@ -20,7 +20,7 @@ podman pull docker.io/pgvector/pgvector:pg18
 podman pull docker.io/motricseven7/snowluma:v2.0.3
 podman network create --ignore wonder
 mkdir -p ~/.config/containers/systemd
-mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Host,DeletionLedger}
+mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Host}
 mkdir -p ~/quadlet.config.d/Wonder/SnowLuma/{Data,Config,Share}
 cp deploy/quadlet/*.container ~/.config/containers/systemd/
 chmod 600 ~/.config/containers/systemd/wonder-*.container
@@ -32,7 +32,7 @@ chmod 600 ~/.config/containers/systemd/wonder-*.container
 
 - `wonder-postgres.container`：设置 `POSTGRES_PASSWORD`。
 - `wonder-app.container` 与 `wonder-migrate.container`：将连接串密码改成上面相同的值。包含空格的整个 `KEY=value` 必须用双引号包住；这里不展开 shell 变量，百分号字面值需写为 `%%`。
-- `wonder-app.container`：默认只配置时区和数据库连接串。其他选项按需添加 `Environment=Authentication__AllowRegistration=false`、`Environment=Backups__AgeRecipient=age1...`、`Environment=SystemAdminIds__0=账号UUID` 或 `Environment=Chat__TimeZone=Asia/Shanghai`。
+- `wonder-app.container`：默认只配置时区和数据库连接串。其他选项按需添加 `Environment=Authentication__AllowRegistration=false` 或 `Environment=Chat__TimeZone=Asia/Shanghai`。
 - `wonder-snowluma.container`：沿用镜像默认参数；需要自定义远程桌面密码时添加 `Environment=VNC_PASSWD=你的密码`，未设置时首次启动生成随机密码，在日志中查看。
 
 应用默认使用 Production 环境，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问宿主的 `http://127.0.0.1:5080` 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 `Environment=Authentication__RequireHttps=true`。上面预先拉取镜像，避免首次启动时拉取耗时超过 systemd 默认启动超时。
@@ -119,8 +119,7 @@ systemctl --user restart wonder-postgres.service
 | 宿主机目录（相对于 `~/quadlet.config.d/Wonder/`） | 容器路径 | 内容 |
 | --- | --- | --- |
 | `PostgreSQL` | `/var/lib/postgresql` | PostgreSQL 18 + pgvector；数据库文件在 `18/docker` 子目录 |
-| `Host` | `/app/data` | Wonder 密钥、媒体与加密备份 |
-| `DeletionLedger` | `/app/data/deletion-ledger` | 独立加密删除账本 |
+| `Host` | `/app/data` | Wonder Data Protection 密钥与媒体 |
 | `SnowLuma/Data` | `/app/data` | 协议端配置与运行数据 |
 | `SnowLuma/Config` | `/app/.config` | QQ 配置与登录状态 |
 | `SnowLuma/Share` | `/app/.local/share` | QQ 客户端数据 |
@@ -129,7 +128,7 @@ Wonder 的挂载使用 `:U,z`：Podman 将目录所有者映射给镜像内应�
 
 PostgreSQL 18 镜像的默认 PGDATA 为 `/var/lib/postgresql/18/docker`，因此挂载父目录 `/var/lib/postgresql`，对应宿主 `~/quadlet.config.d/Wonder/PostgreSQL/18/docker`。[镜像目录说明](https://hub.docker.com/_/postgres)
 
-这些目录默认仍在同一物理主机；账本需要异盘 / 异机保存时修改对应挂载来源或备份同步。不要同时运行 Compose 和 Quadlet 访问这些目录。
+这些目录默认仍在同一物理主机；数据库、密钥及需要的媒体应由运维另行备份。不要同时运行 Compose 和 Quadlet 访问这些目录。
 
 各容器采用默认资源管理；实际内存与 CPU 用量取决于聊天负载、数据库规模和 QQ 客户端，目标机器容量需实测。
 
@@ -146,12 +145,7 @@ journalctl --user -u wonder-app.service -f
 
 修改 `.container` 后先 `daemon-reload`，再重启对应服务。更新 SnowLuma 时修改 `wonder-snowluma.container` 的镜像标签，再 reload / restart。PostgreSQL 已有数据目录的密码不会随 `POSTGRES_PASSWORD` 自动改变；已有库需同步修改数据库角色密码。
 
-备份 API 与账本导出见 [运行指南](../../docs/operations.md)。恢复时停止应用，恢复数据库及密钥，再重放最新删除账本。重放沿用 `wonder-migrate.container` 的网络、挂载和连接串：
-
-1. 停止 `wonder-app.service`，将解密账本放到私有路径。
-2. 临时修改 `wonder-migrate.container`：将 `Exec=--migrate` 改成 `Exec=--replay-ledger /run/wonder-ledger.json`，并在 `[Container]` 加入 `Volume=/private/latest-ledger.json:/run/wonder-ledger.json:ro,Z`。文件需允许运行容器的应用用户读取。
-3. 执行 `systemctl --user daemon-reload`、`systemctl --user restart wonder-migrate.service`，确认成功。
-4. 还原该单元的 Exec 和临时挂载，再 daemon-reload。验证恢复结果后启动应用。
+外部 pg_dump／pg_restore 备份恢复步骤见 [运行指南](../../docs/operations.md#运维备份与恢复)。恢复时停止应用，恢复数据库、Data Protection 密钥及需要的媒体，运行迁移后启动。数据库状态以备份时点为准，不自动重放后续删除。
 
 单元 generator 校验、QQ 扫码、容器联调及备份恢复需在实际部署的 Linux 主机验收。
 
