@@ -1,6 +1,6 @@
 # Wonder 核心架构
 
-Wonder 是基于 QQ 的多 Bot AI 聊天平台。每个 Bot 拥有独立身份、模拟心境、关系、记忆与模型配置。本文描述当前代码的职责和运行边界；部署与恢复见 [运行指南](operations.md)。
+Wonder 是面向个人自部署、少量可信用户的 QQ 多 Bot AI 聊天平台。每个 Bot 拥有独立身份、模拟心境、关系、记忆与模型配置。本文描述当前代码的职责和运行边界；部署与恢复见 [运行指南](operations.md)。
 
 记忆版本、精确来源、隐私清理见 [Memory 生命周期](memory-lifecycle.md)。交互工具和 Notes 的事务边界见 [交互工具与 Notes](agent-tools.md)。
 
@@ -85,6 +85,8 @@ Memory 来自本人私聊，以 BotId + SubjectId 表达所有权。当前模型
 4. 网络生成不持有长数据库事务。摘要、反思和维护可将进度写入任务并重新排队，重启后继续。
 5. 完整回复先持久化，再逐段发送，保存每段状态及平台消息 ID。
 
+`/help`、`/bind`、`/end` 由服务端直接处理，命令正文不进入聊天、引用、摘要和反思来源。`/end` 只调整已有分段的截止时间；已受理的 `/force` 仍以完整消息进入聊天。具体条件见 [用户命令](agent-tools.md#用户命令)。
+
 Quartz 仅保存内存触发器，重启时重新注册，不持久化执行历史。会话扫描和清理启动即运行；每日维护按启用 Bot 的当地日期入队并去重。停机期间不逐次重放触发，已保存的业务任务由 Outbox 消费者恢复。四个触发器的配置见 [调度器与重启恢复](operations.md#调度器与重启恢复)。
 
 租约为 10 分钟，每 30 秒续期，LeaseId 作为并发令牌约束写入；过期 Running 可以重新领取。消费者分组：Chat 两个；Outgoing 一个；Reflection / Emotion / Relationship 共一个；Memory / Embedding / MemoryMaintenance / MemoryPrivacy 共一个；Maintenance / Summary 共一个。空队列等待 1 秒后再查。
@@ -108,7 +110,7 @@ ModelRouter 创建每次请求的 ModelContextBudget。输入上限为上下文�
 - 普通启动不执行迁移；首次应用唯一 `InitialCreate` 基线需要空库，旧迁移链的开发库需手动重建。显式运行 `--migrate` 后再启动 Host；相同基线的重复迁移跳过已应用项。
 - 密钥和 QQ 令牌使用 Data Protection 加密，密钥目录必须与数据库配套持久化。媒体位于私有目录；数据库备份由运维另行保存。
 - 消息默认保留 90 天，图片缓存 7 天，满足完成条件的发送正文缓存按 30 天清理。长期记忆和关系不随原始消息自动过期。
-- 图片仅下载 HTTPS 地址，DNS 解析结果允许内网及 FakeIP 地址，不跟随跳转；每轮最多 3 张，单张 5 MiB，每 Bot 缓存有约 128 MiB 的准入限制。
+- 图片仅下载 HTTPS 443 地址，DNS 解析结果允许内网及 FakeIP 地址，不跟随跳转、不使用显式代理；每轮最多 3 张，单张 5 MiB，每 Bot 缓存有约 128 MiB 的准入限制。网络配置见 [图片下载与网络](operations.md#图片下载与网络)。
 - 运维使用外部 pg_dump／pg_restore 备份和恢复；数据库状态以备份时点为准，不自动重放后续删除。
 - 当前没有完整账号找回、主动发言调度、本地 Embedding、任意文件与音视频处理、Quartz 集群或完整多 Host 协调。
-- 自动化测试使用模拟供应商和发送器，并验证真实 PostgreSQL / pgvector 路径；真实 QQ、供应商、备份恢复及目标主机负载仍需独立验收。见 [测试指南](../tests/README.md)。
+- 自动化测试使用模拟供应商和发送器，并提供真实 PostgreSQL / pgvector 路径的隔离测试；未配置专用 PG 时会跳过相关用例。真实 QQ、供应商、备份恢复及目标主机负载仍需独立验收。见 [测试指南](../tests/README.md)。

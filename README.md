@@ -12,6 +12,8 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，通过 OneBot 11 / SnowLuma 接入 QQ；PostgreSQL 保存业务状态，并通过 Outbox 持久任务表完成异步调度、租约、重试和死信处理。
 
+主要面向个人自部署和少量可信用户，按单 Host 运行。可以直接从源码构建并部署，无需等待 Public Release；首次配置和上线检查见 [内部自部署验收](docs/operations.md#内部自部署验收)。
+
 ## 核心设计
 
 - **稳定的身份**：Shared / Identity / Emotion 分层编译提示；Identity 由 Bot Owner 发布，模型只提出状态变化建议，由服务端验证后提交。
@@ -43,13 +45,15 @@ dotnet run --project src/Wonder.Host -- --migrate
 dotnet run --project src/Wonder.Host
 ~~~
 
-访问 http://localhost:5080，注册账号（密码至少 12 位），创建 Bot，然后配置 QQ 连接和模型路由。默认群聊不触发，先添加群策略。默认不提取长期记忆；普通用户先在“我的记忆”中生成关联口令，通过 QQ 私聊 Bot 发送 /bind 口令，刷新页面后自行开启记忆。
+Windows PowerShell 若提示无法运行 `npm.ps1`，将示例中的 `npm` 换成 `npm.cmd` 即可，无需修改系统执行策略。
+
+访问 http://localhost:5080，注册账号（密码至少 12 位），创建 Bot，然后配置 QQ 连接和模型路由。默认群聊不触发，先添加群策略。默认不提取长期记忆；普通用户先在“个人空间 → 连接你的 QQ 身份”生成绑定码，通过 QQ 私聊 Bot 发送 /bind 口令，刷新页面后在“记忆偏好”自行开启记忆。
 
 模型地址填写供应商的 API 基础地址，例如 https://provider.example/v1/。请配置 Chat、LightReflection、StrongReflection、RollingSummary、Embedding 五类任务；可以全部复用同一供应商，但 Embedding 必须使用相应的向量模型。关闭图片能力时，模型会收到图片不可见的说明。
 
 模型路由页支持“批量应用模型”：勾选生成任务，统一设置任意兼容模型的地址、名称、密钥、能力和参数，再单独配置 Embedding。操作和 API 示例见 [模型路由指南](docs/model-routes.md)；[DeepSeek Flash](docs/deepseek.md) 是其中一个配置示例。
 
-不同发言者的称呼与私聊／群聊范围见 [对话范围](docs/conversation-continuity.md#发言者与私聊范围)。Bot 的 Identity 只描述助手自身；每个人在“我的记忆”设置自己的称呼。
+不同发言者的称呼与私聊／群聊范围见 [对话范围](docs/conversation-continuity.md#发言者与私聊范围)。Bot 的 Identity 只描述助手自身；每个人在“个人空间 → 记忆偏好”设置自己的称呼。
 
 基础设施等应用配置也可写在 src/Wonder.Host/appsettings.Local.json（已忽略），或使用环境变量。图片与 Data Protection 密钥位于私有目录；相对存储路径按进程工作目录解析。搬迁或恢复时需同时保留数据库和原密钥目录，否则已保存的模型 Key、QQ 令牌无法解密。配置说明见 [运行指南](docs/operations.md#配置与持久目录)。
 
@@ -62,7 +66,7 @@ npm --prefix src/Wonder.Web run test:e2e
 
 ## 构建容器镜像
 
-以下命令都在项目根目录（Dockerfile、Wonder.slnx 所在目录）执行。Dockerfile 会完成 .NET Restore、Release Publish 和运行镜像打包，宿主机只需安装对应容器工具。
+以下命令都在项目根目录（Dockerfile、Wonder.slnx 所在目录）执行。Dockerfile 会完成前端依赖安装、类型检查和构建、.NET Restore、Release Publish 及运行镜像打包，宿主机只需安装对应容器工具。
 
 ### Podman / Quadlet
 
@@ -108,7 +112,7 @@ docker compose -f deploy/compose.yaml up -d --no-deps app
 
 ## 容器运行
 
-Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值，再运行：
+Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值，并将 SnowLuma 两处端口绑定中的 `192.168.1.102` 改为宿主机实际局域网 IP。仅通过 SSH 转发管理时可改成 `127.0.0.1`；绑定宿主机不存在的 IP 会导致启动失败。配置完成后运行：
 
 ~~~bash
 mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Host}
@@ -121,13 +125,18 @@ docker compose -f deploy/compose.yaml exec postgres pg_isready -U wonder -d wond
 docker compose -f deploy/compose.yaml run --rm --no-deps --user root --entrypoint sh app -c 'chown -R app:app /app/data'
 docker compose -f deploy/compose.yaml run --rm --no-deps app --migrate
 docker compose -f deploy/compose.yaml up -d app
+curl --fail http://127.0.0.1:5080/health/ready
 ~~~
+
+Compose 的 `depends_on` 只控制启动顺序，当前配置没有等待数据库健康的条件；首次部署必须按上面的顺序检查 PostgreSQL 就绪并显式执行迁移。参见 [Compose 启动顺序](https://docs.docker.com/compose/how-tos/startup-order/)。
 
 Compose 内置 motricseven7/snowluma:v2.0.3。运行 `docker compose -f deploy/compose.yaml logs snowluma` 查看首次生成的远程桌面密码和 WebUI 登录信息。打开 `http://192.168.1.102:6081/` 扫码登录 QQ，再在 `http://192.168.1.102:5099/` 配置账号的 OneBot 11 正向 WebSocket（0.0.0.0:3001、数组消息段），复制该服务的 Access Token。在 Wonder 的 QQ 连接中填写 QQ 账号、ws://snowluma:3001/ 和相同 Token；宿主运行 .NET 时用 ws://127.0.0.1:3001/。三种密码 / Token 分别管理。
 
 所有数据使用宿主目录映射，统一放在 ~/quadlet.config.d/Wonder/ 下：PostgreSQL、Host，以及 SnowLuma/Data、SnowLuma/Config、SnowLuma/Share。后者分别保存协议端数据、QQ 配置及客户端数据。PostgreSQL 18 使用 pgvector/pgvector:pg18，挂载到容器的 /var/lib/postgresql，实际数据库文件位于宿主 PostgreSQL/18/docker。Compose 与 Quadlet 共用目录布局，不能同时访问同一份数据。
 
-SnowLuma 管理端口 5099 和 6081 绑定宿主局域网地址 `192.168.1.102`，防火墙按需允许管理电脑访问这两个 TCP 端口；其他已发布端口绑定本机回环地址。应用默认使用 Production，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问 http://127.0.0.1:5080 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 Authentication__RequireHttps=true。创建所需账号后可按需添加 Authentication__AllowRegistration=false。
+SnowLuma 管理端口 5099 和 6081 绑定配置中的宿主局域网地址，防火墙按需允许管理电脑访问这两个 TCP 端口；其他已发布端口绑定本机回环地址。上面的 SnowLuma 访问地址也要随实际 IP 修改。应用默认使用 Production，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问 http://127.0.0.1:5080 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 Authentication__RequireHttps=true。创建所需账号后可按需添加 Authentication__AllowRegistration=false。
+
+仓库默认开启交互、主动整理和 Notes 的 Host 能力开关；模型路由的“支持工具调用（聊天）”仍需单独开启，长期记忆与 Notes 还需本人授权。`/help`、`/bind`、`/end` 由 Wonder 处理，只有已受理的 `/force` 会进入 Miku 的聊天流程。图片允许 DNS 解析到内网及 FakeIP，仍要求 HTTPS 443 且不跟随跳转。配置边界见 [交互工具与 Notes](docs/agent-tools.md) 和 [图片下载与网络](docs/operations.md#图片下载与网络)。
 
 各容器采用默认资源管理，数据库使用默认参数。实际资源需求仍需在目标机器上按工作负载验证。
 

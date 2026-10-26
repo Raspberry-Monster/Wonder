@@ -7,8 +7,8 @@
 | 命令 | 行为与条件 |
 | --- | --- |
 | `/help` | 服务端返回命令帮助；静音期间可用，不调用模型、不扣 Force 次数、不延长 Session |
-| `/bind <口令>` | 私聊绑定控制台账号与 QQ；一次性口令由管理台生成，5 分钟有效 |
-| `/end` | 将已有分段截止时间设为现在；需允许保存消息，群聊还需符合触发策略；不创建新分段或调用聊天模型 |
+| `/bind <口令>` | 私聊绑定控制台账号与 QQ；一次性口令由管理台生成，5 分钟有效；裸命令不进入聊天，群聊调用返回系统提示 |
+| `/end` | 将已有分段截止时间设为现在；需允许保存消息，群聊还需符合触发策略，静音期间不执行；不创建新分段或调用聊天模型 |
 | `/force <完整内容>` | 已绑定本人在静音期间发起一次接触；每个静音期初始 3 次，未静音时不扣次数 |
 
 除已受理的 `/force` 外，系统命令由 Wonder 直接处理，不进入 Miku 的消息历史、引用、摘要或反思来源。`/end` 仍会使当前分段到期，后续整理按正常流程处理此前的聊天内容。
@@ -17,19 +17,19 @@
 
 ## 启用工具
 
-Bot 的 Chat 模型路由需要开启 `supportsTools`，模型需支持兼容的 function calling。时间和历史查询的只读范围见[对话延续与时间](conversation-continuity.md#两个只读工具)。写能力另由 Host 配置控制，默认全部关闭：
+Bot 的 Chat 模型路由需要开启 `supportsTools`（界面为“支持工具调用（聊天）”），模型需支持兼容的 function calling；新建路由时该项默认关闭。时间和历史查询的只读范围见[对话延续与时间](conversation-continuity.md#两个只读工具)。写能力另由 Host 配置控制，仓库 `appsettings.json` 默认全部开启：
 
 ```json
 {
   "Chat": {
-    "InteractionToolsEnabled": false,
-    "ReflectionToolsEnabled": false,
-    "NotesToolsEnabled": false
+    "InteractionToolsEnabled": true,
+    "ReflectionToolsEnabled": true,
+    "NotesToolsEnabled": true
   }
 }
 ```
 
-环境变量分别为 `Chat__InteractionToolsEnabled`、`Chat__ReflectionToolsEnabled`、`Chat__NotesToolsEnabled`。Notes 还需本人开启独立授权，主动 Reflection 还需本人允许记忆。上述开关不限制管理台中对已有记忆的纠正、归档、Forget 和 Erase。
+环境变量分别为 `Chat__InteractionToolsEnabled`、`Chat__ReflectionToolsEnabled`、`Chat__NotesToolsEnabled`，设为 `false` 可关闭对应能力。Host 开关开启不等于获得用户授权：写工具仅向已绑定私聊开放，Notes 还需本人开启独立授权，主动 Reflection 还需本人允许记忆。上述开关不限制管理台中对已有记忆的纠正、归档、Forget 和 Erase。
 
 ## 静音与 Force
 

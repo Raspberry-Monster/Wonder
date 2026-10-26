@@ -13,6 +13,9 @@
 | `Storage:KeysPath` | `Storage__KeysPath` | `data/keys`；Data Protection 密钥环 |
 | `Storage:MediaPath` | `Storage__MediaPath` | `data/media` |
 | `Chat:TimeZone` | `Chat__TimeZone` | `Asia/Shanghai`，用于时间上下文和日常调度 |
+| `Chat:InteractionToolsEnabled` | `Chat__InteractionToolsEnabled` | `true`；允许向合格 Chat 回合提供交互工具 |
+| `Chat:ReflectionToolsEnabled` | `Chat__ReflectionToolsEnabled` | `true`；允许主动整理工具 |
+| `Chat:NotesToolsEnabled` | `Chat__NotesToolsEnabled` | `true`；允许 Notes 工具，仍需本人独立授权 |
 | `Authentication:AllowRegistration` | `Authentication__AllowRegistration` | `true` |
 | `Authentication:RequireHttps` | `Authentication__RequireHttps` | `false`；启用时 Cookie 始终带 Secure |
 
@@ -21,6 +24,27 @@
 容器工作目录为 `/app`，宿主 `~/quadlet.config.d/Wonder/Host` 挂载到 `/app/data`，其中 `keys`、`media` 分别保存 Data Protection 密钥和媒体。目录布局见 [Quadlet 指南](../deploy/quadlet/README.md#宿主机目录)。
 
 记忆管理权限见 [Memory 生命周期](memory-lifecycle.md)；工具配置与独立 Notes 授权见 [交互工具与 Notes](agent-tools.md)。
+
+## 内部自部署验收
+
+Wonder 的主要使用方式是个人自部署，面向单 Host、少量可信用户。使用仓库 Docker Compose 或 rootless Quadlet 即可运行应用、PostgreSQL + pgvector 和 SnowLuma，不需要独立调度数据库。首次部署按以下顺序验收：
+
+1. 修改数据库密码和端口绑定。仓库 SnowLuma 管理端口使用 `192.168.1.102`，必须替换为宿主机实际 IP；Wonder 5080 默认只绑定回环地址，远程管理可通过 SSH 转发。
+2. 持久化数据库与 Host 数据目录，确认应用用户可写密钥和媒体；按下节在空库上显式执行 `--migrate`，成功后启动应用。Compose 和 Quadlet 选择其一，使用一个 Host。
+3. 检查 `/health/live`、`/health/ready` 和控制台登录。配置五类模型路由、QQ 账号、OneBot 正向 WebSocket 与 Access Token，检查实际私聊收发；ready 只证明数据库可连接。
+4. 按需启用 Chat 的“支持工具调用（聊天）”，通过 `/bind` 绑定本人，并分别开启长期记忆和 Notes 授权。确认 `/help`、`/end` 不产生 Chat 任务，`/end` 不出现在模型历史中；此前聊天内容仍会正常参与分段结束整理。
+5. 启用记忆时，发送可验证的简单事实，检查反思、向量和维护任务；发送图片验证目标环境的 DNS、FakeIP 与 HTTPS 连接。检查“运行状态”中是否存在持续失败或死信。
+6. 重启 Host，验证控制台登录、密钥解密、QQ 重连和待处理任务恢复；开始长期使用前，保存数据库与配套密钥备份，并在隔离库验证一次恢复。已有任务可以恢复，停机期间未接收的 QQ 消息不会自动补拉。
+
+前端构建、协议测试和 SQLite 集成测试可验证应用逻辑；真实 PostgreSQL 的迁移、锁和向量查询需要隔离 PG 测试。QQ 登录与回执、供应商能力、Linux 容器启动及目标机器资源用量仍以上述实际验收为准。检查方法见 [测试指南](../tests/README.md)。
+
+## 图片下载与网络
+
+图片地址仍要求 HTTPS、443 端口且不能带用户名信息，不跟随重定向。下载前保留 DNS 解析及空结果检查，但不再要求解析结果为公网地址；内网和 FakeIP 地址可直接用于连接，`MediaStore.IsPublic` 判断方法仅保留供后续使用。
+
+媒体客户端关闭显式代理，不使用 `HTTP_PROXY` / `HTTPS_PROXY`；需要代理的环境应提供可用的直连或 TUN／透明代理网络路径。FakeIP 对应的连接仍需由该网络正确接管，TLS 证书校验仍按正常 HTTPS 执行。允许内网目标也意味着图片下载不再提供内外网地址隔离，适用范围是可信的自部署输入。
+
+单张上限 5 MiB，每轮最多 3 张，并检查图片格式与像素数。模型需声明支持图片。失败时先检查实际 HTTPS 地址、DNS 和代理路径，再检查模型能力与后台任务错误；允许 FakeIP 不等于保证任意代理配置都可下载。
 
 ## 数据库基线与首次初始化
 
@@ -46,7 +70,7 @@
 
 运行时仅接受事件 v2 和当前注册的任务类型，没有旧任务升级或取消兼容流程。
 
-配置五类模型路由：Chat、LightReflection、StrongReflection、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在“状态与任务”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
+配置五类模型路由：Chat、LightReflection、StrongReflection、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在 Bot 的“运行状态”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
 
 ## 调度器与重启恢复
 
@@ -99,7 +123,7 @@ Outbox 是任务状态的权威来源。消费者查询到期候选，再通过�
 
 模型请求失败也可能产生费用。供应商明确拒绝或要求延迟的请求释放预留；响应丢失等不确定情况按预留上限估算结算。上下文、输出和配额诊断见 [统一上下文预算](context-budget.md)。
 
-在控制台“状态与任务”重试死信，会重置尝试次数、错误和租约，并保留已有分批进度。API 为 `POST /api/v1/bots/{id}/jobs/{jobId}/retry`，需登录并携带 `X-Wonder: 1`。
+在控制台 Bot 的“运行状态”重试死信，会重置尝试次数、错误和租约，并保留已有分批进度。API 为 `POST /api/v1/bots/{id}/jobs/{jobId}/retry`，需登录并携带 `X-Wonder: 1`。
 
 不确定发送先处理分段，再重试 outgoing。`confirm-sent` 确认已发送，可补平台消息 ID；`retry` 允许重新发送，可能重复。恢复时尚为 Sending 的分段会转为 DeliveryUnknown，需先去 QQ 核对。
 
@@ -149,7 +173,7 @@ pg_dump --format=custom --file=wonder.dump --dbname=wonder
 
 ## 保留与清理
 
-交互、主动整理与 Notes 写工具默认关闭，启用方式及授权见 [交互工具与 Notes](agent-tools.md#启用工具)。
+交互、主动整理与 Notes 的 Host 能力开关默认开启；是否向模型提供工具，还取决于 Chat 路由的工具开关、私聊绑定及本人授权，见 [交互工具与 Notes](agent-tools.md#启用工具)。
 
 数据库撤销记录继续使用 DeletionResourceKind 区分 Memory 和 Note，保留业务栅栏、防回写及审计所需的 ResourceId／ResourceVersion。Notes 与整理原因按本人确认保留到主动删除／清除，不自动过期。
 

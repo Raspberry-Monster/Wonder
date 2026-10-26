@@ -36,6 +36,7 @@ chmod 600 ~/.config/containers/systemd/wonder-*.container
 - `wonder-app.container` 与 `wonder-migrate.container`：将连接串密码改成上面相同的值。包含空格的整个 `KEY=value` 必须用双引号包住；这里不展开 shell 变量，百分号字面值需写为 `%%`。
 - `wonder-app.container`：默认只配置时区和数据库连接串。其他选项按需添加 `Environment=Authentication__AllowRegistration=false` 或 `Environment=Chat__TimeZone=Asia/Shanghai`。
 - `wonder-snowluma.container`：沿用镜像默认参数；需要自定义远程桌面密码时添加 `Environment=VNC_PASSWD=你的密码`，未设置时首次启动生成随机密码，在日志中查看。
+- `wonder-snowluma.container`：将两处 `PublishPort=192.168.1.102:...` 改为宿主机实际局域网 IP；仅通过 SSH 转发管理时可改为 `127.0.0.1`。绑定不存在的宿主 IP 会导致容器启动失败，后文访问地址也要对应修改。
 
 应用默认使用 Production 环境，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问宿主的 `http://127.0.0.1:5080` 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 `Environment=Authentication__RequireHttps=true`。上面预先拉取镜像，避免首次启动时拉取耗时超过 systemd 默认启动超时。
 
@@ -84,7 +85,7 @@ SnowLuma 管理端口绑定宿主局域网地址 `192.168.1.102`，可从管理�
 | SnowLuma WebUI | `http://192.168.1.102:5099/` |
 | noVNC 远程桌面、QQ 扫码 | `http://192.168.1.102:6081/` |
 
-宿主机须拥有 `192.168.1.102` 地址，防火墙按需允许管理电脑访问 TCP 5099 和 6081。修改已安装的单元后执行：
+`192.168.1.102` 是仓库预设地址，部署时需替换为实际地址，防火墙按需允许管理电脑访问 TCP 5099 和 6081。修改已安装的单元后执行：
 
 ~~~bash
 systemctl --user daemon-reload
@@ -105,7 +106,7 @@ ssh -L 5080:127.0.0.1:5080 user@192.168.1.102
 ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:15432:127.0.0.1:5432 raspberry_kan@服务器地址
 ~~~
 
-保持 SSH 连接打开，在 DBeaver、DataGrip、pgAdmin 或 psql 中填写：主机 `127.0.0.1`、端口 `15432`、数据库 `wonder`、用户 `wonder`，密码为 `wonder-postgres.container` 中配置的数据库密码。也可使用客户端自带的 SSH 隧道功能，SSH 目标填写服务器，数据库目标填写服务器侧 `127.0.0.1:5432`。连接方式参考 [PostgreSQL SSH 隧道说明](https://www.postgresql.org/docs/17/ssh-tunnels.html)。
+保持 SSH 连接打开，在 DBeaver、DataGrip、pgAdmin 或 psql 中填写：主机 `127.0.0.1`、端口 `15432`、数据库 `wonder`、用户 `wonder`，密码为 `wonder-postgres.container` 中配置的数据库密码。也可使用客户端自带的 SSH 隧道功能，SSH 目标填写服务器，数据库目标填写服务器侧 `127.0.0.1:5432`。连接方式参考 [PostgreSQL SSH 隧道说明](https://www.postgresql.org/docs/18/ssh-tunnels.html)。
 
 如需局域网直接连接，将端口映射改为服务器实际的局域网 IP，例如 `PublishPort=192.168.1.100:5432:5432`；数据库客户端对应连接 `192.168.1.100:5432`，并在宿主机防火墙中允许管理电脑访问该端口。IP 需替换成实际地址。
 
@@ -151,6 +152,6 @@ journalctl --user -u wonder-app.service -f
 
 外部 pg_dump／pg_restore 备份恢复步骤见 [运行指南](../../docs/operations.md#运维备份与恢复)。恢复时停止应用，恢复与当前基线匹配的数据库、Data Protection 密钥及需要的媒体，确认基线后启动。数据库状态以备份时点为准，不自动重放后续删除。
 
-单元 generator 校验、QQ 扫码、容器联调及备份恢复需在实际部署的 Linux 主机验收。
+单元 generator 校验、QQ 扫码、容器联调及备份恢复需在实际部署的 Linux 主机验收。完整检查顺序见 [内部自部署验收](../../docs/operations.md#内部自部署验收)；应用的工具能力默认值和图片 FakeIP／代理路径要求见同一运行指南。
 
 参考：[SnowLuma Docker 部署](https://snowluma.github.io/zh/docs/guide/deploy/docker)、[OneBot 对接](https://snowluma.github.io/zh/docs/guide/connect-bot)、[Podman Quadlet](https://docs.podman.io/en/v5.4.0/markdown/podman-systemd.unit.5.html)。
