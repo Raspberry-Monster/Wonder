@@ -1,5 +1,7 @@
 # 测试指南
 
+PG 测试创建随机库之前要求 `WONDER_TEST_POSTGRES_SYSTEM_ID` 与经独立确认的专用测试实例匹配，管理库必须是 `postgres`。先核实专用服务、数据目录与实例标识，不从应用连接推断隔离。CI 从本作业的 PostgreSQL 服务容器内部读取标识。缺标识跳过 PG 用例，标识不匹配拒绝创建库；禁止使用原始应用服务。关键断言见 [Memory 验收约束](../docs/memory-lifecycle.md#验收约束)。
+
 三个项目均使用 TUnit 与原生异步断言，global.json 选择 Microsoft.Testing.Platform。
 
 ## 执行
@@ -55,7 +57,7 @@ dotnet test --solution Wonder.slnx --configuration Release
 npm --prefix src/Wonder.Web ci
 npm --prefix src/Wonder.Web run build
 npm --prefix src/Wonder.Web test
-dotnet build src/Wonder.Host
+dotnet build Wonder.slnx
 npm --prefix src/Wonder.Web run test:e2e
 npm --prefix src/Wonder.Web run test:dev
 ```
@@ -65,5 +67,7 @@ npm --prefix src/Wonder.Web run test:dev
 ADR-013 的 `InteractionTests` 和 `AgentAutonomyTests` 覆盖 Force 并发、结构化写操作重放、NoReply 恢复、Notes 版本隔离和账本升级/恢复、规范 Full 竞争、配额和本人权限。依赖 PG 的用例仍使用随机临时数据库，禁止将应用库作为迁移测试目标。Windows 若遇到 .NET 10 `dotnet test` 参数解析异常，可在构建后直接运行 `dotnet tests/Wonder.IntegrationTests/bin/Debug/net10.0/Wonder.IntegrationTests.dll --report-trx`；该进程同样读取 `WONDER_TEST_POSTGRES`。
 
 浏览器测试通过 `tests/server.setup.ts` 启停专用测试子进程，拒绝占用已有测试端口，不接触运行中的应用服务。dev 与构建产物测试分别保存结果，避免同时清理同一输出目录。完整本地验收记录和未覆盖的真实设备边界见 [实施附录](../docs/adr-013-implementation.md)。
+
+Memory v1.3：生产构建浏览器测试使用 `tests/Wonder.BrowserHost`，只有静态资源、CSP、SPA 回退及健康探针，没有业务数据库/HostedService/QQ 或恢复门禁旁路。HTTP 业务由 TestApp 验证；测试程序集中的 IRecoveryStartup 替身只供测试工厂，未注入产品。`PrivacyTests`、`PrivacyBoundaryTests`、`MemoryLifecycleTests` 的锁、迁移、向量、物理清理与回执测试使用隔离 PG；`RecoveryBoundaryTests` 另启动真实二进制的失败诊断分支，验证业务端口不监听且数据库探针零连接。测试 authority 和临时密钥只能证明协议分支，不能证明 S-04 独立介质、密钥保管或可信首次基线。
 
 参考：[TUnit 安装说明](https://tunit.dev/docs/getting-started/installation/)、[运行测试](https://tunit.dev/docs/getting-started/running-your-tests/)。

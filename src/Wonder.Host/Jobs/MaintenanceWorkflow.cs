@@ -100,6 +100,11 @@ public sealed class MaintenanceWorkflow(
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = clock.UtcNow;
+        var projections = await db.Summaries.AsNoTracking().Where(x => x.ProjectionExpiresAt <= now && x.SafeProjectionJson != null)
+            .OrderBy(x => x.ProjectionExpiresAt).ThenBy(x => x.Id).Take(100)
+            .Select(x => new { x.Id, x.ProjectionRevision }).ToListAsync(ct);
+        foreach (var projection in projections)
+            await SummaryProjections.ExpireAsync(db, projection.Id, projection.ProjectionRevision, now, ct);
         var expiredIds = await db.Messages.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id)
             .Select(x => x.Id)
             .Take(250).ToListAsync(ct);

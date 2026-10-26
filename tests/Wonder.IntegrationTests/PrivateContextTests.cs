@@ -79,10 +79,10 @@ public sealed class PrivateContextTests
     [Arguments("{\"retrievedMemoryIds\":[]}", "", false, true)]
     [Arguments("{\"retrievedMemoryIds\":[]}", "null", false, true)]
     [Arguments("{\"retrievedMemoryIds\":[]}", "[\"invalid-guid\"]", false, true)]
-    public async Task CorrectionSurvivesInvalidCachedProvenance(string snapshot, string summaryIds,
+    public async Task CorrectionDoesNotWidenInvalidationForUnprovenCaches(string snapshot, string summaryIds,
         bool invalidSnapshot, bool invalidSummary)
     {
-        using var app = new TestApp();
+        using var app = new TestApp(environment: "MemoryLifecycleTest");
         var f = await SeedAsync(app);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
@@ -96,7 +96,7 @@ public sealed class PrivateContextTests
         {
             BotId = f.BotId, ConversationId = conversation.Id, SessionId = session.Id,
             Role = MessageRole.Assistant, ExternalMessageId = "generated:" + job.Id, Text = "legacy cached answer",
-            ContextSnapshotJson = snapshot
+            ContextSnapshotJson = snapshot, ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
         };
         var summary = new ConversationSummary
         {
@@ -112,21 +112,25 @@ public sealed class PrivateContextTests
         db.Parts.Add(part);
         await db.SaveChangesAsync();
 
-        var response = await f.Alice.PatchAsJsonAsync($"/api/v1/me/memories/{f.SourceId}", new { text = "修正后的项目状态" });
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        f.Alice.DefaultRequestHeaders.Add("Idempotency-Key", "cache-correction");
+        var response = await f.Alice.PatchAsJsonAsync($"/api/v1/me/memories/{f.SourceId}", new { text = "修正后的项目状态", expectedRevision = 1 });
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         db.ChangeTracker.Clear();
         var oldMemory = await db.Memories.SingleAsync(x => x.Id == f.SourceId);
-        await Assert.That(oldMemory.Status).IsEqualTo(MemoryStatus.Revoked);
+        await Assert.That(oldMemory.Status == MemoryStatus.Revoked).IsFalse();
+        await Assert.That(oldMemory.IsOutdated).IsTrue();
         await Assert.That(await db.Memories.Where(x => x.SubjectId == f.AliceId && x.Text == "修正后的项目状态" &&
                                                        x.Status != MemoryStatus.Revoked).ToListAsync()).HasSingleItem();
         var cachedMessage = await db.Messages.SingleAsync(x => x.Id == message.Id);
-        await Assert.That(cachedMessage.ContextInvalidated).IsEqualTo(invalidSnapshot);
+        await Assert.That(cachedMessage.ContextInvalidated).IsFalse();
+        if (invalidSnapshot) await Assert.That(await ContentSources.MessageValidAsync(db, cachedMessage, default)).IsFalse();
         await Assert.That(cachedMessage.Text).IsEqualTo("legacy cached answer");
         var cachedSummary = await db.Summaries.SingleAsync(x => x.Id == summary.Id);
-        await Assert.That(cachedSummary.ContextInvalidated).IsEqualTo(invalidSnapshot || invalidSummary);
+        await Assert.That(cachedSummary.ContextInvalidated).IsFalse();
+        if (invalidSummary || summaryIds == "[]") await Assert.That(await ContentSources.ValidAsync(db, f.BotId, [ContentSources.Summary(cachedSummary)], default)).IsFalse();
         await Assert.That(cachedSummary.Text).IsEqualTo("legacy summary");
         await Assert.That((await db.Parts.SingleAsync(x => x.Id == part.Id)).Status)
-            .IsEqualTo(invalidSnapshot ? DeliveryStatus.Failed : DeliveryStatus.Pending);
+            .IsEqualTo(DeliveryStatus.Pending);
     }
 
     [Test]

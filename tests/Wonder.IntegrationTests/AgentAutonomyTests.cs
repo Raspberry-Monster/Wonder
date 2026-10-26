@@ -71,7 +71,7 @@ public sealed class AgentAutonomyTests
         await Assert.That(await db.Notes.CountAsync()).IsEqualTo(1);
     }
     [Test]
-    public async Task PostgreSqlLegacyMemoryLedgerRowsUpgradeAndRemainReplayable()
+    public async Task PostgreSqlLegacyLedgerWithoutExactResourceBlocksReplay()
     {
         await using var pg = await TestPostgres.CreateAsync("20261024144500_VersionedNotesAndPrivacyLedger");
         using var app = pg.CreateApp();
@@ -90,7 +90,7 @@ public sealed class AgentAutonomyTests
         try
         {
             await File.WriteAllTextAsync(file, Json.Write(new[] { row }));
-            await app.Services.GetRequiredService<MemoryService>().ReplayLedgerAsync(file, default);
+            await Assert.That(() => app.Services.GetRequiredService<MemoryService>().ReplayLedgerAsync(file, default)).ThrowsExactly<InvalidOperationException>();
             await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(1);
         }
         finally { File.Delete(file); }

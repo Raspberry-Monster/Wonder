@@ -39,6 +39,8 @@ public sealed class JobProcessor(
                     await sp.GetRequiredService<ReflectionWorkflow>().EmbedAsync(job.Id, ct, job.LeaseId); break;
                 case JobKind.MemoryMaintenance:
                     await sp.GetRequiredService<MemoryMaintenanceWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
+                case JobKind.MemoryPrivacy:
+                    await sp.GetRequiredService<PrivacyWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
                 default: await sp.GetRequiredService<MaintenanceWorkflow>().RunAsync(job.Id, ct, job.LeaseId); break;
             }
         }
@@ -78,7 +80,7 @@ public sealed class JobProcessor(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Lease renewal failed for task {EventId}", job.Id);
+            logger.LogWarning("Lease renewal failed for task {EventId}: {ErrorType}", job.Id, ex.GetType().Name);
             await execution.CancelAsync();
         }
     }
@@ -126,7 +128,7 @@ public sealed class JobProcessor(
                     ContextLimitException => "这次消息或必要上下文超出了模型可处理的长度，请分段发送，或调整模型上下文与额度设置。",
                     OutputLimitException => "这次生成达到了输出长度上限，请缩小问题范围或调整模型输出设置。",
                     _ => "这次回复暂时没能完成，请稍后再试。"
-                });
+                }, systemNotice: true);
         }
 
         await db.SaveChangesAsync(ct);
@@ -136,7 +138,7 @@ public sealed class JobProcessor(
             using var scope = scopes.CreateScope();
             await scope.ServiceProvider.GetRequiredService<InteractionBoundary>().CompensateAsync(job.Id, ct);
         }
-        logger.LogWarning(ex, "Task {EventId} ({Type}) failed: {ErrorType}, terminal={Terminal}",
+        logger.LogWarning("Task {EventId} ({Type}) failed: {ErrorType}, terminal={Terminal}",
             job.Id, job.Type, ex.GetType().Name, terminal);
     }
 

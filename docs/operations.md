@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `ConnectionStrings:Postgres` | `ConnectionStrings__Postgres` | 必填，PostgreSQL + pgvector 数据库 |
 | `Workers:Enabled` | `Workers__Enabled` | `true`；关闭时不启动 OneBot、Outbox 消费者和 Quartz |
+| `MemoryLifecycle:Enabled` | `MemoryLifecycle__Enabled` | 四项管理操作统一启用配置；不能替代独立启动恢复证明 |
 | `Storage:KeysPath` | `Storage__KeysPath` | `data/keys`；Data Protection 密钥环 |
 | `Storage:MediaPath` | `Storage__MediaPath` | `data/media` |
 | `Backups:Path` | `Backups__Path` | `data/backups` |
@@ -25,6 +26,8 @@
 
 容器工作目录为 `/app`，宿主 `~/quadlet.config.d/Wonder/Host` 挂载到 `/app/data`，其中 `keys`、`media` 和 `backups` 分别保存密钥、媒体和备份。删除账本另挂载到 `/app/data/deletion-ledger`。目录布局见 [Quadlet 指南](../deploy/quadlet/README.md#宿主机目录)。
 
+`Recovery:*` 配置、独立介质/基线与加密包接口见 [独立恢复协议](memory-lifecycle.md#独立恢复协议)。普通 Host 即便 Workers=false 也必须先通过恢复门禁；该开关不是维护模式或恢复旁路。
+
 ## 首次部署和更新应用
 
 1. 首次部署准备 .NET 10、Node.js 24、PostgreSQL 18 + pgvector，或使用仓库容器配置。数据库账号需要执行迁移及创建 vector 扩展的权限。
@@ -39,9 +42,9 @@
    ```
 
 4. 发布包使用 `dotnet Wonder.Host.dll --migrate`；容器使用对应指南中的手动迁移入口。普通启动不会自动执行迁移，不要让旧 Host 同时使用正在升级的数据库。
-5. 保持原数据库连接及密钥目录，启动新版，检查 `/health/ready`、登录、模型路由和任务状态。迁移失败时先修复，不启动应用。
+5. 保持数据库与原密钥目录，完成最新独立恢复材料重放及 `--verify-recovery`，并在隔离恢复克隆完成验收。通过后才启动新版；四项操作共用配置及启动恢复证明。迁移或校验失败不启动普通业务。事务及信任边界见 [生命周期架构](memory-lifecycle.md)。
 
-迁移链位于 `src/Wonder.Infrastructure/Migrations`，由 EF Core 按数据库记录依次应用。运行时任务只接受事件 v2。需要回退时，停止应用并使用与旧版匹配的数据库备份；不能假定 Down 迁移无损保留新版字段、任务进度和配置。
+迁移链位于 `src/Wonder.Infrastructure/Migrations`，由 EF Core 按数据库记录依次应用。运行时任务只接受事件 v2。Memory v1.3 新迁移只允许前向；恢复旧 PG 也必须先按最新独立账本重放及验证，不能回到旧二进制绕过栅栏或执行旧广域清理。
 
 配置六类模型路由：Chat、LightReflection、StrongReflection、DailyNarrative、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在“状态与任务”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
 
@@ -111,9 +114,9 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 1. 停止 Host，保留最新独立删除账本和密钥，暂不启动 OneBot 或消费者。
 2. 用 age 私钥解密数据库备份，在空的 PostgreSQL + pgvector 数据库中用 pg_restore 恢复。
 3. 恢复原密钥及必要媒体，确认目录权限，显式执行 `--migrate`。
-4. 将最新删除账本解密到私有临时文件。旧文件先通过 `dotnet Wonder.Host.dll --convert-ledger /private/old.json /private/current.json` 显式转换（不覆盖原件）；再运行 `dotnet Wonder.Host.dll --replay-ledger /private/latest-ledger.json`。该入口不启动 HTTP、OneBot 或消费者，且可重复执行。
-5. 验证撤销记忆、向量和派生内容不可检索，再启动 Host，处理不确定发送和死信。
-6. 检查 ready、任务、本人记忆及模型配置，再恢复流量。
+4. 历史 JSON 账本须先显式转换再按精确类型处理；`--convert-ledger` 不覆盖原件，`--replay-ledger` 不启动 HTTP/消费者。此兼容入口不能替代 v1.3 最新独立加密恢复包；Unknown MemoryContext/Hash-only 范围需要离线核验，不能直接扩大重放。
+5. 从独立可信最新度依据核对加密 SQLite 包和 manifest 的连续覆盖，使用 `--replay-recovery-package <db.aesgcm> <manifest.json>` 精确重放并验证幂等；执行 `--verify-recovery`，确认栅栏、实际载荷和独立恢复证明通过。缺失、过旧、密钥不可用或范围未知保持诊断/停机。
+6. 验证通过后才启动普通 Host，检查 ready、本人身份、任务与发送不确定状态。协议与故障窗口见 [独立恢复协议](memory-lifecycle.md#独立恢复协议)。
 
 恢复点之后的删除只有在独立账本已成功保存且可取得时才能重放；数据库与最新账本同时丢失时不能保证保留这些删除记录。
 

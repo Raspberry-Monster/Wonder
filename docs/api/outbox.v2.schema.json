@@ -1427,6 +1427,64 @@
                   "integer"
                 ],
                 "pattern": "^-?(?:0|[1-9]\\d*)$"
+              },
+              "projection": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "summaryId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "subjectId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "bodyRevision": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ],
+                    "pattern": "^-?(?:0|[1-9]\\d*)$"
+                  },
+                  "projectionRevision": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ],
+                    "pattern": "^-?(?:0|[1-9]\\d*)$"
+                  },
+                  "memoryIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "messageIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "summaryId",
+                  "subjectId",
+                  "bodyRevision",
+                  "projectionRevision",
+                  "memoryIds",
+                  "messageIds",
+                  "expiresAt"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -1547,6 +1605,138 @@
         },
         "type": {
           "const": "deletion-ledger"
+        },
+        "payload": {
+          "type": "string",
+          "contentMediaType": "application/json",
+          "contentSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "Pending",
+            "Running",
+            "Completed",
+            "DeadLetter",
+            "Cancelled"
+          ]
+        },
+        "attempts": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "leaseUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextAttemptAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "botId",
+        "type",
+        "schemaVersion",
+        "payload",
+        "correlationId",
+        "createdAt"
+      ]
+    },
+    {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "progressJson": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^-?(?:0|[1-9]\\d*)$"
+        },
+        "botId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "causationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "scheduledDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "type": {
+          "const": "memory-privacy"
         },
         "payload": {
           "type": "string",

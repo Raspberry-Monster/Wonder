@@ -8,7 +8,7 @@ export default async function setup(config: FullConfig) {
   const dev = baseURL.endsWith(":5190");
   const webRoot = fileURLToPath(new URL("../", import.meta.url));
   const hostRoot = fileURLToPath(
-    new URL("../../Wonder.Host/", import.meta.url),
+    new URL("../../../tests/Wonder.BrowserHost/", import.meta.url),
   );
   const probe = dev ? baseURL : baseURL + "/health/live";
   const available = () =>
@@ -31,9 +31,9 @@ export default async function setup(config: FullConfig) {
           "--strictPort",
         ]
       : [
-          hostRoot + "bin/Debug/net10.0/Wonder.Host.dll",
-          "--contentRoot",
-          hostRoot,
+          hostRoot + "bin/Debug/net10.0/Wonder.BrowserHost.dll",
+          "--StaticRoot",
+          webRoot + "dist",
           "--urls",
           baseURL,
         ],
@@ -43,6 +43,7 @@ export default async function setup(config: FullConfig) {
       stdio: "ignore",
       env: {
         ...process.env,
+        ASPNETCORE_ENVIRONMENT: "BrowserTest",
         Workers__Enabled: "false",
         ConnectionStrings__Postgres:
           "Host=127.0.0.1;Port=1;Database=wonder_browser_test;Username=unused;Password=unused",

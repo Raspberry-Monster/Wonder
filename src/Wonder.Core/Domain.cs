@@ -81,7 +81,8 @@ public sealed record ContextSnapshot(
     IReadOnlyList<Guid> RetrievedMemoryIds,
     string ModelProfileId,
     IReadOnlyList<Guid>? SourceMessageIds = null,
-    IReadOnlyList<Guid>? SourceUserIds = null);
+    IReadOnlyList<Guid>? SourceUserIds = null,
+    IReadOnlyList<ContentSource>? Sources = null);
 
 public sealed record EmotionProposal(
     double Valence,
@@ -90,14 +91,16 @@ public sealed record EmotionProposal(
     string Reason,
     Guid[] EvidenceMessageIds);
 
-public sealed record RelationshipProposal(string Preference, bool Explicit, Guid[] EvidenceMessageIds);
+public sealed record RelationshipProposal(string Preference, bool Explicit, Guid[] EvidenceMessageIds,
+    string Kind = "Preference", EvidenceAssertion[]? Assertions = null);
 
 public sealed record MemoryCandidate(
     string FactKey,
     string Text,
     bool Explicit,
     bool Sensitive,
-    Guid[] EvidenceMessageIds);
+    Guid[] EvidenceMessageIds,
+    EvidenceAssertion[]? Assertions = null);
 
 public sealed record ReflectionProposal(
     bool NeedsStrongReview,
@@ -240,6 +243,15 @@ public sealed class ConversationSummary
     public bool ContextInvalidated { get; set; }
     public long Revision { get; set; }
     public string Text { get; set; } = "";
+    // Null is legacy/unknown provenance, never an asserted empty source set.
+    public string? SourcesJson { get; set; }
+    public Guid? BaseSummaryId { get; set; }
+    public long? BaseSummaryRevision { get; set; }
+    public string? SafeProjectionJson { get; set; }
+    public long ProjectionRevision { get; set; }
+    public long ProjectionBaseSummaryRevision { get; set; }
+    public string ProjectionState { get; set; } = "Missing";
+    public DateTimeOffset? ProjectionExpiresAt { get; set; }
 }
 
 public sealed class GlobalEmotionState
@@ -300,6 +312,7 @@ public sealed class Memory
     public string FactKeyHash { get; set; } = "";
     public Guid? SupersedesMemoryId { get; set; }
     public DateTimeOffset? ArchivedAt { get; set; }
+    public bool IsOutdated { get; set; }
     public DateTimeOffset? LastConfirmedAt { get; set; }
     public long Revision { get; set; } = 1;
     public Guid BotId { get; set; }
@@ -345,6 +358,7 @@ public sealed class MemoryMaintenanceCandidate
     public string FactKey { get; set; } = "";
     public string Text { get; set; } = "";
     public string EvidenceJson { get; set; } = "[]";
+    public string? AssertionsJson { get; set; }
     public Guid SourceReflectionId { get; set; }
     public long RevocationEpoch { get; set; }
     public string CandidateHash { get; set; } = "";
@@ -393,6 +407,7 @@ public sealed class ReflectionResult
     public int SchemaVersion { get; set; } = 1;
     public string ModelId { get; set; } = "";
     public string Payload { get; set; } = "{}";
+    public bool MemorySourcesBlocked { get; set; }
 }
 
 public sealed class OutboxMessage
@@ -431,6 +446,8 @@ public sealed class OutgoingMessageBatch
     public Guid ConversationId { get; set; }
     public Guid SessionId { get; set; }
     public Guid SourceJobId { get; set; }
+    public string? SourceSnapshotJson { get; set; }
+    public bool IsSystemNotice { get; set; }
 }
 
 public sealed class OutgoingMessagePart
@@ -441,6 +458,7 @@ public sealed class OutgoingMessagePart
     public string Text { get; set; } = "";
     public DeliveryStatus Status { get; set; }
     public string? ExternalId { get; set; }
+    public string? FailureReason { get; set; }
 }
 
 public sealed class ModelProfile
@@ -482,6 +500,7 @@ public sealed class UsageRecord
 
 public sealed class MediaAsset
 {
+    public string ContentHash { get; set; } = "";
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid MessageId { get; set; }

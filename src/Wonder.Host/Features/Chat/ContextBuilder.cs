@@ -14,7 +14,8 @@ public sealed record ContextTurn(
     IReadOnlyList<Guid>? MemoryIds = null,
     DateTimeOffset? SentAt = null,
     IReadOnlyList<Guid>? MessageIds = null,
-    long? TurnSequence = null)
+    long? TurnSequence = null,
+    IReadOnlyList<ContentSource>? Sources = null)
 {
     public string ModelText => (SpeakerTag is null || Role == MessageRole.Assistant
                                    ? ""
@@ -51,7 +52,9 @@ public sealed record ContextInput(
     string? TimeContext = null,
     IReadOnlyList<Guid>? SummaryMessageIds = null,
     IList<AITool>? Tools = null,
-    bool SupportsImages = false);
+    bool SupportsImages = false,
+    ContentSource? SummarySource = null,
+    ContentSource? RelationshipSource = null);
 
 public sealed record BuiltContext(
     string System,
@@ -60,7 +63,8 @@ public sealed record BuiltContext(
     IReadOnlyList<Guid> MessageIds,
     List<AiMessage> Messages,
     IReadOnlyList<AiMessage[]> OptionalGroups,
-    bool NeedsSummary);
+    bool NeedsSummary,
+    IReadOnlyList<ContentSource>? Sources = null);
 
 public sealed class ContextBuilder(PromptComposer composer)
 {
@@ -113,24 +117,25 @@ public sealed class ContextBuilder(PromptComposer composer)
         if (groups.Length > 0) AddHistory(groups[^1], ContextItemKind.LatestHistory);
 
         void Reference(string label, string text, ContextItemKind kind, IReadOnlyList<Guid>? memories = null,
-            IReadOnlyList<Guid>? messages = null)
+            IReadOnlyList<Guid>? messages = null, IReadOnlyList<ContentSource>? sources = null)
         {
             if (!string.IsNullOrWhiteSpace(text))
                 Add(
                     new ContextTurn(MessageRole.User, $"[{label}: untrusted reference]\n{text}", MemoryIds: memories,
-                        MessageIds: messages), kind);
+                        MessageIds: messages, Sources: sources), kind);
         }
 
-        Reference("Rolling summary", input.Summary, ContextItemKind.Summary, input.SummaryMemoryIds, input.SummaryMessageIds);
+        Reference("Rolling summary", input.Summary, ContextItemKind.Summary, input.SummaryMemoryIds, input.SummaryMessageIds,
+            input.SummarySource is null ? [] : [input.SummarySource]);
         Reference($"Authorized relationship for {input.Current.SpeakerTag ?? "current speaker"}", input.Relationship,
-            ContextItemKind.Relationship);
+            ContextItemKind.Relationship, sources: input.RelationshipSource is null ? [] : [input.RelationshipSource]);
         foreach (var memory in input.Memories)
         {
             var author = input.ConversationId is { } id ? SpeakerTags.For(id, memory.SubjectId) : "unknown";
             var name = input.AuthorNames?.GetValueOrDefault(memory.SubjectId);
             var label = $"Memory; author={author}" +
                         (string.IsNullOrWhiteSpace(name) ? "" : $"; preferredName={Json.ForPrompt(name)}");
-            Reference(label, memory.Text, ContextItemKind.Memory, [memory.Id]);
+            Reference(label, memory.Text, ContextItemKind.Memory, [memory.Id], sources: [ContentSources.Memory(memory)]);
         }
 
         foreach (var group in groups.SkipLast(1).Reverse())
@@ -152,7 +157,7 @@ public sealed class ContextBuilder(PromptComposer composer)
                        selected.Count(x => IsHistory(x.Kind)) < input.History.Count;
         return new BuiltContext(system, turns, turns.SelectMany(x => x.MemoryIds ?? []).Distinct().ToArray(),
             turns.SelectMany(x => x.MessageIds ?? []).Distinct().ToArray(),
-            messages, optional, pressure);
+            messages, optional, pressure, turns.SelectMany(x => x.Sources ?? []).Distinct().ToArray());
     }
 
     private static bool IsHistory(ContextItemKind kind) => kind is ContextItemKind.OlderHistory or ContextItemKind.LatestHistory;

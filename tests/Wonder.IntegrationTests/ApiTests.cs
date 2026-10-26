@@ -139,15 +139,15 @@ public sealed class ApiTests
         await Assert.That((await owner.GetAsync($"/api/v1/me/memories/{memory.Id}")).StatusCode)
             .IsEqualTo(HttpStatusCode.NotFound);
         await Assert.That((await owner.DeleteAsync($"/api/v1/me/memories/{memory.Id}")).StatusCode)
-            .IsEqualTo(HttpStatusCode.NotFound);
+            .IsEqualTo(HttpStatusCode.BadRequest);
         await Assert.That((await person.GetAsync($"/api/v1/me/memories/{memory.Id}")).StatusCode)
             .IsEqualTo(HttpStatusCode.OK);
         await Assert.That((await person.DeleteAsync($"/api/v1/me/memories/{memory.Id}")).StatusCode)
-            .IsEqualTo(HttpStatusCode.NoContent);
+            .IsEqualTo(HttpStatusCode.BadRequest);
         db.ChangeTracker.Clear();
-        await Assert.That((await db.LogicalUsers.SingleAsync(x => x.Id == subject.Id)).RevocationEpoch).IsEqualTo(1);
-        await Assert.That((await db.Memories.SingleAsync(x => x.Id == memory.Id)).Text).IsEqualTo("");
-        await Assert.That(await db.Revocations.ToListAsync()).HasSingleItem();
+        await Assert.That((await db.LogicalUsers.SingleAsync(x => x.Id == subject.Id)).RevocationEpoch).IsEqualTo(0);
+        await Assert.That((await db.Memories.SingleAsync(x => x.Id == memory.Id)).Text).IsEqualTo(memory.Text);
+        await Assert.That(await db.Revocations.ToListAsync()).IsEmpty();
     }
 
     [Test]
@@ -174,7 +174,7 @@ public sealed class ApiTests
     }
 
     [Test]
-    public async Task DeletedMemoryCannotBeRecreatedByAnOldReflection()
+    public async Task ForgetRemainsUnavailableWithoutMutatingEvidence()
     {
         using var app = new TestApp();
         var (_, owner) = await LoginAsync(app, "revocation@example.com");
@@ -212,11 +212,11 @@ public sealed class ApiTests
         db.Reflections.Add(reflection);
         var job = Jobs.Add(db, bot.Id, JobKind.Memory, new IdPayload(reflection.Id));
         await db.SaveChangesAsync();
-        await scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(user.Id, memory.Id, null, default);
-        await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().ApplyAsync(job.Id, default);
+        await Assert.That(() => scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(user.Id, memory.Id, null, default)).ThrowsExactly<NotSupportedException>();
         db.ChangeTracker.Clear();
-        await Assert.That(await db.Memories.Where(x => x.Status != MemoryStatus.Revoked).ToListAsync()).IsEmpty();
-        await Assert.That((await db.Outbox.SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Completed);
+        await Assert.That(await db.Memories.Where(x => x.Status != MemoryStatus.Revoked).ToListAsync()).HasSingleItem();
+        await Assert.That((await db.Outbox.SingleAsync(x => x.Id == job.Id)).Status).IsEqualTo(JobStatus.Pending);
+        await Assert.That((await db.Messages.SingleAsync(x => x.Id == msg.Id)).Text).IsEqualTo(msg.Text);
     }
 
     [Test]
@@ -291,7 +291,7 @@ public sealed class ApiTests
         db.Bindings.Add(new PlatformBinding { BotId = bot.Id });
         var session = new ConversationSession { BotId = bot.Id, ConversationId = conv.Id };
         db.Sessions.Add(session);
-        var batch = new OutgoingMessageBatch { BotId = bot.Id, ConversationId = conv.Id, SessionId = session.Id };
+        var batch = new OutgoingMessageBatch { BotId = bot.Id, ConversationId = conv.Id, SessionId = session.Id, IsSystemNotice = true };
         db.Batches.Add(batch);
         db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Text = "hello" });
         var job = Jobs.Add(db, bot.Id, JobKind.Outgoing, new IdPayload(batch.Id), conv.Id);
@@ -323,7 +323,7 @@ public sealed class ApiTests
     }
 
     [Test]
-    public async Task LedgerReplayPreservesTheUsersLaterCorrection()
+    public async Task CorrectionDoesNotCreatePrivacyRevocations()
     {
         using var app = new TestApp();
         var (_, owner) = await LoginAsync(app, "ledger@example.com");
@@ -340,7 +340,7 @@ public sealed class ApiTests
         db.Memories.Add(memory);
         await db.SaveChangesAsync();
         var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
-        await service.RevokeAsync(user.Id, memory.Id, "现在更喜欢绿色", default);
+        await service.EditAsync(user.Id, memory.Id, "现在更喜欢绿色", 1, "correct", default);
         var ledger = await db.Revocations.AsNoTracking().ToListAsync();
         var directory = Path.GetFullPath(".local");
         Directory.CreateDirectory(directory);
@@ -351,7 +351,7 @@ public sealed class ApiTests
             await service.ReplayLedgerAsync(file, default);
             await service.ReplayLedgerAsync(file, default);
             db.ChangeTracker.Clear();
-            var remaining = await db.Memories.Where(x => x.Status != MemoryStatus.Revoked).ToListAsync();
+            var remaining = await db.Memories.Where(x => x.Status != MemoryStatus.Revoked && x.ArchivedAt == null).ToListAsync();
             await Assert.That(remaining).HasSingleItem();
             await Assert.That(remaining[0].Text).IsEqualTo("现在更喜欢绿色");
             await Assert.That(remaining[0].FactKey).IsEqualTo("color");

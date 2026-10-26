@@ -11,7 +11,8 @@ public sealed record ConversationToolResult(
     string Json,
     IReadOnlyList<Guid> MemoryIds,
     IReadOnlyList<Guid>? MessageIds = null,
-    IReadOnlyList<Guid>? UserIds = null);
+    IReadOnlyList<Guid>? UserIds = null,
+    IReadOnlyList<ContentSource>? Sources = null);
 
 public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory, ConversationClock clock)
 {
@@ -67,8 +68,10 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
             if (Date(args, "after") is { } after) matches = matches.Where(x => x.CreatedAt >= after);
             if (Date(args, "before") is { } before) matches = matches.Where(x => x.CreatedAt < before);
             var rows = await matches.OrderByDescending(x => x.Sequence).ThenBy(x => x.Id).Take(5).ToListAsync(ct);
-            var visible = rows.Where(x => ConversationHistory.TryMemoryIds(x.ContextSnapshotJson, true, out _))
-                .ToArray();
+            var safeRows = new List<Core.ChatMessage>();
+            foreach (var row in rows)
+                if (await ContentSources.MessageValidAsync(db, row, ct, now: clock.UtcNow)) safeRows.Add(row);
+            var visible = safeRows.ToArray();
             var authors = visible.Where(x => x.SenderId != null).Select(x => x.SenderId!.Value).Distinct().ToArray();
             var names = await db.LogicalUsers.Where(x => authors.Contains(x.Id))
                 .ToDictionaryAsync(x => x.Id, x => x.PreferredName, ct);
@@ -111,7 +114,8 @@ public sealed class ConversationTools(IDbContextFactory<WonderDbContext> factory
                     }).Distinct().ToArray();
                     return new ConversationToolResult(result, ids,
                         sentRows.SelectMany(ConversationHistory.MessageIds).Distinct().ToArray(),
-                        sentRows.SelectMany(ConversationHistory.SubjectIds).Distinct().ToArray());
+                        sentRows.SelectMany(ConversationHistory.SubjectIds).Distinct().ToArray(),
+                        sentRows.Select(ContentSources.Message).ToArray());
                 }
 
                 if (sentRows.Count > 1) sentRows.RemoveAt(sentRows.Count - 1);

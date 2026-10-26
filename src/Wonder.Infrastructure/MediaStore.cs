@@ -76,6 +76,7 @@ public sealed class MediaStore(
             MessageId = message.Id,
             Path = file,
             Hash = key,
+            ContentHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)),
             ContentType = type,
             Size = bytes.Length,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(7)

@@ -52,31 +52,49 @@ public sealed class ConversationHistory(IDbContextFactory<WonderDbContext> facto
     }
 
     public static async Task<ConversationSummary?> LatestSummaryAsync(WonderDbContext db, Guid botId,
-        Guid conversationId, long beforeSequence, CancellationToken ct)
+        Guid conversationId, long beforeSequence, CancellationToken ct, DateTimeOffset? now = null)
     {
         var candidates = await (from summary in db.Summaries.AsNoTracking()
             join session in db.Sessions on summary.SessionId equals session.Id
             where summary.BotId == botId && session.BotId == botId && session.ConversationId == conversationId &&
-                  !summary.ContextInvalidated && summary.ThroughSequence < beforeSequence
+                  summary.ThroughSequence < beforeSequence
                   && session.ConversationId != Guid.Empty && db.Conversations.Any(c => c.Id == session.ConversationId && c.Kind == ConversationKind.Private)
             orderby summary.ThroughSequence descending, summary.Id
             select summary).Take(20).ToListAsync(ct);
-        return candidates.FirstOrDefault(x => TryMemoryIds(x.MemoryIdsJson, false, out _) &&
-                                              TryMemoryIds(x.SubjectIdsJson, false, out _) &&
-                                              TryMemoryIds(x.MessageIdsJson, false, out _));
+        foreach (var row in candidates)
+        {
+            var source = ContentSources.ProjectionReady(row, now) ? ContentSources.Projection(row) : ContentSources.Summary(row);
+            if (TryMemoryIds(row.SubjectIdsJson, false, out _) &&
+                await ContentSources.ValidAsync(db, botId, [source], ct, now: now)) return row;
+        }
+        return null;
     }
+
+    public static string TextForModel(ConversationSummary summary) => ContentSources.ProjectionReady(summary)
+        ? Json.Read<SafeSummaryProjection>(summary.SafeProjectionJson!).Text : summary.Text;
+
+    public static IReadOnlyList<Guid> MemoryIdsForModel(ConversationSummary summary) => ContentSources.ProjectionReady(summary)
+        ? Json.Read<SafeSummaryProjection>(summary.SafeProjectionJson!).Sources.Where(x => x.Kind == "Memory").Select(x => x.Id).Distinct().ToArray()
+        : Json.Read<Guid[]>(summary.MemoryIdsJson);
+
+    public static IReadOnlyList<Guid> MessageIdsForModel(ConversationSummary summary) => ContentSources.ProjectionReady(summary)
+        ? Json.Read<SafeSummaryProjection>(summary.SafeProjectionJson!).Sources.Where(x => x.Kind == "Message").Select(x => x.Id).Distinct().ToArray()
+        : Json.Read<Guid[]>(summary.MessageIdsJson);
 
     public async Task<(ConversationSummary? Summary, IReadOnlyList<ChatMessage> Messages)> LoadAsync(
         Guid botId, Guid conversationId, long beforeSequence, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var summary = await LatestSummaryAsync(db, botId, conversationId, beforeSequence, ct);
+        var summary = await LatestSummaryAsync(db, botId, conversationId, beforeSequence, ct, clock.UtcNow);
         var through = summary?.ThroughSequence ?? 0;
         var rows = await Visible(db, botId, conversationId, beforeSequence, clock.UtcNow)
             .Where(x => (x.InReplyToSequence ?? x.Sequence) > through)
             .OrderByDescending(x => x.InReplyToSequence ?? x.Sequence).ThenByDescending(x => x.Role == MessageRole.Assistant)
             .ThenByDescending(x => x.Sequence).ThenBy(x => x.Id).Take(40).ToListAsync(ct);
         rows.Reverse();
-        return (summary, rows.Where(x => TryMemoryIds(x.ContextSnapshotJson, true, out _)).ToArray());
+        var safe = new List<ChatMessage>();
+        foreach (var row in rows)
+            if (await ContentSources.MessageValidAsync(db, row, ct, now: clock.UtcNow)) safe.Add(row);
+        return (summary, safe);
     }
 }

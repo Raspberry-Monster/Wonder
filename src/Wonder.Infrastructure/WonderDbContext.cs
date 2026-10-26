@@ -25,6 +25,10 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options)
     public DbSet<RelationshipState> Relationships => Set<RelationshipState>();
     public DbSet<RelationshipObservation> Observations => Set<RelationshipObservation>();
     public DbSet<Memory> Memories => Set<Memory>();
+    public DbSet<MemoryOperation> MemoryOperations => Set<MemoryOperation>();
+    public DbSet<MemoryOperationItem> MemoryOperationItems => Set<MemoryOperationItem>();
+    public DbSet<EvidenceSuppression> EvidenceSuppressions => Set<EvidenceSuppression>();
+    public DbSet<RelationshipClaim> RelationshipClaims => Set<RelationshipClaim>();
     public DbSet<MemoryMaintenanceCandidate> MemoryCandidates => Set<MemoryMaintenanceCandidate>();
     public DbSet<MemoryRevocation> Revocations => Set<MemoryRevocation>();
     public DbSet<EmbeddingProfile> EmbeddingProfiles => Set<EmbeddingProfile>();

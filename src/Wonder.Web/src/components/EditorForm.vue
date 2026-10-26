@@ -17,17 +17,22 @@ const props = defineProps<{
   method?: string;
   submitLabel?: string;
   transform?: (data: Record<string, any>) => unknown;
+  idempotent?: boolean;
 }>();
 const emit = defineEmits<{ saved: [] }>();
 const form = reactive<Record<string, any>>({}),
   busy = ref(false),
   error = ref<unknown>();
+let submittedBody: string | undefined;
+let idempotencyKey: string | undefined;
 watch(
   () => props.value,
   (v) => {
     for (const k of Object.keys(form)) delete form[k];
     Object.assign(form, v);
     error.value = undefined;
+    submittedBody = undefined;
+    idempotencyKey = undefined;
   },
   { immediate: true, deep: true },
 );
@@ -35,10 +40,17 @@ async function save() {
   busy.value = true;
   error.value = undefined;
   try {
+    const body = props.transform ? props.transform({ ...form }) : form;
+    const serialized = JSON.stringify(body);
+    if (props.idempotent && submittedBody !== serialized) {
+      submittedBody = serialized;
+      idempotencyKey = crypto.randomUUID();
+    }
     await api(
       props.path,
       props.method || "PUT",
-      props.transform ? props.transform({ ...form }) : form,
+      body,
+      idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     );
     Message.success("已保存");
     emit("saved");

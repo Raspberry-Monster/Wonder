@@ -760,6 +760,80 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/me/memory-capabilities": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["MemoryCapabilities"];
+            "application/json": components["schemas"]["MemoryCapabilities"];
+            "text/json": components["schemas"]["MemoryCapabilities"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memory-release-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["MemoryReleaseStatus"];
+            "application/json": components["schemas"]["MemoryReleaseStatus"];
+            "text/json": components["schemas"]["MemoryReleaseStatus"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/me/memory-settings": {
     parameters: {
       query?: never;
@@ -840,7 +914,11 @@ export interface paths {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "text/plain": components["schemas"]["MemoryView"][];
+            "application/json": components["schemas"]["MemoryView"][];
+            "text/json": components["schemas"]["MemoryView"][];
+          };
         };
       };
     };
@@ -875,7 +953,11 @@ export interface paths {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "text/plain": components["schemas"]["MemoryView"];
+            "application/json": components["schemas"]["MemoryView"];
+            "text/json": components["schemas"]["MemoryView"];
+          };
         };
       };
     };
@@ -883,8 +965,12 @@ export interface paths {
     post?: never;
     delete: {
       parameters: {
-        query?: never;
-        header?: never;
+        query: {
+          expectedRevision: number | string;
+        };
+        header: {
+          "Idempotency-Key": string;
+        };
         path: {
           id: string;
         };
@@ -897,6 +983,61 @@ export interface paths {
           headers: {
             [name: string]: unknown;
           };
+          content: {
+            "text/plain": components["schemas"]["PrivacyOperationView"];
+            "application/json": components["schemas"]["PrivacyOperationView"];
+            "text/json": components["schemas"]["PrivacyOperationView"];
+          };
+        };
+        /** @description Accepted */
+        202: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["PrivacyOperationView"];
+            "application/json": components["schemas"]["PrivacyOperationView"];
+            "text/json": components["schemas"]["PrivacyOperationView"];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Not Found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Service Unavailable */
+        503: {
+          headers: {
+            [name: string]: unknown;
+          };
           content?: never;
         };
       };
@@ -906,7 +1047,9 @@ export interface paths {
     patch: {
       parameters: {
         query?: never;
-        header?: never;
+        header: {
+          "Idempotency-Key": string;
+        };
         path: {
           id: string;
         };
@@ -922,6 +1065,39 @@ export interface paths {
       responses: {
         /** @description OK */
         200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["MemoryOperationReceipt"];
+            "application/json": components["schemas"]["MemoryOperationReceipt"];
+            "text/json": components["schemas"]["MemoryOperationReceipt"];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Service Unavailable */
+        503: {
           headers: {
             [name: string]: unknown;
           };
@@ -960,6 +1136,402 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memories/{id}/archive": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header: {
+          "Idempotency-Key": string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["ArchiveMemory"];
+          "text/json": components["schemas"]["ArchiveMemory"];
+          "application/*+json": components["schemas"]["ArchiveMemory"];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["MemoryOperationReceipt"];
+            "application/json": components["schemas"]["MemoryOperationReceipt"];
+            "text/json": components["schemas"]["MemoryOperationReceipt"];
+          };
+        };
+        /** @description Bad Request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Service Unavailable */
+        503: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memories/{id}/index-state": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["MemoryIndexState"];
+            "application/json": components["schemas"]["MemoryIndexState"];
+            "text/json": components["schemas"]["MemoryIndexState"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memories/{id}/retry-index": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memories/{id}/erase-preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["ErasePreviewInput"];
+          "text/json": components["schemas"]["ErasePreviewInput"];
+          "application/*+json": components["schemas"]["ErasePreviewInput"];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ErasePreviewView"];
+            "application/json": components["schemas"]["ErasePreviewView"];
+            "text/json": components["schemas"]["ErasePreviewView"];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Service Unavailable */
+        503: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memories/{id}/erase": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header: {
+          "Idempotency-Key": string;
+        };
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["ConfirmEraseInput"];
+          "text/json": components["schemas"]["ConfirmEraseInput"];
+          "application/*+json": components["schemas"]["ConfirmEraseInput"];
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["PrivacyOperationView"];
+            "application/json": components["schemas"]["PrivacyOperationView"];
+            "text/json": components["schemas"]["PrivacyOperationView"];
+          };
+        };
+        /** @description Accepted */
+        202: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["PrivacyOperationView"];
+            "application/json": components["schemas"]["PrivacyOperationView"];
+            "text/json": components["schemas"]["PrivacyOperationView"];
+          };
+        };
+        /** @description Conflict */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["ProblemDetails"];
+            "application/json": components["schemas"]["ProblemDetails"];
+            "text/json": components["schemas"]["ProblemDetails"];
+          };
+        };
+        /** @description Service Unavailable */
+        503: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memory-operations/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "text/plain": components["schemas"]["PrivacyOperationView"];
+            "application/json": components["schemas"]["PrivacyOperationView"];
+            "text/json": components["schemas"]["PrivacyOperationView"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memory-operations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/memory-operations/{id}/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -1586,6 +2158,10 @@ export interface components {
       /** Format: uuid */
       logicalUserId: null | string;
     };
+    ArchiveMemory: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+    };
     BindingInput: {
       platformAccountId: string;
       webSocketUrl: string;
@@ -1612,8 +2188,17 @@ export interface components {
       /** Format: int64 */
       monthlyTokenLimit: number | string;
     };
+    ConfirmEraseInput: {
+      /** Format: uuid */
+      previewId: string;
+      /** Format: int64 */
+      expectedRevision: number | string;
+      scopeHash: string;
+    };
     CorrectMemory: {
       text: string;
+      /** Format: int64 */
+      expectedRevision: number | string;
     };
     CreateBot: {
       name: string;
@@ -1628,6 +2213,36 @@ export interface components {
       externalId: null | string;
     };
     DeliveryResolutionAction: number;
+    EraseMessageView: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      botId: string;
+      /** Format: uuid */
+      authorId: string;
+      /** Format: date-time */
+      sentAt: string;
+      text: string;
+      version: string;
+    };
+    ErasePreviewInput: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+      messageIds?: null | string[];
+    };
+    ErasePreviewView: {
+      /** Format: uuid */
+      previewId: string;
+      /** Format: date-time */
+      expiresAt: string;
+      scopeHash: string;
+      /** Format: int64 */
+      expectedRevision: number | string;
+      messages: components["schemas"]["EraseMessageView"][];
+      targets: components["schemas"]["PrivacyTarget"][];
+      warning: string;
+      uncoveredLayers: string[];
+    };
     GroupPolicyInput: {
       /** @default true */
       respondToMention: boolean;
@@ -1638,6 +2253,36 @@ export interface components {
       /** @default true */
       persistMessages: boolean;
     };
+    MemoryCapabilities: {
+      edit: boolean;
+      archive: boolean;
+      forget: boolean;
+      erase: boolean;
+    };
+    MemoryIndexState: {
+      /** Format: int64 */
+      revision: number | string;
+      state: string;
+      /** Format: int32 */
+      attempts: number | string;
+    };
+    MemoryOperationReceipt: {
+      /** Format: uuid */
+      operationId: string;
+      kind: string;
+      /** Format: uuid */
+      targetMemoryId: string;
+      /** Format: uuid */
+      resultMemoryId: string;
+      /** Format: int64 */
+      revision: number | string;
+      factState: string;
+    };
+    MemoryReleaseStatus: {
+      enabled: boolean;
+      available: boolean;
+      state: string;
+    };
     MemorySettingsInput: {
       allowMemory: boolean;
       preferredName?: null | string;
@@ -1645,6 +2290,27 @@ export interface components {
       allowMemoryUpdate?: null | boolean;
       allowMemoryArchive?: null | boolean;
       retainMemoryHistory?: null | boolean;
+    };
+    MemoryStatus: number;
+    MemoryView: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      botId: string;
+      factKey: string;
+      text: string;
+      status: components["schemas"]["MemoryStatus"];
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      archivedAt: null | string;
+      /** Format: uuid */
+      supersedesMemoryId: null | string;
+      /** Format: date-time */
+      lastConfirmedAt: null | string;
+      /** Format: int64 */
+      revision: number | string;
+      isOutdated: boolean;
     };
     ModelRouteInput: {
       taskKind: components["schemas"]["TaskKind"];
@@ -1727,6 +2393,50 @@ export interface components {
     };
     NotesSettingsInput: {
       allowNotes: boolean;
+    };
+    PrivacyItemView: {
+      /** Format: uuid */
+      id: string;
+      kind: string;
+      /** Format: uuid */
+      resourceId: string;
+      state: string;
+      errorCode: null | string;
+    };
+    PrivacyOperationView: {
+      /** Format: uuid */
+      operationId: string;
+      kind: string;
+      stage: string;
+      /** Format: int64 */
+      revision: number | string;
+      fenced: boolean;
+      cleanupVerified: boolean;
+      recoveryVerified: boolean;
+      completed: boolean;
+      items: components["schemas"]["PrivacyItemView"][];
+      uncoveredLayers: string[];
+      errorCode: null | string;
+      /** Format: uuid */
+      targetMemoryId: string;
+      /** Format: int64 */
+      targetRevision: number | string;
+    };
+    PrivacyTarget: {
+      kind: string;
+      /** Format: uuid */
+      id: string;
+      version: string;
+      mediaLocator?: null | string;
+      contentHash?: null | string;
+    };
+    ProblemDetails: {
+      type?: null | string;
+      title?: null | string;
+      /** Format: int32 */
+      status?: null | number | string;
+      detail?: null | string;
+      instance?: null | string;
     };
     PublishIdentity: {
       content: string;

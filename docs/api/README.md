@@ -15,7 +15,11 @@
 - POST /api/v1/bots/{id}/deliveries/{partId}/resolve：action 为 confirm-sent 或 retry。后者允许再次发送，可能产生外部重复。
 - POST /api/v1/me/qq-binding-challenge：生成 QQ 私聊绑定口令。
 - GET / PUT /api/v1/me/memory-settings：allowMemory、preferredName、allowMemoryMerge、allowMemoryUpdate、allowMemoryArchive、retainMemoryHistory；可选字段省略时保留原值，preferredName 传空字符串可清空。
-- GET /api/v1/me/memories：本人私人记忆，includeArchived=true 包含保留的归档历史；返回 archivedAt、supersedesMemoryId、lastConfirmedAt、revision。GET / PATCH / DELETE /api/v1/me/memories/{id}：本人记忆，PATCH 接收 text；更正和删除处理完整版本链。
+- GET /api/v1/me/memories：本人私人记忆，includeArchived=true 包含授权保留的归档历史；返回 archivedAt、isOutdated、supersedesMemoryId、lastConfirmedAt、revision。
+- Edit/Archive：PATCH /api/v1/me/memories/{id} 接收 `{text, expectedRevision}`；POST `.../{id}/archive` 接收 `{expectedRevision}`；两者要求 `Idempotency-Key`，成功返回 MemoryOperationReceipt，缺版本/键 400，版本或同键异参冲突 409，已提交同键同参返回原回执。
+- Forget：DELETE `.../memories/{id}?expectedRevision=N`，要求 `Idempotency-Key`。三层核验全部完成才返回 200；否则 202 + 持久 operationId + Location。GET `/me/memory-operations` / `/{id}` 仅返回本人操作；POST `/{id}/retry` 只续跑冻结范围的未完成项。阶段、隔离、清理核验、恢复核验和逐项状态分开。
+- Erase：POST `.../memories/{id}/erase-preview` 接收 `{expectedRevision, messageIds?}`，返回十分钟期限的 previewId、scopeHash、完整本人私聊消息和派生清单；POST `.../{id}/erase` 接收 `{previewId, expectedRevision, scopeHash}` 并要求幂等键。只擦完整选定消息，不接收片段偏移。版本/证据/范围变化返回 409，跨身份预览/操作返回 404。Forget 回执保留 targetMemoryId/targetRevision，供本人随后预览仍保留的历史；不返回已删 Memory 正文。
+- 四项共用 `MemoryLifecycle:Enabled` 与独立启动恢复证明。实例/基线/信任公钥/恢复密钥等配置变化使原证明失效；配置开关不能跳过校验，条件不足时写入口 503。GET `/me/memory-capabilities` 返回四项能力；GET `/me/memory-release-status` 返回 enabled/available/state（Disabled/AwaitingRecoveryVerification/Ready/InternalTesting），不返回密钥、回执或敏感配置。GET `.../{id}/index-state` 显示索引状态，POST `.../{id}/retry-index` 只重试索引，不改事实。设计见 [生命周期架构](../memory-lifecycle.md)。
 - GET /api/v1/me/memory-maintenance：本人候选和维护记录，支持 skip 分页。详见 [自主维护记忆](../memory-maintenance.md)。
 - POST /api/v1/system/backups、/system/deletion-ledger：仅配置在 SystemAdminIds 中的系统管理员。
 

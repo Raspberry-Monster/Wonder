@@ -9,7 +9,8 @@ public static class MemoryRules
     {
         return memory => access.AllowPersonal && memory.BotId == access.BotId &&
                          memory.SubjectId == access.UserId &&
-                         memory.Status != MemoryStatus.Revoked && memory.ArchivedAt == null;
+                         memory.Status != MemoryStatus.Revoked && memory.ArchivedAt == null && !memory.IsOutdated &&
+                         memory.Text != "";
     }
 
     public static bool CanAdmit(MemoryCandidate candidate, bool consent, long sourceEpoch, long currentEpoch,

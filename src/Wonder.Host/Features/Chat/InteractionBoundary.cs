@@ -179,6 +179,7 @@ public sealed class InteractionBoundary(IDbContextFactory<WonderDbContext> facto
                     var records = new List<object>();
                     foreach (var row in rows)
                     {
+                        if (!await NoteSources.MemorySourcesValidAsync(db, row, ct)) continue;
                         await NoteSources.AddAsync(db, NoteDependencyTargetKind.Chat, e.ChatJobId, row.Id, row.Version, ct);
                         var revisions = includeHistory ? await db.NoteRevisions.AsNoTracking().Where(x => x.NoteId == row.Id)
                             .OrderBy(x => x.Version).Select(x => new { x.Version, x.Content, x.Reason, x.CreatedAt,

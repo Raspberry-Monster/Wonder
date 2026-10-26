@@ -69,6 +69,7 @@ public sealed class MemoryMaintenanceTests
         var candidate = await db.MemoryCandidates.SingleAsync();
         await Assert.That(candidate.Action).IsEqualTo(action);
         var old = await db.Memories.SingleAsync(x => x.Id == f.Old);
+        await Assert.That(old.IsOutdated).IsEqualTo(action is MemoryMaintenanceAction.Update or MemoryMaintenanceAction.Supplement);
         if (action is MemoryMaintenanceAction.Merge or MemoryMaintenanceAction.Defer)
         {
             await Assert.That(old.ArchivedAt).IsNull();
@@ -177,7 +178,7 @@ public sealed class MemoryMaintenanceTests
     }
 
     [Test]
-    public async Task ExplicitDeletionPurgesEveryVersionAuditAndPendingCandidate()
+    public async Task ForgetIsBlockedUntilPreciseCleanupAndRecoveryAreReady()
     {
         await using var database = await TestPostgres.CreateAsync();
         using var app = database.CreateApp();
@@ -188,14 +189,12 @@ public sealed class MemoryMaintenanceTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var latest = await db.Memories.SingleAsync(x => x.ArchivedAt == null);
-        await scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(f.User, latest.Id, null, default);
+        await Assert.That(() => scope.ServiceProvider.GetRequiredService<MemoryService>().RevokeAsync(f.User, latest.Id, null, default)).ThrowsExactly<NotSupportedException>();
         await RunAsync(app, f.Job);
         db.ChangeTracker.Clear();
-        await Assert.That(await db.Memories.AnyAsync(x => x.Text != "" || x.Status != MemoryStatus.Revoked)).IsFalse();
-        await Assert.That(await db.Embeddings.AnyAsync()).IsFalse();
-        await Assert
-            .That(await db.MemoryCandidates.AnyAsync(x => x.Text != "" || x.Reason != "" || x.EvidenceJson != "[]"))
-            .IsFalse();
+        await Assert.That(await db.Memories.AnyAsync(x => x.Text != "" && x.Status != MemoryStatus.Revoked)).IsTrue();
+        await Assert.That(await db.Embeddings.AnyAsync()).IsTrue();
+        await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.Text != "")).IsTrue();
     }
 
     [Test]
@@ -222,9 +221,8 @@ public sealed class MemoryMaintenanceTests
         db.ChangeTracker.Clear();
         await Assert.That((await db.Memories.SingleAsync(x => x.Id == f.Old)).Text).IsEqualTo("");
         var latest = await db.Memories.SingleAsync(x => x.ArchivedAt == null);
-        await service.RevokeAsync(f.User, latest.Id, null, default);
-        await Assert.That(await db.Revocations.AnyAsync(x => x.FactKeyHash == Json.Hash("old-home-key"))).IsTrue();
-        await Assert.That(await db.Revocations.AnyAsync(x => x.FactKeyHash == Json.Hash("new-home-key"))).IsTrue();
+        await Assert.That(() => service.RevokeAsync(f.User, latest.Id, null, default)).ThrowsExactly<NotSupportedException>();
+        await Assert.That(await db.Revocations.AnyAsync()).IsFalse();
     }
 
     [Test]
@@ -262,7 +260,7 @@ public sealed class MemoryMaintenanceTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task DeletionOrPolicyChangeDuringProviderCallPreventsCommit(bool policyChange)
+    public async Task ArchiveOrPolicyChangeDuringProviderCallPreventsCommit(bool policyChange)
     {
         await using var database = await TestPostgres.CreateAsync();
         using var app = database.CreateApp();
@@ -275,15 +273,16 @@ public sealed class MemoryMaintenanceTests
             using var scope = app.Services.CreateScope();
             var service = scope.ServiceProvider.GetRequiredService<MemoryService>();
             if (policyChange) await service.UpdateSettingsAsync(f.User, false, null, default);
-            else await service.RevokeAsync(f.User, f.Old!.Value, null, default);
+            else await service.ArchiveAsync(f.User, f.Old!.Value, 1, "archive-race", default);
         };
-        await RunAsync(app, f.Job);
+        if (policyChange) await RunAsync(app, f.Job);
+        else await Assert.That(() => RunAsync(app, f.Job)).ThrowsExactly<DbUpdateConcurrencyException>();
         using var verify = app.Services.CreateScope();
         var db = verify.ServiceProvider.GetRequiredService<WonderDbContext>();
         await Assert.That(await db.Memories.AnyAsync(x => x.Text == "我现在住上海。")).IsFalse();
         await Assert.That((await db.MemoryCandidates.SingleAsync()).Status)
-            .IsEqualTo(MemoryMaintenanceStatus.Cancelled);
-        await Assert.That((await db.MemoryCandidates.SingleAsync()).Text).IsEqualTo("");
+            .IsEqualTo(policyChange ? MemoryMaintenanceStatus.Cancelled : MemoryMaintenanceStatus.Pending);
+        await Assert.That((await db.MemoryCandidates.SingleAsync()).Text == "").IsEqualTo(policyChange);
     }
 
     [Test]

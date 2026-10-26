@@ -6,18 +6,40 @@ namespace Wonder.Host;
 
 public static class NoteSources
 {
-    public static Task<bool> ValidAsync(WonderDbContext db, NoteDependencyTargetKind kind, Guid id, CancellationToken ct) =>
-        db.NoteDependencies.Where(x => x.TargetKind == kind && x.TargetId == id)
-            .AllAsync(x => db.Notes.Any(n => n.Id == x.NoteId && n.Version == x.Version && n.DeletedAt == null &&
-                !n.PrivacyDeleted && !n.SourceInvalidated && db.LogicalUsers.Any(u => u.Id == n.UserId && u.AllowNotes)), ct);
+    public static async Task<bool> ValidAsync(WonderDbContext db, NoteDependencyTargetKind kind, Guid id, CancellationToken ct)
+    {
+        var dependencies = await db.NoteDependencies.AsNoTracking().Where(x => x.TargetKind == kind && x.TargetId == id).ToListAsync(ct);
+        foreach (var dependency in dependencies)
+        {
+            var note = await db.Notes.AsNoTracking().SingleOrDefaultAsync(n => n.Id == dependency.NoteId && n.Version == dependency.Version &&
+                n.DeletedAt == null && !n.PrivacyDeleted && !n.SourceInvalidated &&
+                db.LogicalUsers.Any(u => u.Id == n.UserId && u.AllowNotes), ct);
+            if (note is null || !await MemorySourcesValidAsync(db, note, ct)) return false;
+        }
+        return true;
+    }
+
+    public static async Task<bool> MemorySourcesValidAsync(WonderDbContext db, Note note, CancellationToken ct)
+    {
+        if (!ConversationHistory.TryMemoryIds(note.SourceMemoryIdsJson, false, out var ids)) return false;
+        return await db.Memories.CountAsync(m => ids.Contains(m.Id) && m.BotId == note.BotId && m.SubjectId == note.UserId &&
+            m.Status != MemoryStatus.Revoked && m.ArchivedAt == null && !m.IsOutdated &&
+            db.LogicalUsers.Any(u => u.Id == m.SubjectId && u.AllowMemory), ct) == ids.Distinct().Count();
+    }
 
     public static async Task InheritAsync(WonderDbContext db, NoteDependencyTargetKind targetKind, Guid targetId,
-        IReadOnlyCollection<Guid> messageIds, Guid? summaryId, CancellationToken ct)
+        IReadOnlyCollection<Guid> messageIds, Guid? summaryId, CancellationToken ct, bool replace = false)
     {
         var sources = await db.NoteDependencies.AsNoTracking().Where(x =>
             (x.TargetKind == NoteDependencyTargetKind.Message && messageIds.Contains(x.TargetId)) ||
             (summaryId != null && x.TargetKind == NoteDependencyTargetKind.Summary && x.TargetId == summaryId))
             .Select(x => new { x.NoteId, x.Version }).Distinct().ToArrayAsync(ct);
+        if (replace)
+        {
+            foreach (var local in db.NoteDependencies.Local.Where(x => x.TargetKind == targetKind && x.TargetId == targetId).ToArray())
+                db.Entry(local).State = EntityState.Detached;
+            await db.NoteDependencies.Where(x => x.TargetKind == targetKind && x.TargetId == targetId).ExecuteDeleteAsync(ct);
+        }
         foreach (var s in sources)
             await AddAsync(db, targetKind, targetId, s.NoteId, s.Version, ct);
     }
@@ -62,7 +84,7 @@ public static class NoteSources
         await db.Outbox.Where(x => chats.Contains(x.Id)).ExecuteUpdateAsync(s => s.SetProperty(x => x.ProgressJson, (string?)null), ct);
         var batches = db.Batches.Where(x => chats.Contains(x.SourceJobId)).Select(x => x.Id);
         await db.Parts.Where(x => batches.Contains(x.BatchId) && x.Status == DeliveryStatus.Pending)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, DeliveryStatus.Failed), ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, DeliveryStatus.Failed).SetProperty(x => x.FailureReason, "NoteSourceInvalid"), ct);
         if (!purge) return;
         await db.Messages.Where(x => messages.Contains(x.Id)).ExecuteUpdateAsync(s => s.SetProperty(x => x.Text, "")
             .SetProperty(x => x.SegmentsJson, "[]").SetProperty(x => x.ContextSnapshotJson, (string?)null), ct);

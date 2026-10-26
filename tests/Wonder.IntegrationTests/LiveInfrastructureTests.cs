@@ -32,6 +32,7 @@ public sealed class LiveInfrastructureTests
         var databaseName = "wonder_test_" + Guid.NewGuid().ToString("N");
         await using var admin = new NpgsqlConnection(pg);
         await admin.OpenAsync();
+        await TestPostgres.RequireIsolationAsync(admin);
         await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{databaseName}\"", admin))
         {
             await create.ExecuteNonQueryAsync();
@@ -56,8 +57,8 @@ public sealed class LiveInfrastructureTests
             var job = Jobs.Add(db, bot.Id, JobKind.Maintenance, new DailyJob(DateOnly.FromDateTime(DateTime.UtcNow)));
             await db.SaveChangesAsync();
             await Assert.That(job.Sequence > 0).IsTrue();
-            var alice = new LogicalUser();
-            var bob = new LogicalUser();
+            var alice = new LogicalUser { AllowMemory = true };
+            var bob = new LogicalUser { AllowMemory = true };
             db.LogicalUsers.AddRange(alice, bob);
             var profile = new EmbeddingProfile { BotId = bot.Id, Model = "test", Dimensions = 3 };
             db.EmbeddingProfiles.Add(profile);
@@ -110,7 +111,8 @@ public sealed class LiveInfrastructureTests
             var summary = new ConversationSummary
             {
                 BotId = bot.Id, SessionId = previousSession.Id,
-                ThroughSequence = historical.Sequence, Text = "previous summary"
+                ThroughSequence = historical.Sequence, Text = "previous summary",
+                MessageIdsJson = Json.Write(new[] { historical.Id })
             };
             db.Summaries.Add(summary);
             var currentMessage = new ChatMessage
@@ -133,7 +135,8 @@ public sealed class LiveInfrastructureTests
             await Assert.That(retainedHistory).HasSingleItem();
             await Assert.That(retainedHistory[0].Id).IsEqualTo(historical.Id);
             await VerifyHistoryTimeFiltersAsync(options, historical.Id, currentMessage.Sequence);
-            await Assert.That((await db.Summaries.AsNoTracking().SingleAsync()).MessageIdsJson).IsEqualTo("[]");
+            await Assert.That(Json.Read<Guid[]>((await db.Summaries.AsNoTracking().SingleAsync()).MessageIdsJson))
+                .IsEquivalentTo(new[] { historical.Id });
             await Assert.That((await db.Models.AsNoTracking().SingleAsync()).SupportsTools).IsTrue();
 
             // Exercise the complete autonomous workflow against real pgvector and the migrated schema.
@@ -157,10 +160,10 @@ public sealed class LiveInfrastructureTests
                 await Assert.That(matches[0].Id).IsEqualTo(active.Id);
                 using var scope = app.Services.CreateScope();
                 await scope.ServiceProvider.GetRequiredService<MemoryService>()
-                    .RevokeAsync(fixture.User, active.Id, null, default);
-                await Assert.That(await db.Memories.AnyAsync(x => x.BotId == fixture.Bot && x.Text != "")).IsFalse();
+                    .ArchiveAsync(fixture.User, active.Id, active.Revision, "archive", default);
+                await Assert.That(await db.Memories.AnyAsync(x => x.BotId == fixture.Bot && x.ArchivedAt == null)).IsFalse();
                 await Assert.That(await db.MemoryCandidates.AnyAsync(x => x.BotId == fixture.Bot && x.Text != ""))
-                    .IsFalse();
+                    .IsTrue();
             }
 
             await using (var tx = await db.Database.BeginTransactionAsync())
@@ -261,8 +264,11 @@ public sealed class LiveInfrastructureTests
         var memory = new Memory { BotId = bot.Id, SubjectId = Guid.NewGuid(), Text = "legacy vector" };
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Memories\" ALTER COLUMN \"Scope\" SET DEFAULT 0; ALTER TABLE \"Memories\" ALTER COLUMN \"ScopeOwnerId\" SET DEFAULT '';");
         db.EmbeddingProfiles.Add(profile);
-        db.Memories.Add(memory);
         await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Memories" ("Id","BotId","SubjectId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision")
+            VALUES ({memory.Id},{memory.BotId},{memory.SubjectId},'legacy','legacy vector',0,{Guid.Empty},'[]',{DateTimeOffset.UtcNow},'',1)
+            """);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
                                                        INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
                                                        """);

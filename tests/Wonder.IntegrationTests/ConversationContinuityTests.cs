@@ -274,6 +274,8 @@ public sealed class ConversationContinuityTests
         var reply = await dbCheck.Messages.SingleAsync(x => x.InReplyToSequence == next.Message.Sequence);
         var snapshot = Json.Read<ContextSnapshot>(reply.ContextSnapshotJson!);
         await Assert.That(snapshot.SourceMessageIds!).Contains(old.Message.Id);
+        await Assert.That(snapshot.Sources!.Any(x => x.Kind == "Message" && x.Id == old.Message.Id &&
+            x.Version == ContentSources.Message(old.Message).Version)).IsTrue();
         await Assert.That((await dbCheck.Parts.SingleAsync()).Text).IsEqualTo("查到了，你之前说的是蒲公英742。");
         await Assert.That(await dbCheck.Usage.CountAsync()).IsEqualTo(2);
     }
@@ -288,6 +290,10 @@ public sealed class ConversationContinuityTests
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+            // A real, authorized source is required; a random missing Memory ID cannot certify a summary.
+            await db.LogicalUsers.Where(x => x.Id == first.Message.SenderId).ExecuteUpdateAsync(s => s.SetProperty(x => x.AllowMemory, true));
+            db.Memories.Add(new Memory { Id = memoryId, BotId = f.Bot, SubjectId = first.Message.SenderId!.Value,
+                Text = "小屋配色仍待确定。", FactKey = "cabin-color" });
             db.Summaries.Add(new ConversationSummary
             {
                 BotId = f.Bot, SessionId = first.Message.SessionId!.Value,
@@ -359,7 +365,7 @@ public sealed class ConversationContinuityTests
     }
 
     [Test]
-    public async Task RevocationInvalidatesLaterSessionRepliesEvenWhenTheAuthorDidNotPostThere()
+    public async Task ArchivingUnconsumedMemoryDoesNotInvalidateOtherSessionReplies()
     {
         using var app = new TestApp(new Clock(Start));
         var f = await SeedAsync(app);
@@ -394,15 +400,15 @@ public sealed class ConversationContinuityTests
         });
         await db2.SaveChangesAsync();
         await scope2.ServiceProvider.GetRequiredService<MemoryService>()
-            .RevokeAsync(first.Message.SenderId.Value, memoryId, null, default);
+            .ArchiveAsync(first.Message.SenderId.Value, memoryId, 1, "archive", default);
         await Assert.That((await db2.Messages.AsNoTracking().SingleAsync(x => x.Id == reply.Id)).ContextInvalidated)
-            .IsTrue();
-        await Assert.That(await db2.Summaries.AsNoTracking().AnyAsync(x => x.SessionId == next.Message.SessionId && !x.ContextInvalidated)).IsFalse();
-        await Assert.That((await db2.Parts.SingleAsync()).Status).IsEqualTo(DeliveryStatus.Failed);
+            .IsFalse();
+        await Assert.That(await db2.Summaries.AsNoTracking().AnyAsync(x => x.SessionId == next.Message.SessionId && !x.ContextInvalidated)).IsTrue();
+        await Assert.That((await db2.Parts.SingleAsync()).Status).IsEqualTo(DeliveryStatus.Pending);
         var (summary, history) = await scope2.ServiceProvider.GetRequiredService<ConversationHistory>()
             .LoadAsync(f.Bot, next.Message.ConversationId, long.MaxValue, default);
-        await Assert.That(summary).IsNull();
-        await Assert.That(history.Any(x => x.Id == first.Message.Id || x.Id == reply.Id)).IsFalse();
+        await Assert.That(summary).IsNotNull();
+        await Assert.That((await db2.Messages.SingleAsync(x => x.Id == first.Message.Id)).Text).IsEqualTo(first.Message.Text);
     }
 
     [Test]

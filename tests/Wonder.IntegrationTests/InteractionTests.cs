@@ -63,7 +63,9 @@ public sealed class InteractionTests
             DateTimeOffset.UtcNow).AnyAsync(x => x.Id == blocked.Id)).IsFalse();
         // A legitimately admitted pre-mute reply remains deliverable.
         var original = await db.Outbox.SingleAsync(x => x.Id == e.ChatJobId);
-        ChatWorkflow.QueueReply(db, original, session.Id, "我仍然可以发消息");
+        var originalMessage = await db.Messages.AsNoTracking().SingleAsync(x => x.Id == e.MessageId);
+        ChatWorkflow.QueueReply(db, original, session.Id, "我仍然可以发消息", new ContextSnapshot(f.Bot, session.Id, 1, 0, null, 0, 0,
+            [], "test", [originalMessage.Id], [originalMessage.SenderId!.Value], [ContentSources.Message(originalMessage)]));
         await db.SaveChangesAsync();
         var batch = await db.Batches.SingleAsync(x => x.SourceJobId == original.Id);
         var outgoing = await db.Outbox.SingleAsync(x => x.Type == JobKind.Outgoing && x.Payload.Contains(batch.Id.ToString()));

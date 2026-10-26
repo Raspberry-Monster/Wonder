@@ -85,7 +85,8 @@ public enum JobKind
     [JsonStringEnumMemberName("maintenance")] Maintenance = 8,
     [JsonStringEnumMemberName("narrative")] Narrative = 9,
     [JsonStringEnumMemberName("summary")] Summary = 10,
-    [JsonStringEnumMemberName("deletion-ledger")] Ledger = 11
+    [JsonStringEnumMemberName("deletion-ledger")] Ledger = 11,
+    [JsonStringEnumMemberName("memory-privacy")] MemoryPrivacy = 12
 }
 public enum DeliveryResolutionAction
 {

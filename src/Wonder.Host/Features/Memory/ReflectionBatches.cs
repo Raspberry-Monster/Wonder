@@ -25,16 +25,25 @@ public static class ReflectionBatches
                 emotions.Average(x => x.Valence), emotions.Average(x => x.Arousal), emotions.Average(x => x.Energy), "",
                 emotions.SelectMany(x => x.EvidenceMessageIds).Distinct().ToArray());
         return new ReflectionProposal(false, emotion,
-            all.SelectMany(x => x.Relationships).GroupBy(x => (x.Preference, x.Explicit))
+            all.SelectMany(x => x.Relationships).GroupBy(x => (x.Preference, x.Explicit, x.Kind))
                 .Select(g => g.First() with
                 {
-                    EvidenceMessageIds = g.SelectMany(x => x.EvidenceMessageIds).Distinct().ToArray()
+                    EvidenceMessageIds = g.SelectMany(x => x.EvidenceMessageIds).Distinct().ToArray(),
+                    Assertions = MergeAssertions(g.Select(x => x.Assertions))
                 }).ToArray(),
             all.SelectMany(x => x.Memories).GroupBy(x => (x.FactKey, x.Text, x.Explicit, x.Sensitive))
                 .Select(g => g.First() with
                 {
-                    EvidenceMessageIds = g.SelectMany(x => x.EvidenceMessageIds).Distinct().ToArray()
+                    EvidenceMessageIds = g.SelectMany(x => x.EvidenceMessageIds).Distinct().ToArray(),
+                    Assertions = MergeAssertions(g.Select(x => x.Assertions))
                 }).ToArray());
+    }
+
+    private static EvidenceAssertion[]? MergeAssertions(IEnumerable<EvidenceAssertion[]?> groups)
+    {
+        var rows = groups.ToArray();
+        // Keep legacy null semantics; never invent an anchor for an evidence ID that had none.
+        return rows.All(x => x is null) ? null : rows.SelectMany(x => x ?? []).Distinct().ToArray();
     }
 
     public static async Task<(List<TextFragment<StoredMessage>> Batch, ReflectionProposal Proposal)> GenerateAsync(

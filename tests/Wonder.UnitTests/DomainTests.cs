@@ -28,7 +28,8 @@ public sealed class DomainTests
         var other = Guid.NewGuid();
         var rows = new[]
         {
-            new Memory { BotId = bot, SubjectId = user },
+            new Memory { BotId = bot, SubjectId = user, Text = "current" },
+            new Memory { BotId = bot, SubjectId = user, Text = "old", IsOutdated = true },
             new Memory { BotId = bot, SubjectId = user, Status = MemoryStatus.Revoked },
             new Memory { BotId = bot, SubjectId = other },
             new Memory { BotId = bot, SubjectId = user, ArchivedAt = DateTimeOffset.UtcNow },

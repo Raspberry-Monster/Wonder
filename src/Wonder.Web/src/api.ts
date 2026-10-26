@@ -11,11 +11,12 @@ export async function api<T = any>(
   path: string,
   method = "GET",
   body?: unknown,
+  headers?: Record<string, string>,
 ): Promise<T> {
   const response = await fetch("/api/v1" + path, {
     method,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-Wonder": "1" },
+    headers: { "Content-Type": "application/json", "X-Wonder": "1", ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();

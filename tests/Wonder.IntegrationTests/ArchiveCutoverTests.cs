@@ -38,8 +38,11 @@ public sealed class ArchiveCutoverTests
         var f = await SeedAsync(app);
         var userId = await db.LogicalUsers.Select(x => x.Id).SingleAsync();
         var original = new Memory { BotId = f.Bot, SubjectId = userId, FactKey = "private", Text = "private fact", Status = MemoryStatus.Active };
-        db.Memories.Add(original);
-        await db.SaveChangesAsync();
+        // Seed the actual historical schema; the current EF model includes Gate 1 columns.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Memories" ("Id","BotId","SubjectId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision")
+            VALUES ({original.Id},{f.Bot},{userId},'private','private fact',1,{Guid.Empty},'[]',{DateTimeOffset.UtcNow},'',1)
+            """);
         var sharedId = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "Memories" ("Id","BotId","SubjectId","Scope","ScopeOwnerId","SharedFromMemoryId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision")
@@ -66,7 +69,6 @@ public sealed class ArchiveCutoverTests
         var unknownSummary = new ConversationSummary { BotId = f.Bot, SessionId = unknownSession.Id, Text = "old unattributed summary" };
         var unrelatedSummary = new ConversationSummary { BotId = f.Bot, SessionId = unrelatedSession.Id, ThroughSequence = 1,
             Text = "proven unrelated summary", MessageIdsJson = Json.Write(new[] { unrelated.Id }) };
-        db.Summaries.AddRange(unknownSummary, unrelatedSummary);
         var note = new Note { BotId = f.Bot, UserId = userId, ConversationId = conversation.Id, Content = "derived observation",
             SourceMemoryIdsJson = Json.Write(new[] { sharedId }) };
         var independent = new Note { BotId = f.Bot, UserId = userId, ConversationId = conversation.Id, Content = "independent note" };
@@ -83,6 +85,11 @@ public sealed class ArchiveCutoverTests
             SessionId = groupSession.Id, GenerationId = groupRun.Id, Reason = "old group reason" };
         db.AgentReflectionRequests.Add(request);
         await db.SaveChangesAsync();
+        foreach (var summary in new[] { unknownSummary, unrelatedSummary })
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "Summaries" ("Id","BotId","SessionId","ThroughSequence","SubjectIdsJson","MemoryIdsJson","MessageIdsJson","ContextInvalidated","Revision","Text")
+                VALUES ({summary.Id},{summary.BotId},{summary.SessionId},{summary.ThroughSequence},{summary.SubjectIdsJson},{summary.MemoryIdsJson},{summary.MessageIdsJson},false,0,{summary.Text})
+                """);
         await db.Database.MigrateAsync();
         db.ChangeTracker.Clear();
         await Assert.That(await db.Memories.AnyAsync(x => x.Id == sharedId)).IsFalse();
@@ -134,12 +141,12 @@ public sealed class ArchiveCutoverTests
         {
             await File.WriteAllTextAsync(file, converted);
             var service = scope.ServiceProvider.GetRequiredService<Wonder.Host.MemoryService>();
-            await service.ReplayLedgerAsync(file, default);
-            await service.ReplayLedgerAsync(file, default);
+            await Assert.That(() => service.ReplayLedgerAsync(file, default)).ThrowsExactly<InvalidOperationException>();
+            await Assert.That(() => service.ReplayLedgerAsync(file, default)).ThrowsExactly<InvalidOperationException>();
             db.ChangeTracker.Clear();
             await Assert.That((await db.Memories.SingleAsync()).Status).IsEqualTo(MemoryStatus.Active);
-            await Assert.That((await db.LogicalUsers.SingleAsync()).RevocationEpoch).IsEqualTo(3);
-            await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(1);
+            await Assert.That((await db.LogicalUsers.SingleAsync()).RevocationEpoch).IsEqualTo(0);
+            await Assert.That(await db.Revocations.CountAsync()).IsEqualTo(0);
         }
         finally { File.Delete(file); }
     }

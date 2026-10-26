@@ -95,13 +95,18 @@ public sealed class ChatWorkflow(
                           "Replying does not unmute. You may explicitly choose interaction_no_reply.]\n" + currentText;
         // Resolve quotes only inside the same bot and conversation, and only from stored messages.
         var quoteIds = segments.Where(x => x.Kind == SegmentKind.ReplyReference).Select(x => x.Value).ToArray();
+        var quotedSources = new List<ContentSource>();
         if (quoteIds.Length > 0 && !basicGroup)
         {
             var quotes = await db.Messages.AsNoTracking()
                 .Where(x => x.BotId == bot.Id && x.ConversationId == conv.Id && !x.ContextInvalidated &&
                             x.ExpiresAt > clock.UtcNow && quoteIds.Contains(x.ExternalMessageId))
-                .OrderBy(x => x.Sequence).ThenBy(x => x.Id)
-                .Select(x => new { x.Role, x.SenderId, x.Text }).Take(3).ToListAsync(ct);
+                .OrderBy(x => x.Sequence).ThenBy(x => x.Id).Take(3).ToListAsync(ct);
+            var safeQuotes = new List<ChatMessage>();
+            foreach (var quote in quotes)
+                if (await ContentSources.MessageValidAsync(db, quote, ct, user.Id, clock.UtcNow)) safeQuotes.Add(quote);
+            quotes = safeQuotes;
+            quotedSources.AddRange(quotes.Select(ContentSources.Message));
             if (quotes.Count > 0)
                 currentText = "[Quoted reference: original authors, not the current speaker]\n" +
                               Json.ForPrompt(quotes.Select(x => new
@@ -109,10 +114,10 @@ public sealed class ChatWorkflow(
                               "\n[Current message]\n" + currentText;
         }
 
-        var relationshipText =
-            relationship is null ? "" : Json.ForPrompt(Json.Read<string[]>(relationship.PreferencesJson));
-        var context = contextBuilder.Build(new ContextInput(identity.Content, mood, relationshipText,
-            summary?.Text ?? "", selected,
+        var relationshipProjection = relationship is null ? ((string Text, ContentSource Source)?)null :
+            await RelationshipClaims.ProjectionAsync(db, relationship, ct);
+        var context = contextBuilder.Build(new ContextInput(identity.Content, mood, relationshipProjection?.Text ?? "",
+            summary is null ? "" : ConversationHistory.TextForModel(summary), selected,
             history.Select(x => new ContextTurn(x.Role, x.Text,
                 SpeakerTag: SpeakerTags.For(conv.Id, x.SenderId, x.Role),
                 PreferredName: x.SenderId is { } sender ? names.GetValueOrDefault(sender) : null,
@@ -120,16 +125,18 @@ public sealed class ChatWorkflow(
                     ? memoryIds
                     : [],
                 SentAt: clock.Local(x.CreatedAt), MessageIds: ConversationHistory.MessageIds(x),
-                TurnSequence: x.InReplyToSequence ?? x.Sequence)).ToArray(),
+                TurnSequence: x.InReplyToSequence ?? x.Sequence, Sources: [ContentSources.Message(x)])).ToArray(),
             new ContextTurn(MessageRole.User, currentText, segments, SpeakerTags.For(conv.Id, message.SenderId),
                 user.PreferredName,
-                SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id]),
-            models.Context(profile), conv.Id, names, summary is null ? null : Json.Read<Guid[]>(summary.MemoryIdsJson),
+                SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id, .. quotedSources.Select(x => x.Id)],
+                Sources: [ContentSources.Message(message), .. quotedSources]),
+            models.Context(profile), conv.Id, names, summary is null ? null : ConversationHistory.MemoryIdsForModel(summary),
             clock.Context(message.CreatedAt, history.LastOrDefault()?.CreatedAt,
                 history.Any(x => x.SessionId != null && x.SessionId != message.SessionId) ||
                 (summary is not null && summary.SessionId != message.SessionId)),
-            summary is null ? null : Json.Read<Guid[]>(summary.MessageIdsJson),
-            toolDefinitions, profile.SupportsImages));
+            summary is null ? null : ConversationHistory.MessageIdsForModel(summary),
+            toolDefinitions, profile.SupportsImages, summary is null ? null : ContentSources.ProjectionReady(summary)
+                ? ContentSources.Projection(summary) : ContentSources.Summary(summary), relationshipProjection?.Source));
         var request = context.Messages;
         foreach (var placeholder in request[^1].Contents.OfType<UriContent>().ToArray())
             request[^1].Contents.Remove(placeholder);
@@ -154,12 +161,16 @@ public sealed class ChatWorkflow(
         ChatResponse response;
         var retrievedIds = context.MemoryIds.ToHashSet();
         var sourceMessageIds = context.MessageIds.ToHashSet();
+        var consumedSources = (context.Sources ?? []).ToHashSet();
         var sourceUserIds = history.SelectMany(ConversationHistory.SubjectIds).Append(user.Id)
             .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
-        await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Chat, job.Id, sourceMessageIds.ToArray(), summary?.Id, ct);
+        await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Chat, job.Id, sourceMessageIds.ToArray(),
+            summary is not null && !ContentSources.ProjectionReady(summary) ? summary.Id : null, ct);
         await db.SaveChangesAsync(ct);
         async Task ValidateSources(CancellationToken token)
         {
+            if (!await ContentSources.ValidAsync(db, bot.Id, consumedSources, token, user.Id, clock.UtcNow))
+                throw new DbUpdateConcurrencyException("Consumed content changed; rebuild the conversation.");
             if (!await NoteSources.ValidAsync(db, NoteDependencyTargetKind.Chat, job.Id, token))
                 throw new DbUpdateConcurrencyException("Note source changed; rebuild the conversation.");
         }
@@ -208,6 +219,8 @@ public sealed class ChatWorkflow(
                     retrievedIds.UnionWith(result.MemoryIds);
                     sourceMessageIds.UnionWith(result.MessageIds ?? []);
                     sourceUserIds.UnionWith(result.UserIds ?? []);
+                    consumedSources.UnionWith(result.Sources ?? []);
+                    await ValidateSources(token);
                     return result.Json;
                 }
             };
@@ -238,7 +251,7 @@ public sealed class ChatWorkflow(
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
         var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision, null,
             relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(),
-            sourceMessageIds.ToArray(), sourceUserIds.ToArray());
+            sourceMessageIds.ToArray(), sourceUserIds.ToArray(), consumedSources.ToArray());
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (!await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
         {
@@ -276,7 +289,7 @@ public sealed class ChatWorkflow(
         };
         db.Messages.Add(generated);
         await NoteSources.CopyChatAsync(db, job.Id, generated.Id, ct);
-        QueueReply(db, job, message.SessionId.Value, text);
+        QueueReply(db, job, message.SessionId.Value, text, snapshot);
         Jobs.Complete(db, job);
         if (!basicGroup && context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id && x.ConversationId == conv.Id &&
                                                                    x.Type == JobKind.Summary &&
@@ -287,14 +300,15 @@ public sealed class ChatWorkflow(
         await tx.CommitAsync(ct);
     }
 
-    public static void QueueReply(WonderDbContext db, OutboxMessage source, Guid sessionId, string text)
+    public static void QueueReply(WonderDbContext db, OutboxMessage source, Guid sessionId, string text,
+        ContextSnapshot? provenance = null, bool systemNotice = false)
     {
         if (ToolCallMarkup.Contains(text))
             throw new ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
         var batch = new OutgoingMessageBatch
         {
             BotId = source.BotId, ConversationId = source.ConversationId!.Value, SessionId = sessionId,
-            SourceJobId = source.Id
+            SourceJobId = source.Id, SourceSnapshotJson = provenance is null ? null : Json.Write(provenance), IsSystemNotice = systemNotice
         };
         db.Batches.Add(batch);
         var sequence = 0;

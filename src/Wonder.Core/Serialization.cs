@@ -40,6 +40,8 @@ public sealed record IdPayload(Guid Id);
 
 public sealed record ReflectionJob(Guid SessionId, Guid SubjectId, long Boundary, long Epoch, ReflectionKind Kind);
 
-public sealed record SummaryJob(Guid SessionId, long ThroughSequence);
+public sealed record SummaryJob(Guid SessionId, long ThroughSequence, SummaryProjectionRequest? Projection = null);
+public sealed record SummaryProjectionRequest(Guid SummaryId, Guid SubjectId, long BodyRevision,
+    long ProjectionRevision, Guid[] MemoryIds, Guid[] MessageIds, DateTimeOffset ExpiresAt);
 
 public sealed record DailyJob(DateOnly Date);

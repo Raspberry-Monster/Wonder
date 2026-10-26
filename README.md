@@ -28,6 +28,8 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 需要 .NET 10 SDK、Node.js 24、PostgreSQL 18 + pgvector。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
 
+普通 Host 启动必须先通过独立恢复校验；缺少可信恢复材料时进入受限诊断或退出。记忆更正、归档、精确删除、安全投影和恢复协议见 [Memory 生命周期架构](docs/memory-lifecycle.md)。
+
 ~~~powershell
 # 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL / SnowLuma。
 
@@ -49,11 +51,11 @@ dotnet run --project src/Wonder.Host
 
 基础设施等应用配置也可写在 src/Wonder.Host/appsettings.Local.json（已忽略），或使用环境变量。图片、Data Protection 密钥和备份位于私有目录；相对存储路径按进程工作目录解析。搬迁或恢复时需同时保留数据库和原密钥目录，否则已保存的模型 Key、QQ 令牌无法解密。配置说明见 [运行指南](docs/operations.md#配置与持久目录)。
 
-只检查界面而暂不启动后台任务：
+仅做界面验收时使用独立测试入口（API 由测试 mock，不启动业务 Host/Worker/QQ）：
 
 ~~~powershell
-$env:Workers__Enabled = 'false'
-dotnet run --project src/Wonder.Host
+dotnet build Wonder.slnx
+npm --prefix src/Wonder.Web run test:e2e
 ~~~
 
 ## 构建容器镜像

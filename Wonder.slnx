@@ -6,6 +6,7 @@
         <Project Path="src/Wonder.Host/Wonder.Host.csproj"/>
     </Folder>
     <Folder Name="/tests/">
+        <Project Path="tests/Wonder.BrowserHost/Wonder.BrowserHost.csproj"/>
         <Project Path="tests/Wonder.UnitTests/Wonder.UnitTests.csproj"/>
         <Project Path="tests/Wonder.ContractTests/Wonder.ContractTests.csproj"/>
         <Project Path="tests/Wonder.IntegrationTests/Wonder.IntegrationTests.csproj"/>

@@ -16,6 +16,11 @@ using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
 using Wonder.Platforms;
 
+IConfiguration? recoveryConfiguration = null;
+var startupStage = "Configuration";
+try
+{
+
 if (Array.IndexOf(args, "--convert-ledger") is var convertIndex && convertIndex >= 0)
 {
     if (convertIndex + 2 >= args.Length) throw new ArgumentException("Supply input and a new output ledger path.");
@@ -27,6 +32,7 @@ if (Array.IndexOf(args, "--convert-ledger") is var convertIndex && convertIndex 
 }
 
 var builder = WebApplication.CreateBuilder(args);
+recoveryConfiguration = builder.Configuration;
 var frontendRoot = Path.GetFullPath("../Wonder.Web/dist", builder.Environment.ContentRootPath);
 if (Directory.Exists(frontendRoot))
 {
@@ -117,6 +123,13 @@ builder.Services.AddSingleton<ModelRouter>();
 builder.Services.AddSingleton(_ => new TokenCounter(Path.Combine(builder.Environment.ContentRootPath, "Tokenizer")));
 builder.Services.AddSingleton<TokenBudget>();
 builder.Services.AddSingleton<MemoryService>();
+builder.Services.AddHttpClient("recovery-authority");
+builder.Services.AddSingleton<IRecoveryAuthority, RecoveryAuthorityClient>();
+builder.Services.AddSingleton<RecoveryPackages>();
+builder.Services.AddSingleton<IRecoveryStartup, RecoveryBootstrap>();
+builder.Services.AddSingleton<MemoryLifecycleRelease>();
+builder.Services.AddScoped<RecoveryReplay>();
+builder.Services.AddScoped<PrivacyWorkflow>();
 builder.Services.AddSingleton<MediaStore>();
 builder.Services.AddScoped<ChatWorkflow>();
 builder.Services.AddScoped<OutgoingWorkflow>();
@@ -124,6 +137,7 @@ builder.Services.AddScoped<ReflectionWorkflow>();
 builder.Services.AddScoped<MemoryMaintenanceWorkflow>();
 builder.Services.AddScoped<MaintenanceWorkflow>();
 builder.Services.AddScoped<SummaryWorkflow>();
+builder.Services.AddScoped<SummaryProjections>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddSingleton<OneBotConnectionManager>();
 builder.Services.AddSingleton<IPlatformConnection>(sp => sp.GetRequiredService<OneBotConnectionManager>());
@@ -134,7 +148,8 @@ if (builder.Configuration.GetValue("Workers:Enabled", true))
     builder.Services.AddWonderScheduling(builder.Configuration);
 }
 
-var app = builder.Build();
+startupStage = "DependencyInjection";
+await using var app = builder.Build();
 if (Array.IndexOf(args, "--export-event-schema") is var schemaIndex && schemaIndex >= 0)
 {
     await File.WriteAllTextAsync(args[schemaIndex + 1],
@@ -163,18 +178,51 @@ if (args.Contains("--export-retired-context"))
     return;
 }
 
+if (Array.IndexOf(args, "--replay-recovery-package") is var packageIndex && packageIndex >= 0)
+{
+    if (packageIndex + 2 >= args.Length) throw new ArgumentException("Supply encrypted .db.aesgcm and manifest .json paths.");
+    var bytes = await File.ReadAllBytesAsync(args[packageIndex + 1]);
+    var manifest = await File.ReadAllTextAsync(args[packageIndex + 2]);
+    await app.Services.GetRequiredService<RecoveryReplay>().ReplayAsync(new RecoveryArchive(bytes, manifest,
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))), CancellationToken.None);
+    return;
+}
+if (Array.IndexOf(args, "--export-recovery-package") is var exportPackageIndex && exportPackageIndex >= 0)
+{
+    if (exportPackageIndex + 2 >= args.Length) throw new ArgumentException("Supply new encrypted .db.aesgcm and manifest .json paths.");
+    var authority = app.Services.GetRequiredService<IRecoveryAuthority>();
+    if (!authority.Configured) throw new RecoveryUnavailableException("IndependentRecoveryAuthorityNotConfigured");
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+    var archive = await app.Services.GetRequiredService<RecoveryPackages>().CreateAsync(db, Guid.Empty, authority.InstanceId, CancellationToken.None);
+    // CreateNew prevents overwriting an existing recovery artifact. No plaintext SQLite file is written.
+    await using var encrypted = new FileStream(args[exportPackageIndex + 1], FileMode.CreateNew, FileAccess.Write, FileShare.None);
+    await using var manifest = new FileStream(args[exportPackageIndex + 2], FileMode.CreateNew, FileAccess.Write, FileShare.None);
+    await encrypted.WriteAsync(archive.Ciphertext);
+    await using var writer = new StreamWriter(manifest); await writer.WriteAsync(archive.ManifestJson);
+    return;
+}
+startupStage = "RecoveryVerification";
+var lifecycleRelease = app.Services.GetRequiredService<MemoryLifecycleRelease>();
+var verificationConfiguration = lifecycleRelease.BeginStartupVerification();
+var recovery = await app.Services.GetRequiredService<IRecoveryStartup>().VerifyAsync(CancellationToken.None);
+if (!recovery.Passed) throw new RecoveryUnavailableException(recovery.Code);
+lifecycleRelease.AcceptStartupProof(recovery, verificationConfiguration);
+if (args.Contains("--verify-recovery")) return;
+startupStage = "BusinessHost";
+
 app.UseExceptionHandler(error => error.Run(async c =>
 {
     var ex = c.Features.Get<IExceptionHandlerFeature>()?.Error;
     var status = ex switch
     {
         KeyNotFoundException => 404, DbUpdateConcurrencyException => 409, DbUpdateException => 409,
-        ArgumentException => 400, _ => 500
+        ArgumentException => 400, RecoveryUnavailableException => 503, _ => 500
     };
     await Results.Problem(statusCode: status,
         title: status switch
         {
-            404 => "Resource not found", 409 => "State changed; reload and retry", 400 => "Invalid request",
+            404 => "Resource not found", 409 => "State changed; reload and retry", 400 => "Invalid request", 503 => "Recovery protection unavailable",
             _ => "Request failed"
         }).ExecuteAsync(c);
 }));
@@ -242,6 +290,13 @@ async Task ServeFrontend(HttpContext context)
     if (context.Request.Method == "HEAD") return;
     var html = await File.ReadAllTextAsync(index, context.RequestAborted);
     await context.Response.WriteAsync(html, context.RequestAborted);
+}
+
+}
+catch (Exception exception)
+{
+    try { await RecoveryDiagnostics.RunAsync(recoveryConfiguration, exception, startupStage); }
+    catch { Environment.ExitCode = 78; }
 }
 
 public partial class Program;

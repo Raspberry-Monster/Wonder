@@ -2,7 +2,7 @@
 
 Wonder 是基于 QQ 的多 Bot AI 聊天平台。每个 Bot 拥有独立身份、模拟心境、关系、记忆与模型配置。本文描述当前代码的职责和运行边界；部署与恢复见 [运行指南](operations.md)。
 
-ADR-013 的本地实现、最新用户决策、事务与兼容策略见 [实施附录](adr-013-implementation.md)。修改前版本保存在 [原架构副本](architecture.pre-adr013.md)。新增写能力默认关闭，尚未对运行库迁移或部署。
+记忆版本、精确来源、隐私清理及独立恢复协议见 [Memory 生命周期](memory-lifecycle.md)。交互工具和 Notes 的事务边界见 [设计附录](adr-013-implementation.md)。
 
 ## 系统结构
 
@@ -57,7 +57,7 @@ Conversation 对应一个私聊或群聊；Session 用于空闲结束和任务�
 - light 和 full 均先调用 `LightReflection`；模型要求复核时才调用 `StrongReflection`。长内容分批并保存进度，完成后发布一份结果，再派生 Emotion、Relationship、Memory 任务。
 - 主动 Full 不结束聊天，按 Bot 共用每日 2 Normal + 1 Important；与自动 Full 按有效用户来源签名共享规范运行，助手消息增加 Boundary 不导致重复分析。过程与下游进度分别展示。
 - 每 Bot 一份全局模拟心境，包含 Valence、Arousal、Energy。演化时按经过小时数自然回归基线，并将单事件各维度变化限于 ±0.08；状态保存时间与版本。
-- 情绪应用检查证据重复，同一用户对同一 Bot 每个 UTC 日最多应用 5 次。关系按 `(BotId, UserId, GroupId)` 保存，明确偏好或至少 3 条独立消息证据才能准入，最多保留最近 20 项偏好。
+- 情绪应用检查证据重复，同一用户对同一 Bot 每个 UTC 日最多应用 5 次。关系初次准入保留明确偏好或独立消息数门槛，并以逐项来源/资格区分当前、待核验和推断参考；失源不能仅凭票数判定充分，独立交流边界不改变服务器权限。
 - 日常维护按 `Chat:TimeZone` 的零点排入，每 5 分钟补查当日遗漏；停机恢复只补当日。维护推进心境并生成独立 DailyNarrative，叙事供控制台展示，不写回权威心境或聊天上下文。
 
 完整触发链路见 [Reflection 与 Memory](reflection-memory.md)。模拟心境是角色表达状态，不宣称真实主观体验。
@@ -72,7 +72,7 @@ Memory 只存在于同一 Bot 的本人私聊，以 BotId + SubjectId 表达所�
 
 向量使用 `Pgvector.Vector` 映射 PostgreSQL `vector` 列；Embedding Profile 按 Bot、接口、模型、维度和版本隔离。授权过滤、关联、余弦距离排序和 Top-K 通过 EF LINQ 组合为数据库查询。当前使用精确检索，没有近似向量索引或“相似度超过阈值即合并”的规则。
 
-更正和删除会停用受影响的派生上下文和待发送回复，沿私人版本链清理，并用撤销 Epoch 阻止旧任务回写。旧群／共享记录按用户授权先进入无业务读取入口的只读归档，再退出在线表；恢复旧备份必须先迁移并重放独立删除账本。已经发送到 QQ 的内容无法通过本地清理收回。见 [发言者识别与共享退役](shared-context.md)。
+更正原子创建当前新版并标记被取代版本过时，独立归档只退出当前检索；两者保留原消息、媒体、Summary 和独立 Notes/关系正文。Forget 只清精确版本族与记忆副载荷，Erase 另需完整本人私聊消息确认；旧证据抑制及源版本复核防止旧任务回写，不按 Session 扩大清理。旧群／共享记录进入无业务读取入口的只读归档；恢复旧备份先精确重放最新独立材料并验证。QQ 已发送内容不能通过本地清理收回。见 [生命周期架构](memory-lifecycle.md) 和 [共享退役](shared-context.md)。
 
 封闭业务标签使用 Enum，数据库通过稳定的文本映射或已冻结的整数值存储，并有 CHECK 约束；JSON 不接受数字或未定义枚举值。六类模型 TaskKind 与后台 JobKind 分开定义。Epoch、版本、序列及配额计数仍为数值数据。
 
@@ -84,7 +84,7 @@ Memory 只存在于同一 Bot 的本人私聊，以 BotId + SubjectId 表达所�
 4. 网络生成不持有长数据库事务。摘要、反思和维护可将进度写入任务并重新排队，重启后继续。
 5. 完整回复先持久化，再逐段发送，保存每段状态及平台消息 ID。
 
-租约为 10 分钟，每 30 秒续期，LeaseId 作为并发令牌约束写入；过期 Running 可以重新领取。消费者分组：Chat 两个；Outgoing 一个；Reflection / Emotion / Relationship 共一个；Memory / Embedding / MemoryMaintenance 共一个；Maintenance / Narrative / Summary / Ledger 共一个。空队列等待 1 秒后再查。
+租约为 10 分钟，每 30 秒续期，LeaseId 作为并发令牌约束写入；过期 Running 可以重新领取。消费者分组：Chat 两个；Outgoing 一个；Reflection / Emotion / Relationship 共一个；Memory / Embedding / MemoryMaintenance / MemoryPrivacy 共一个；Maintenance / Narrative / Summary / Ledger 共一个。空队列等待 1 秒后再查。
 
 同一 Conversation 的 Chat 等待前序 Chat 和未完成 Outgoing，Outgoing 按序发送。任务采用有限重试、退避和人工死信重试；各类错误处理见 [运行指南](operations.md#任务失败与重试)。
 

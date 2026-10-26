@@ -20,6 +20,7 @@ internal sealed class TestPostgres(string adminConnection, string databaseName) 
         var database = new TestPostgres(connection!, name);
         await using var admin = new NpgsqlConnection(connection);
         await admin.OpenAsync();
+        await RequireIsolationAsync(admin);
         await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", admin))
             await create.ExecuteNonQueryAsync();
         try
@@ -34,6 +35,17 @@ internal sealed class TestPostgres(string adminConnection, string databaseName) 
             await database.DisposeAsync();
             throw;
         }
+    }
+
+    internal static async Task RequireIsolationAsync(NpgsqlConnection admin)
+    {
+        var expected = Environment.GetEnvironmentVariable("WONDER_TEST_POSTGRES_SYSTEM_ID");
+        if (string.IsNullOrWhiteSpace(expected))
+            Skip.Test("Verify the dedicated test service and set WONDER_TEST_POSTGRES_SYSTEM_ID before database creation.");
+        if (admin.Database != "postgres") throw new InvalidOperationException("Only the dedicated postgres administrative database is allowed.");
+        await using var identity = new NpgsqlCommand("SELECT system_identifier::text FROM pg_control_system()", admin);
+        if ((string?)await identity.ExecuteScalarAsync() != expected)
+            throw new InvalidOperationException("Test PostgreSQL service identity does not match the verified isolated instance.");
     }
 
     public TestApp CreateApp()

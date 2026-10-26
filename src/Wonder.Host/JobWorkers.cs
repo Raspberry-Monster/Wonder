@@ -14,7 +14,7 @@ public sealed class JobWorkers(
             ConsumeAsync([JobKind.Chat], ct), ConsumeAsync([JobKind.Chat], ct),
             ConsumeAsync([JobKind.Outgoing], ct),
             ConsumeAsync([JobKind.Reflection, JobKind.Emotion, JobKind.Relationship], ct),
-            ConsumeAsync([JobKind.Memory, JobKind.Embedding, JobKind.MemoryMaintenance], ct),
+            ConsumeAsync([JobKind.Memory, JobKind.Embedding, JobKind.MemoryMaintenance, JobKind.MemoryPrivacy], ct),
             ConsumeAsync([JobKind.Maintenance, JobKind.Narrative, JobKind.Summary, JobKind.Ledger], ct));
     }
 

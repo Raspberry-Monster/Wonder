@@ -476,6 +476,12 @@ namespace Wonder.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BaseSummaryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("BaseSummaryRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
 
@@ -492,11 +498,33 @@ namespace Wonder.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasDefaultValue("[]");
 
-                    b.Property<long>("Revision")
+                    b.Property<long>("ProjectionBaseSummaryRevision")
                         .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("ProjectionExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("ProjectionRevision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProjectionState")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SafeProjectionJson")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SourcesJson")
+                        .HasColumnType("text");
 
                     b.Property<string>("SubjectIdsJson")
                         .IsRequired()
@@ -512,6 +540,8 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("BotId");
+
+                    b.HasIndex("ProjectionExpiresAt");
 
                     b.HasIndex("SessionId")
                         .IsUnique();
@@ -619,6 +649,52 @@ namespace Wonder.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("EmotionEvents");
+                });
+
+            modelBuilder.Entity("Wonder.Core.EvidenceSuppression", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FactKeyHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("MemoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MessageVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SpansJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BotId", "SubjectId", "MessageId");
+
+                    b.HasIndex("OperationId", "MemoryId", "MessageId")
+                        .IsUnique();
+
+                    b.ToTable("EvidenceSuppressions");
                 });
 
             modelBuilder.Entity("Wonder.Core.ForceReceipt", b =>
@@ -755,7 +831,7 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.ToTable("Inbox", t =>
                         {
-                            t.HasCheckConstraint("CK_Inbox_HandlerName", "\"HandlerName\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger')");
+                            t.HasCheckConstraint("CK_Inbox_HandlerName", "\"HandlerName\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger','memory-privacy')");
                         });
                 });
 
@@ -809,6 +885,10 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("ContentType")
                         .IsRequired()
@@ -867,6 +947,9 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsOutdated")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTimeOffset?>("LastConfirmedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -912,6 +995,9 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.Property<int?>("Action")
                         .HasColumnType("integer");
+
+                    b.Property<string>("AssertionsJson")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
@@ -975,6 +1061,140 @@ namespace Wonder.Infrastructure.Migrations
 
                             t.HasCheckConstraint("CK_MemoryCandidates_Status", "\"Status\" IN (0,1,2,3)");
                         });
+                });
+
+            modelBuilder.Entity("Wonder.Core.MemoryOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ArgumentsHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AssertionHashesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CleanupVerified")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<long>("ExpectedRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("Fenced")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("PreviewExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectionReceiptJson")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("RecoveryVerified")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ResultMemoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ResultRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ScopeHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TargetMemoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TargetsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BotId");
+
+                    b.HasIndex("ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("Stage", "CreatedAt");
+
+                    b.ToTable("MemoryOperations");
+                });
+
+            modelBuilder.Entity("Wonder.Core.MemoryOperationItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SourceVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId", "Kind", "ResourceId")
+                        .IsUnique();
+
+                    b.ToTable("MemoryOperationItems");
                 });
 
             modelBuilder.Entity("Wonder.Core.MemoryRevocation", b =>
@@ -1330,7 +1550,7 @@ namespace Wonder.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Outbox_Status", "\"Status\" IN (0,1,2,3,4)");
 
-                            t.HasCheckConstraint("CK_Outbox_Type", "\"Type\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger')");
+                            t.HasCheckConstraint("CK_Outbox_Type", "\"Type\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger','memory-privacy')");
                         });
                 });
 
@@ -1346,11 +1566,17 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<Guid>("ConversationId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsSystemNotice")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("SourceJobId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SourceSnapshotJson")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -1371,6 +1597,9 @@ namespace Wonder.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("ExternalId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FailureReason")
                         .HasColumnType("text");
 
                     b.Property<int>("Sequence")
@@ -1560,6 +1789,9 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("MemorySourcesBlocked")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("ModelId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1591,6 +1823,58 @@ namespace Wonder.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Reflections_Kind", "\"Kind\" IN ('light','full')");
                         });
+                });
+
+            modelBuilder.Entity("Wonder.Core.RelationshipClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MemorySourcesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Qualification")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RelationshipId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RelationshipId");
+
+                    b.HasIndex("BotId", "SubjectId");
+
+                    b.ToTable("RelationshipClaims");
                 });
 
             modelBuilder.Entity("Wonder.Core.RelationshipObservation", b =>
@@ -1784,6 +2068,9 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<Guid>("ProfileId")
                         .HasColumnType("uuid");
 
+                    b.Property<long>("SourceRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<Vector>("Values")
                         .IsRequired()
                         .HasColumnType("vector");
@@ -1911,6 +2198,15 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Wonder.Core.EvidenceSuppression", b =>
+                {
+                    b.HasOne("Wonder.Core.MemoryOperation", null)
+                        .WithMany()
+                        .HasForeignKey("OperationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Wonder.Core.ForceReceipt", b =>
                 {
                     b.HasOne("Wonder.Core.MuteSession", null)
@@ -1961,6 +2257,30 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasOne("Wonder.Core.BotInstance", null)
                         .WithMany()
                         .HasForeignKey("BotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wonder.Core.MemoryOperation", b =>
+                {
+                    b.HasOne("Wonder.Core.LogicalUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Wonder.Core.BotInstance", null)
+                        .WithMany()
+                        .HasForeignKey("BotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wonder.Core.MemoryOperationItem", b =>
+                {
+                    b.HasOne("Wonder.Core.MemoryOperation", null)
+                        .WithMany()
+                        .HasForeignKey("OperationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -2051,6 +2371,15 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasOne("Wonder.Core.BotInstance", null)
                         .WithMany()
                         .HasForeignKey("BotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wonder.Core.RelationshipClaim", b =>
+                {
+                    b.HasOne("Wonder.Core.RelationshipState", null)
+                        .WithMany()
+                        .HasForeignKey("RelationshipId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

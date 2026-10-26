@@ -16,7 +16,8 @@ public static class EventContracts
         [JobKind.Relationship] = typeof(IdPayload), [JobKind.Memory] = typeof(IdPayload),
         [JobKind.MemoryMaintenance] = typeof(IdPayload), [JobKind.Embedding] = typeof(IdPayload),
         [JobKind.Maintenance] = typeof(DailyJob), [JobKind.Narrative] = typeof(DailyJob),
-        [JobKind.Summary] = typeof(SummaryJob), [JobKind.Ledger] = typeof(IdPayload)
+        [JobKind.Summary] = typeof(SummaryJob), [JobKind.Ledger] = typeof(IdPayload),
+        [JobKind.MemoryPrivacy] = typeof(IdPayload)
     };
 
     public static void ValidateVersion(OutboxMessage job)

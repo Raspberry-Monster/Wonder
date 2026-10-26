@@ -27,7 +27,7 @@ public static class UserCommands
     {
         var batch = new OutgoingMessageBatch
         {
-            BotId = botId, ConversationId = conversationId, SourceJobId = sourceId
+            BotId = botId, ConversationId = conversationId, SourceJobId = sourceId, IsSystemNotice = true
         };
         db.Batches.Add(batch);
         var sequence = 0;
