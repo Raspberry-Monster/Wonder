@@ -157,7 +157,7 @@ public sealed class DomainTests
     [Arguments("::1")]
     [Arguments("fc00::1")]
     [Arguments("::ffff:127.0.0.1")]
-    public async Task MediaRejectsInternalAddresses(string ip)
+    public async Task MediaAddressClassifierIdentifiesInternalAddresses(string ip)
     {
         await Assert.That(MediaStore.IsPublic(IPAddress.Parse(ip))).IsFalse();
     }

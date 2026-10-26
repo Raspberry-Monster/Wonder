@@ -120,8 +120,9 @@ public sealed class MediaStore(
             ConnectCallback = async (context, ct) =>
             {
                 var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
-                if (addresses.Length == 0 || addresses.Any(address => !IsPublic(address)))
-                    throw new HttpRequestException("Image host must resolve to public addresses.");
+                // Allow private and FakeIP addresses; IsPublic remains available for future use.
+                if (addresses.Length == 0)
+                    throw new HttpRequestException("Image host did not resolve to any addresses.");
                 var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
                 try
                 {

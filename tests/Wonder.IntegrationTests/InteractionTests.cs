@@ -21,9 +21,102 @@ public sealed class InteractionTests
         await Assert.That(session.DeadlineAt).IsGreaterThan(DateTimeOffset.UtcNow);
         await Assert.That((await db.Messages.SingleAsync(x => x.ExternalMessageId == "ordinary-end-text")).Text)
             .IsEqualTo("/结束");
+        var jobs = await db.Outbox.CountAsync();
         await IngestAsync(app, f.Binding, "end-command", "/end");
         var ended = await db.Sessions.AsNoTracking().SingleAsync();
         await Assert.That(ended.DeadlineAt).IsLessThanOrEqualTo(DateTimeOffset.UtcNow);
+        await Assert.That(ended.LastActivityAt).IsEqualTo(session.LastActivityAt);
+        var marker = await db.Messages.SingleAsync(x => x.ExternalMessageId == "end-command");
+        await Assert.That(marker.ContextInvalidated).IsTrue();
+        await Assert.That(marker.Text).IsEmpty();
+        await Assert.That(marker.SegmentsJson).IsEqualTo("[]");
+        await Assert.That(marker.SessionId).IsNull();
+        await Assert.That(marker.ShouldRespond).IsFalse();
+        await Assert.That(marker.AllowReflection).IsFalse();
+        await Assert.That(await ConversationHistory.Visible(db, f.Bot, marker.ConversationId, long.MaxValue,
+            DateTimeOffset.UtcNow).AnyAsync(x => x.Id == marker.Id)).IsFalse();
+        await Assert.That(await db.Outbox.CountAsync()).IsEqualTo(jobs);
+        await IngestAsync(app, f.Binding, "end-command", "/end");
+        var replayed = await db.Sessions.AsNoTracking().SingleAsync();
+        await Assert.That(replayed.Revision).IsEqualTo(ended.Revision);
+        await Assert.That(replayed.DeadlineAt).IsEqualTo(ended.DeadlineAt);
+        await Assert.That(app.ModelRequests).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task EndWithoutAnActiveSegmentDoesNotCreateSessionsOrAgentJobs(bool persist)
+    {
+        using var app = new TestApp();
+        var f = await SeedAsync(app, persist);
+        await IngestAsync(app, f.Binding, "end", "/end");
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        await Assert.That(await db.Sessions.CountAsync()).IsEqualTo(0);
+        await Assert.That(await db.Outbox.CountAsync()).IsEqualTo(0);
+        await Assert.That(await db.Messages.AnyAsync(x => !x.ContextInvalidated)).IsFalse();
+        await Assert.That(app.ModelRequests).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task GroupEndStaysOutOfAgentSourcesAndRequiresTheGroupTrigger(bool mention)
+    {
+        using var app = new TestApp();
+        var f = await SeedAsync(app);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        db.GroupPolicies.Add(new GroupPolicy
+        {
+            BotId = f.Bot, GroupId = "group", PersistMessages = true, RespondToMention = true
+        });
+        await db.SaveChangesAsync();
+        var first = new NormalizedEvent("999", "group-first", "111", "group", ConversationKind.Group,
+            [new MessageSegment(SegmentKind.Mention, "999"), new MessageSegment(SegmentKind.Text, "你好")],
+            DateTimeOffset.UtcNow);
+        var ingestor = scope.ServiceProvider.GetRequiredService<MessageIngestor>();
+        await ingestor.IngestAsync(f.Binding, first, default);
+        var before = await db.Sessions.AsNoTracking().SingleAsync();
+        var jobs = await db.Outbox.CountAsync();
+        var segments = new List<MessageSegment> { new(SegmentKind.Text, "/end") };
+        if (mention) segments.Insert(0, new MessageSegment(SegmentKind.Mention, "999"));
+        await ingestor.IngestAsync(f.Binding, first with { MessageId = "group-end", Segments = segments }, default);
+        var after = await db.Sessions.AsNoTracking().SingleAsync();
+        if (mention) await Assert.That(after.DeadlineAt).IsLessThanOrEqualTo(DateTimeOffset.UtcNow);
+        else await Assert.That(after.DeadlineAt).IsEqualTo(before.DeadlineAt);
+        var marker = await db.Messages.SingleAsync(x => x.ExternalMessageId == "group-end");
+        await Assert.That(marker.ContextInvalidated).IsTrue();
+        await Assert.That(marker.Text).IsEmpty();
+        await Assert.That(marker.SegmentsJson).IsEqualTo("[]");
+        await Assert.That(marker.SessionId).IsNull();
+        await Assert.That(await db.Outbox.CountAsync()).IsEqualTo(jobs);
+    }
+
+    [Test]
+    [Arguments(ConversationKind.Private, "/bind", true)]
+    [Arguments(ConversationKind.Private, "/bind invalid-secret", true)]
+    [Arguments(ConversationKind.Private, "/bind\tinvalid-secret", true)]
+    [Arguments(ConversationKind.Private, "/bind", false)]
+    [Arguments(ConversationKind.Group, "/bind", true)]
+    [Arguments(ConversationKind.Group, "/bind invalid-secret", true)]
+    [Arguments(ConversationKind.Group, "/bind invalid-secret", false)]
+    public async Task BindNeverFallsThroughToChat(ConversationKind kind, string text, bool persist)
+    {
+        using var app = new TestApp();
+        var f = await SeedAsync(app, persist);
+        await app.Services.GetRequiredService<MessageIngestor>().IngestAsync(f.Binding,
+            new NormalizedEvent("999", "bind", "111", "111", kind,
+                [new MessageSegment(SegmentKind.Text, text)], DateTimeOffset.UtcNow), default);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        await Assert.That(await db.Sessions.CountAsync()).IsEqualTo(0);
+        await Assert.That(await db.Outbox.AnyAsync(x => x.Type != JobKind.Outgoing)).IsFalse();
+        await Assert.That(await db.Messages.AnyAsync(x => !x.ContextInvalidated || x.Text != "" ||
+            x.SegmentsJson != "[]")).IsFalse();
+        await Assert.That(await db.Parts.AnyAsync(x => x.Text.Contains("invalid-secret"))).IsFalse();
+        await Assert.That(app.ModelRequests).IsEmpty();
     }
 
     [Test]

@@ -55,12 +55,17 @@ public sealed class MessageIngestor(
         }
 
         var text = string.Concat(e.Segments.Where(x => x.Kind == SegmentKind.Text).Select(x => x.Value)).Trim();
-        if (e.Kind == ConversationKind.Private && text.StartsWith("/bind ", StringComparison.Ordinal))
+        var isHelp = UserCommands.IsHelp(text);
+        var isBind = UserCommands.IsBind(text);
+        var isEnd = UserCommands.IsEnd(text);
+        var isForce = UserCommands.IsForce(text);
+        if (e.Kind == ConversationKind.Private && isBind)
         {
-            var hash = Json.Hash(text[6..]);
+            var hash = Json.Hash(text[5..].Trim());
+            var bindingNow = clock.UtcNow;
             var challenge =
                 await db.BindingChallenges.SingleOrDefaultAsync(
-                    x => x.CodeHash == hash && x.ExpiresAt > DateTimeOffset.UtcNow, ct);
+                    x => x.CodeHash == hash && x.ExpiresAt > bindingNow, ct);
             if (challenge is not null)
             {
                 var appUser = await db.Users.SingleAsync(x => x.Id == challenge.ApplicationUserId, ct);
@@ -87,7 +92,7 @@ public sealed class MessageIngestor(
                   part.ExternalId != null && replyIds.Contains(part.ExternalId)
             select part.Id).AnyAsync(ct);
         var decision = OneBotProtocol.Decide(e, bot, policy, repliesToBot, user.AllowMemory);
-        if (!decision.ShouldPersist && !UserCommands.IsHelp(text) && !UserCommands.IsForce(text))
+        if (!decision.ShouldPersist && !isHelp && !isBind && !isForce)
         {
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -103,11 +108,10 @@ public sealed class MessageIngestor(
         }
 
         var now = await InteractionBoundary.DatabaseNowAsync(db, clock.UtcNow, ct);
-        var isHelp = UserCommands.IsHelp(text);
-        var isForce = UserCommands.IsForce(text);
         var mute = await db.Mutes.Where(x => x.ConversationId == conv.Id && x.EndedAt == null && x.ExpiresAt > now)
             .OrderByDescending(x => x.StartedAt).ThenBy(x => x.Id).FirstOrDefaultAsync(ct);
-        var systemReply = isHelp ? UserCommands.Help(e.Kind, policy) : null;
+        var systemReply = isHelp ? UserCommands.Help(e.Kind, policy)
+            : isBind ? "[Wonder 系统通知] /bind 仅限私聊使用，请私聊发送 /bind <一次性口令>。" : null;
         var bound = await db.Users.AnyAsync(x => x.LogicalUserId == user.Id, ct);
         if (isForce)
         {
@@ -165,9 +169,20 @@ public sealed class MessageIngestor(
             }
         }
 
-        if (systemReply is not null || (mute is not null && !isForce))
+        if (systemReply is not null || isEnd || (mute is not null && !isForce))
         {
-            // No blocked content is stored at all: history, quotes, summary and reflection cannot recover it.
+            if (isEnd && decision.ShouldRespond && mute is null)
+            {
+                var active = await db.Sessions.SingleOrDefaultAsync(
+                    x => x.ConversationId == conv.Id && x.Status == SessionStatus.Active, ct);
+                if (active is not null)
+                {
+                    active.DeadlineAt = now;
+                    active.Revision++;
+                }
+            }
+
+            // Commands and blocked input retain only a deduplication marker, never agent-visible content.
             var marker = new ChatMessage
             {
                 BotId = bot.Id, ConversationId = conv.Id, SenderId = user.Id, ExternalMessageId = e.MessageId,
@@ -243,12 +258,6 @@ public sealed class MessageIngestor(
             Jobs.Add(db, bot.Id, JobKind.Reflection,
                 new ReflectionJob(session.Id, user.Id, message.Sequence, user.RevocationEpoch, ReflectionKind.Light),
                 conv.Id);
-        if (UserCommands.IsEnd(text) && session is not null)
-        {
-            session.DeadlineAt = DateTimeOffset.UtcNow;
-            session.Revision++;
-        }
-
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
     }

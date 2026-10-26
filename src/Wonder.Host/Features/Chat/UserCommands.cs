@@ -16,6 +16,12 @@ public static class UserCommands
         return text is "/end";
     }
 
+    public static bool IsBind(string text)
+    {
+        return text == "/bind" ||
+               (text.StartsWith("/bind", StringComparison.Ordinal) && text.Length > 5 && char.IsWhiteSpace(text[5]));
+    }
+
     public static bool IsForce(string text)
     {
         return text == "/force" ||
@@ -27,7 +33,7 @@ public static class UserCommands
         return "[Wonder 系统帮助]\n" +
                "/help — 查看全部用户命令；静音期间可用，不调用 Miku、不扣次数。\n" +
                "/bind <一次性口令> — 绑定控制台账号与 QQ；仅私聊，口令由控制台生成，5 分钟有效。\n" +
-               "/end — 结束当前聊天分段；需允许保存消息。私聊可直接用，群聊需符合 @、回复或前缀触发条件。\n" +
+               "/end — 结束当前聊天分段，不调用 Miku；需允许保存消息。私聊可直接用，群聊需符合 @、回复或前缀触发条件。\n" +
                "/force <完整内容> — 仅已绑定私聊用户在静音期间使用，每轮初始 3 次；Miku 可以回复或选择不回复。未静音不扣次数。\n" +
                (kind == ConversationKind.Group && policy?.CommandPrefix is { Length: > 0 } prefix
                    ? $"{prefix} <内容> — 本群配置的聊天触发前缀；需群聊保存和回复策略允许。\n"
