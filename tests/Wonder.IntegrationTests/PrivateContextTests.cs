@@ -159,7 +159,7 @@ public sealed class PrivateContextTests
         db.Conversations.Add(conversation);
         db.Sessions.AddRange(pendingSession, doneSession);
         Jobs.Add(db, f.BotId, JobKind.Reflection,
-            new ReflectionJob(pendingSession.Id, f.AliceId, 0, 0, ReflectionKind.Full), conversation.Id);
+            new ReflectionJob(pendingSession.Id, f.AliceId, 0, 0, ReflectionKind.Light), conversation.Id);
         var expired = new ChatMessage
         {
             BotId = f.BotId, ConversationId = conversation.Id, SessionId = doneSession.Id,

@@ -36,8 +36,8 @@ public sealed class PrivacyTests
         await Assert.That(proposal.Memories).IsEmpty();
         await Assert.That(proposal.Relationships.Single().Preference).IsEqualTo("喜欢钢琴");
         await Assert.That(proposal.Emotion!.Reason).IsEqualTo("independent emotion");
-        await Assert.That((await db.Relationships.SingleAsync()).PreferencesJson)
-            .IsEqualTo("[\"independent relationship\"]");
+        await Assert.That((await db.RelationshipClaims.SingleAsync()).Text)
+            .IsEqualTo("independent relationship");
         await Assert.That((await db.Notes.SingleAsync()).Content).IsEqualTo("independent note");
         await Assert.That((await db.Summaries.SingleAsync()).Text).IsEqualTo("original summary");
         await Assert.That((await db.MemoryCandidates.SingleAsync()).Text).IsEqualTo("");
@@ -199,14 +199,20 @@ public sealed class PrivacyTests
         pending.CandidateHash = Json.Hash(Json.Write(candidate));
         pending.ResultMemoryId = memory.Id;
         pending.SourceReflectionId = reflection.Id;
-        db.Relationships.Add(new RelationshipState
-            { BotId = f.Bot, UserId = f.User, PreferencesJson = "[\"independent relationship\"]" });
+        var relationship = new RelationshipState { BotId = f.Bot, UserId = f.User };
+        db.Relationships.Add(relationship);
+        db.RelationshipClaims.Add(new RelationshipClaim
+        {
+            RelationshipId = relationship.Id, BotId = f.Bot, SubjectId = f.User,
+            Kind = "Preference", Text = "independent relationship", Origin = "Explicit", Qualification = "Current"
+        });
         db.Notes.Add(new Note
             { BotId = f.Bot, UserId = f.User, ConversationId = f.Conversation, Content = "independent note" });
         db.Summaries.Add(new ConversationSummary
         {
             BotId = f.Bot, SessionId = f.Session, Revision = 1, Text = "original summary",
-            MessageIdsJson = Json.Write(new[] { original.Id })
+            MessageIdsJson = Json.Write(new[] { original.Id }),
+            SourcesJson = Json.Write(new[] { ContentSources.Message(original) })
         });
         await db.SaveChangesAsync();
         return f;

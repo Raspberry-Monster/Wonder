@@ -22,11 +22,13 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 模块边界、状态流转和实现限制见 [核心架构](docs/architecture.md)。
 
-升级、备份、恢复和密钥排错见 [运行指南](docs/operations.md)。
+数据库初始化、备份、恢复和密钥排错见 [运行指南](docs/operations.md)。
 
 ## 本地启动
 
 需要 .NET 10 SDK、Node.js 24、PostgreSQL 18 + pgvector。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
+
+首次应用当前 `InitialCreate` 基线需要空库。使用旧迁移链的开发库必须手动重建，不提供旧版本库的升级、导入或回填；应用不会自动删除数据库。已应用相同基线的库可重复执行 `--migrate`，已应用项会被跳过。
 
 已绑定用户可直接管理已有记忆，无需配置启用开关或恢复证明；“允许记忆”控制后续自动学习。记忆更正、归档、精确删除和安全投影见 [Memory 生命周期架构](docs/memory-lifecycle.md)。
 
@@ -80,6 +82,8 @@ Compose 从仓库根目录的 Dockerfile 构建应用镜像；PostgreSQL 和 Sno
 
 ### 更新已有部署
 
+以下命令用于已采用当前 `InitialCreate` 基线的部署。更新前停止 Host，并备份数据库、Data Protection 密钥及必要媒体。使用旧迁移链的开发库需先手动重建并修改连接串，不能直接套用更新命令完成升级；详见 [数据库基线与首次初始化](docs/operations.md#数据库基线与首次初始化)。
+
 Podman / Quadlet：
 
 ~~~bash
@@ -100,7 +104,7 @@ docker compose -f deploy/compose.yaml run --rm --no-deps app --migrate
 docker compose -f deploy/compose.yaml up -d --no-deps app
 ~~~
 
-更新时数据库保持运行，迁移成功后再启动新版应用。首次部署仍需按下节或 [Quadlet 指南](deploy/quadlet/README.md) 准备目录、网络、数据库密码与数据目录权限。
+数据库保持运行，迁移命令成功后再启动新版应用。首次部署按下节或 [Quadlet 指南](deploy/quadlet/README.md) 准备目录、网络、数据库密码与数据目录权限，再在空库上初始化。
 
 ## 容器运行
 

@@ -8,22 +8,12 @@ namespace Wonder.Host;
 
 public static class ContentSources
 {
-    public static async Task<ContentSource[]> SummaryRootsAsync(WonderDbContext db, ConversationSummary row,
-        CancellationToken ct)
+    public static ContentSource[] SummaryRoots(ConversationSummary row)
     {
-        if (ProjectionReady(row)) return Json.Read<SafeSummaryProjection>(row.SafeProjectionJson!).Sources.ToArray();
+        if (ProjectionReady(row))
+            return Json.Read<SafeSummaryProjection>(row.SafeProjectionJson!).Sources.ToArray();
         if (TryRead(row.SourcesJson, out var refs)) return refs;
-        if (row.SourcesJson is not null) throw new InvalidOperationException("Corrupt summary provenance.");
-        if (!ConversationHistory.TryMemoryIds(row.MemoryIdsJson, false, out var memoryIds) ||
-            !ConversationHistory.TryMemoryIds(row.MessageIdsJson, false, out var messageIds))
-            throw new InvalidOperationException("Unknown summary roots.");
-        var facts = await db.Memories.AsNoTracking().Where(x => memoryIds.Contains(x.Id) && x.BotId == row.BotId)
-            .ToListAsync(ct);
-        var messages = await db.Messages.AsNoTracking().Where(x => messageIds.Contains(x.Id) && x.BotId == row.BotId)
-            .ToListAsync(ct);
-        if (facts.Count != memoryIds.Distinct().Count() || messages.Count != messageIds.Distinct().Count())
-            throw new InvalidOperationException("Missing summary roots.");
-        return facts.Select(Memory).Concat(messages.Select(Message)).ToArray();
+        throw new InvalidOperationException("Missing or corrupt summary provenance.");
     }
 
     public static ContentSource Memory(Memory row)
@@ -128,10 +118,7 @@ public static class ContentSources
                     }
                     else if (!summary.ContextInvalidated && Summary(summary) == source)
                     {
-                        valid = TryRead(summary.SourcesJson, out var refs)
-                            ? await All(refs, depth)
-                            : summary.SourcesJson is null && await LegacyValidAsync(db, bot, summary.MemoryIdsJson,
-                                summary.MessageIdsJson, ct, subject, Visit, depth);
+                        valid = TryRead(summary.SourcesJson, out var refs) && await All(refs, depth);
                         valid = valid &&
                                 await NoteSources.ValidAsync(db, NoteDependencyTargetKind.Summary, summary.Id, ct);
                     }
@@ -180,9 +167,7 @@ public static class ContentSources
         {
             var snapshot = Json.Read<ContextSnapshot>(row.ContextSnapshotJson);
             if (snapshot.BotInstanceId != row.BotId) return false;
-            if (snapshot.Sources is null)
-                return await LegacyValidAsync(db, row.BotId, Json.Write(snapshot.RetrievedMemoryIds),
-                    Json.Write(snapshot.SourceMessageIds ?? []), ct, subject, visit, depth);
+            if (snapshot.Sources is null) return false;
             foreach (var source in snapshot.Sources)
                 if (!await visit(source, depth + 1))
                     return false;
@@ -192,28 +177,6 @@ public static class ContentSources
         {
             return false;
         }
-    }
-
-    private static async Task<bool> LegacyValidAsync(WonderDbContext db, Guid bot, string memories, string messages,
-        CancellationToken ct, Guid? subject, Func<ContentSource, int, Task<bool>> visit, int depth)
-    {
-        if (!ConversationHistory.TryMemoryIds(memories, false, out var memoryIds) ||
-            !ConversationHistory.TryMemoryIds(messages, false, out var messageIds)) return false;
-        // Empty legacy arrays are missing provenance, not proof that retained model text had no inputs.
-        if (memoryIds.Count == 0 && messageIds.Count == 0) return false;
-        foreach (var id in memoryIds.Distinct())
-        {
-            var memory = await db.Memories.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.BotId == bot, ct);
-            if (memory is null || !await visit(Memory(memory), depth + 1)) return false;
-        }
-
-        foreach (var id in messageIds.Distinct())
-        {
-            var message = await db.Messages.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.BotId == bot, ct);
-            if (message is null || !await visit(Message(message), depth + 1)) return false;
-        }
-
-        return true;
     }
 
     public static async Task InvalidateMemoriesAsync(WonderDbContext db, Guid bot, IReadOnlyCollection<Guid> ids,

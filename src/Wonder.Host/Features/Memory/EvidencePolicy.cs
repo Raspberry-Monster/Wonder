@@ -25,10 +25,6 @@ public static partial class EvidencePolicy
         var suppressions = await db.EvidenceSuppressions.AsNoTracking()
             .Where(x => x.BotId == bot && x.SubjectId == subject).ToListAsync(ct);
         var hash = Json.Hash(candidate.FactKey);
-        // Legacy hash-only records have unknown evidence scope. They cannot authorize automatic replay of old evidence.
-        var legacy = await db.Revocations.AsNoTracking().Where(x => x.BotId == bot && x.UserId == subject &&
-                                                                    x.ResourceKind == DeletionResourceKind.Memory &&
-                                                                    x.FactKeyHash == hash).ToListAsync(ct);
         foreach (var message in messages)
         {
             var linked = new HashSet<Guid> { message.Id };
@@ -50,11 +46,10 @@ public static partial class EvidencePolicy
             }
 
             var oldSource = suppressions.Any(x => linked.Contains(x.MessageId));
-            var affectedFact = suppressions.Any(x => x.FactKeyHash == hash) || legacy.Count > 0;
+            var affectedFact = suppressions.Any(x => x.FactKeyHash == hash);
             if (!oldSource && !affectedFact && !hasQuotation) continue;
             // The retained old evidence itself is always suppressed for this assertion.
-            if (suppressions.Any(x => x.MessageId == message.Id && x.FactKeyHash == hash) ||
-                legacy.Any(x => message.CreatedAt <= x.CreatedAt)) return false;
+            if (suppressions.Any(x => x.MessageId == message.Id && x.FactKeyHash == hash)) return false;
             var assertions = candidate.Assertions?.Where(x => x.MessageId == message.Id).ToArray();
             if (assertions is null || assertions.Length == 0) return false;
             foreach (var assertion in assertions)

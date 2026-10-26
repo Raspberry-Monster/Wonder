@@ -107,7 +107,7 @@ test("login, custom model editing, field validation and production CSP", async (
   expect(
     saved.every(
       (route: any) =>
-        route.model === "batch-model" && route.taskKind !== "Embedding" && route.taskKind !== "DailyNarrative",
+        route.model === "batch-model" && route.taskKind !== "Embedding",
     ),
   ).toBe(true);
   await expect(page.getByRole("dialog")).not.toBeVisible();

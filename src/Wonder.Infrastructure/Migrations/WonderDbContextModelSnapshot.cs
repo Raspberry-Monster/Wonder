@@ -801,7 +801,7 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.ToTable("Inbox", t =>
                         {
-                            t.HasCheckConstraint("CK_Inbox_HandlerName", "\"HandlerName\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger','memory-privacy')");
+                            t.HasCheckConstraint("CK_Inbox_HandlerName", "\"HandlerName\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','summary','memory-privacy')");
                         });
                 });
 
@@ -1199,7 +1199,7 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.ToTable("Revocations", t =>
                         {
-                            t.HasCheckConstraint("CK_Revocations_ResourceKind", "\"ResourceKind\" IN ('Memory','Note','MemoryContext')");
+                            t.HasCheckConstraint("CK_Revocations_ResourceKind", "\"ResourceKind\" IN ('Memory','Note')");
                         });
                 });
 
@@ -1274,7 +1274,7 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.ToTable("Models", t =>
                         {
-                            t.HasCheckConstraint("CK_Models_TaskKind", "\"TaskKind\" IN (0,1,2,3,4,5)");
+                            t.HasCheckConstraint("CK_Models_TaskKind", "\"TaskKind\" IN (0,1,2,4,5)");
                         });
                 });
 
@@ -1514,7 +1514,7 @@ namespace Wonder.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Outbox_Status", "\"Status\" IN (0,1,2,3,4)");
 
-                            t.HasCheckConstraint("CK_Outbox_Type", "\"Type\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','narrative','summary','deletion-ledger','memory-privacy')");
+                            t.HasCheckConstraint("CK_Outbox_Type", "\"Type\" IN ('chat','outgoing','reflection','emotion','relationship','memory','memory-maintenance','embedding','maintenance','summary','memory-privacy')");
                         });
                 });
 
@@ -1781,7 +1781,8 @@ namespace Wonder.Infrastructure.Migrations
                     b.HasIndex("BotId");
 
                     b.HasIndex("SessionId", "SubjectId", "Kind", "Boundary")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"Kind\" = 'light'");
 
                     b.ToTable("Reflections", t =>
                         {
@@ -1886,14 +1887,6 @@ namespace Wonder.Infrastructure.Migrations
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("BoundariesJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("PreferencesJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<long>("Revision")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
@@ -1948,7 +1941,7 @@ namespace Wonder.Infrastructure.Migrations
 
                     b.ToTable("Usage", t =>
                         {
-                            t.HasCheckConstraint("CK_Usage_TaskKind", "\"TaskKind\" IN (0,1,2,3,4,5)");
+                            t.HasCheckConstraint("CK_Usage_TaskKind", "\"TaskKind\" IN (0,1,2,4,5)");
                         });
                 });
 

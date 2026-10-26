@@ -138,17 +138,6 @@ public sealed class MaintenanceWorkflow(
         await using var db = await factory.CreateDbContextAsync(ct);
         var job = await db.Outbox.SingleAsync(x => x.Id == jobId, ct);
         Jobs.RequireLease(job, expectedLeaseId);
-        if (job.Type is JobKind.Narrative or JobKind.Ledger)
-        {
-            job.Status = JobStatus.Cancelled;
-            job.ProgressJson = null;
-            job.LeaseId = null;
-            job.LeaseUntil = null;
-            job.ErrorCode = "FeatureRetired";
-            await db.SaveChangesAsync(ct);
-            return;
-        }
-
         if (job.Type == JobKind.Maintenance)
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);

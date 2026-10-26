@@ -15,6 +15,63 @@ namespace Wonder.IntegrationTests;
 public sealed class AgentAutonomyTests
 {
     [Test]
+    public async Task ChangedEligibleSourcesCanPublishANewFullGenerationAtTheSameBoundary()
+    {
+        await using var pg = await TestPostgres.CreateAsync();
+        using var app = pg.CreateApp();
+        var f = await MemoryMaintenanceTests.SeedAsync(app, false);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var later = new Wonder.Core.ChatMessage
+        {
+            BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session, SenderId = f.User,
+            ExternalMessageId = "surviving-source", Text = "我喜欢钢琴", AllowReflection = true,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
+        };
+        db.Messages.Add(later);
+        db.Models.Add(new ModelProfile
+        {
+            BotId = f.Bot, TaskKind = TaskKind.LightReflection, Endpoint = "https://model.example/v1/",
+            Model = "light", SupportsJson = true,
+            ProtectedApiKey = scope.ServiceProvider.GetRequiredService<SecretProtector>().Protect("test-only")
+        });
+        await db.SaveChangesAsync();
+        var input = new ReflectionJob(f.Session, f.User, later.Sequence, 0, ReflectionKind.Full);
+        var runs = new List<Guid>();
+        for (var pass = 0; pass < 2; pass++)
+        {
+            await using (var tx = await db.Database.BeginTransactionAsync())
+            {
+                await UserFence.CheckAsync(db, f.User, 0, default);
+                var (run, status) = await ReflectionRuns.AdmitAsync(db, f.Bot, f.Conversation, input, default);
+                await Assert.That(status).IsEqualTo(ReflectionAdmissionOutcome.Accepted);
+                runs.Add(run!.JobId);
+                await db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+
+            app.ModelResponses.Enqueue(Json.Write(new
+            {
+                choices = new[] { new { message = new { content = Json.Write(new ReflectionProposal(false, null, [], [])) } } },
+                usage = new { prompt_tokens = 1, completion_tokens = 1 }
+            }));
+            await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().GenerateAsync(runs[^1], default);
+            if (pass == 0)
+                await db.Messages.Where(x => x.Id == f.Evidence)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true));
+        }
+
+        await Assert.That(runs.Distinct().Count()).IsEqualTo(2);
+        await Assert.That(await db.Reflections.CountAsync(x => x.Boundary == input.Boundary)).IsEqualTo(2);
+        await Assert.That(await db.ReflectionGenerations.AllAsync(x => x.Status == ReflectionGenerationStatus.Completed))
+            .IsTrue();
+        db.ChangeTracker.Clear();
+        var (_, repeated) = await ReflectionRuns.AdmitAsync(db, f.Bot, f.Conversation, input, default);
+        await Assert.That(repeated).IsEqualTo(ReflectionAdmissionOutcome.AlreadyProcessed);
+        await Assert.That(app.ModelRequests.Count).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task OnlyTheSubjectCanClearAReflectionReasonWithoutChangingQuotaOrWork()
     {
         using var app = new TestApp();

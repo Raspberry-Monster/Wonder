@@ -21,10 +21,10 @@ public static class ReflectionRuns
         return Json.Hash(Json.Write(new { input.Epoch, rows }));
     }
 
-    // Caller owns a short serializable transaction and the user fence. Legacy jobs join lazily.
+    // Caller owns a short serializable transaction and the user fence.
     public static async Task<(ReflectionGeneration? Run, ReflectionAdmissionOutcome Status)> AdmitAsync(
         WonderDbContext db, Guid botId,
-        Guid conversationId, ReflectionJob input, CancellationToken ct, OutboxMessage? legacy = null)
+        Guid conversationId, ReflectionJob input, CancellationToken ct)
     {
         var signature = await SignatureAsync(db, botId, input, ct);
         if (signature is null) return (null, ReflectionAdmissionOutcome.NoNewEligibleMessages);
@@ -49,23 +49,7 @@ public static class ReflectionRuns
                     : ReflectionAdmissionOutcome.AlreadyScheduled);
         }
 
-        // Old results have no verifiable canonical signature. Never guess equivalence from Boundary.
-        if (await db.Reflections.AnyAsync(x => x.SessionId == input.SessionId && x.SubjectId == input.SubjectId &&
-                                               x.Kind == ReflectionKind.Full && x.Boundary == input.Boundary, ct))
-            return (null, ReflectionAdmissionOutcome.ResultNotReusable);
-        var legacyBoundary = await db.Reflections.Where(x =>
-                x.SessionId == input.SessionId && x.SubjectId == input.SubjectId &&
-                x.Kind == ReflectionKind.Full && !db.ReflectionGenerations.Any(g => g.ResultId == x.Id))
-            .MaxAsync(x => (long?)x.Boundary, ct);
-        if (legacyBoundary is { } prior && !await db.Messages.AnyAsync(x => x.SessionId == input.SessionId &&
-                                                                            x.SenderId == input.SubjectId &&
-                                                                            x.Role == MessageRole.User &&
-                                                                            x.AllowReflection &&
-                                                                            !x.ContextInvalidated &&
-                                                                            x.Sequence > prior &&
-                                                                            x.Sequence <= input.Boundary, ct))
-            return (null, ReflectionAdmissionOutcome.ResultNotReusable);
-        var job = legacy ?? Jobs.Add(db, botId, JobKind.Reflection, input, conversationId);
+        var job = Jobs.Add(db, botId, JobKind.Reflection, input, conversationId);
         run = new ReflectionGeneration
         {
             BotId = botId, SessionId = input.SessionId, SubjectId = input.SubjectId, Epoch = input.Epoch,

@@ -11,7 +11,7 @@
 - GET / POST /api/v1/bots；GET / PATCH /api/v1/bots/{id}：当前 Owner 的实例。
 - GET / PUT /api/v1/bots/{id}/identity：读取历史 / 发布新身份。
 - GET / PUT /api/v1/bots/{id}/binding：QQ 账号、正向 WebSocket 与令牌。
-- GET / PUT /api/v1/bots/{id}/model-routes：只接受 Chat、LightReflection、StrongReflection、RollingSummary、Embedding 五类任务；历史 DailyNarrative 用量仍保留。PUT 为数组，可只更新其中一个任务。
+- GET / PUT /api/v1/bots/{id}/model-routes：只接受 Chat、LightReflection、StrongReflection、RollingSummary、Embedding 五类任务。PUT 为数组，可只更新其中一个任务。
 - GET /api/v1/bots/{id}/model-routes/tokenizers：列出可用词表；路由响应提供 tokenizerId 和 resolvedTokenizer。
 - GET /api/v1/bots/{id}/groups；GET / PUT /groups/{groupId}/policy：基础群触发和消息保存策略。
 - GET /api/v1/bots/{id}/emotion、/usage、/jobs、/deliveries：脱敏诊断。
@@ -55,6 +55,8 @@ API 返回的密钥字段仅有 hasApiKey / hasAccessToken，绝不返回保护�
 ## 持久事件契约
 
 运行时接受的事件版本为 v2，定义见 [outbox.v2.schema.json](outbox.v2.schema.json)。Schema 从 Core 的强类型事件注册表和 Outbox 类型导出，覆盖事件类型、载荷和任务进度元信息；业务有效性与作用域由服务端验证。
+
+当前任务类型为 `chat`、`outgoing`、`reflection`、`emotion`、`relationship`、`memory`、`memory-maintenance`、`embedding`、`maintenance`、`summary` 和 `memory-privacy`。事件 v2 不表示支持旧库或旧任务升级；`narrative`、`deletion-ledger` 和非 v2 事件均不在运行时契约内。HTTP API 继续使用 v1。
 
 在仓库根目录生成事件 Schema：
 

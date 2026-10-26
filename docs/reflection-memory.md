@@ -7,7 +7,9 @@ Reflection 在后台从用户消息中提取提案；Memory 校验事实候选�
 ```mermaid
 flowchart TD
     MSG[收到合格用户消息] --> LIGHT[即时反思 light]
-    END[会话空闲到期或主动结束] --> FULL[按用户生成 full]
+    END[会话空闲到期或主动结束] --> ADMIT[按本人来源签名受理]
+    TOOL[主动整理工具] --> ADMIT
+    ADMIT --> FULL[原子创建 Full generation 与 Outbox]
     LIGHT --> LLM[LightReflection 提取提案]
     FULL --> LLM
     LLM --> CHECK{需要强模型复核？}
@@ -28,7 +30,7 @@ flowchart TD
 - Bot 已启用，且允许消息持久化。
 - 消息是符合回复规则的有效私聊输入，未被 Mute 拦截；合法 Force 可按原授权参与反思。
 - 发言用户开启 `AllowMemory`，该设置默认关闭。
-- 群聊不再生成或应用反思；旧任务在入口停止。
+- 不包含群聊消息；生成和应用入口都校验私聊范围。
 
 即时反思只分析当前用户的这一条有效消息。群消息不进入 light 或 full；Notes 和摘要不能替代本人原始消息证据。
 
@@ -40,13 +42,15 @@ flowchart TD
 | --- | --- |
 | 空闲到期 | 私聊、群聊默认均为 10 分钟，可按 Bot 配置；触发回复的入站消息延后截止时间 |
 | 主动结束 | `/end` 将当前 Session 截止时间设为现在；消息仍需符合回复和持久化规则 |
-| 检查与排队 | Quartz 每 15 秒扫描到期 Session，等待该 Conversation 的聊天和发送任务完成 |
+| 检查与排队 | Quartz 内存触发器每 15 秒扫描到期 Session，等待该 Conversation 的聊天和发送任务完成 |
 
 主动 Full 由结构化工具在已绑定私聊的 Chat/Force 回合受理，不关闭 Session，固定当前输入上界。按 Bot 每天共用 2 Normal + 1 Important；已受理失败不自动返额，原任务重试不重复扣次。Full 以实际合格用户来源签名去重，助手使 Boundary 增加不会造成重复评估；Result 与三类下游一次发布。工具启用与调用方式见 [交互工具与 Notes](agent-tools.md#主动整理)。
 
 规范运行以实际合格本人消息的有序 ID、正文和 Epoch 生成来源签名；Boundary 只作为快照上界。自动与主动 Full 共用受理路径，重复或无来源不消耗主动次数。结果、三类下游和运行完成状态在同一事务发布；配额、请求记录及新任务也原子提交。主动日配额按 Bot 的当地自然日计算，时区改变后以 24 小时保守隔离防止重复领取；TokenBudget 仍按 UTC。
 
-旧 Full 任务执行前加入相同的规范运行协议。旧结果缺少可信签名时不按 Boundary 猜测复用，增加助手消息也不能绕过旧结果防重。死信修复后重试原任务，不另扣主动次数。
+Full 的去重键为 Bot、Session、本人和来源签名。相同来源仍在排队或运行时复用原 generation；已完成且结果可用时返回已处理；死信需要修复并重试原任务，不另扣主动次数。已取消或结果不可复用的相同来源不会自动新建任务。来源签名发生变化时，即使 Boundary 相同也允许创建新的 generation；Full 结果没有 Boundary 唯一约束。
+
+Full 任务在调度事务中创建 generation，执行时必须已有对应记录，不会懒接入或从结果 Boundary 推断运行。Light 流程独立，不创建 Full generation；数据库只对 Light 结果的 Session、本人、Kind 和 Boundary 组合施加唯一约束。
 
 扫描固定会话结束的消息边界，并为每位具有可反思消息、且仍开启长期记忆的用户分别排入 full。分析范围是该 Session 内、截至边界、属于该用户且允许反思的消息，不把助手回复或他人发言当成本人事实。
 
@@ -67,7 +71,7 @@ full 会覆盖已经做过 light 的消息。候选去重、事实合并和情�
 | 任务 | 准入和效果 |
 | --- | --- |
 | Emotion | 检查证据；与最近检查范围内已应用事件证据重叠时不重复应用；每用户对同一 Bot 每 UTC 日最多 5 次 |
-| Relationship | 明确偏好或至少 3 条独立消息证据才能准入；按 Bot / 本人私聊范围保存，最多保留最近 20 项 |
+| Relationship | 明确偏好或至少 3 条独立消息证据才能准入；按 Bot / 本人私聊范围写入 RelationshipClaims，模型读取经过资格和来源检查的投影；Tentative / Unverified 项仅作非事实参考 |
 | Memory | 要求明确、非敏感、正文和 FactKey 合法、本人消息证据及授权有效，并通过旧断言抑制/引用与当前确认核验；只保存隔离候选 |
 
 Memory 候选正文上限 1000 字符、FactKey 上限 150 字符。同一反思里的完全重复候选只排入一个维护任务。
@@ -96,5 +100,7 @@ MemoryMaintenance 是候选触发的任务，不是固定时间全库扫描：
 | [OneBotProtocol.cs](../src/Wonder.Platforms/OneBotProtocol.cs) | 保存、回复及反思触发判断 |
 | [MessageIngestor.cs](../src/Wonder.Host/Features/Chat/MessageIngestor.cs) | 会话活动、截止时间与 light 创建 |
 | [MaintenanceWorkflow.cs](../src/Wonder.Host/Jobs/MaintenanceWorkflow.cs) | 会话扫描、full 创建和关闭 |
+| [ScheduledJobs.cs](../src/Wonder.Host/Jobs/ScheduledJobs.cs) | Quartz 内存触发器及每日任务补排 |
+| [ReflectionRuns.cs](../src/Wonder.Host/Features/Memory/ReflectionRuns.cs) | Full 来源签名、generation 受理与复用 |
 | [ReflectionWorkflow.cs](../src/Wonder.Host/Features/Memory/ReflectionWorkflow.cs) | 反思生成、复核、结果应用和候选创建 |
 | [MemoryMaintenanceWorkflow.cs](../src/Wonder.Host/Features/Memory/MemoryMaintenanceWorkflow.cs) | 事实召回和维护决策 |

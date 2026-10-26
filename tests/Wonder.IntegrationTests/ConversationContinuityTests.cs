@@ -306,6 +306,10 @@ public sealed class ConversationContinuityTests
                 BotId = f.Bot, SessionId = first.Message.SessionId!.Value,
                 ThroughSequence = first.Message.Sequence, Text = "小屋配色仍待确定。",
                 MemoryIdsJson = Json.Write(new[] { memoryId }),
+                SourcesJson = Json.Write(new[]
+                {
+                    new ContentSource("Memory", memoryId, "1"), ContentSources.Message(first.Message)
+                }),
                 MessageIdsJson = Json.Write(new[] { first.Message.Id }),
                 SubjectIdsJson = Json.Write(new[] { first.Message.SenderId!.Value })
             });
@@ -350,17 +354,23 @@ public sealed class ConversationContinuityTests
     }
 
     [Test]
-    public async Task ExistingEscapedRelationshipPreferencesReachTheModelAsChineseWithoutRewritingStorage()
+    public async Task RelationshipClaimsReachTheModelAsChineseWithoutRewritingStorage()
     {
         using var app = new TestApp(new Clock(Start));
         var f = await SeedAsync(app);
         var next = await QueueAsync(app, f.Binding, "preferences", "你好");
-        const string stored = "[\"\\u559C\\u6B22\\u7B80\\u77ED\\u56DE\\u590D\"]";
+        const string stored = "喜欢简短回复";
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var user = await db.LogicalUsers.SingleAsync(x => x.Id == next.Message.SenderId);
         user.AllowMemory = true;
-        db.Relationships.Add(new RelationshipState { BotId = f.Bot, UserId = user.Id, PreferencesJson = stored });
+        var relationship = new RelationshipState { BotId = f.Bot, UserId = user.Id };
+        db.Relationships.Add(relationship);
+        db.RelationshipClaims.Add(new RelationshipClaim
+        {
+            RelationshipId = relationship.Id, BotId = f.Bot, SubjectId = user.Id,
+            Kind = "Preference", Text = stored, Origin = "Explicit"
+        });
         await db.SaveChangesAsync();
         await RunAsync(app, next.Job);
         using var request = JsonDocument.Parse(app.ModelRequests.Single());
@@ -368,7 +378,7 @@ public sealed class ConversationContinuityTests
             .Select(x => x.GetProperty("content").GetString()));
         await Assert.That(content).Contains("喜欢简短回复");
         await Assert.That(content).DoesNotContain("\\u559C");
-        await Assert.That((await db.Relationships.AsNoTracking().SingleAsync()).PreferencesJson).IsEqualTo(stored);
+        await Assert.That((await db.RelationshipClaims.AsNoTracking().SingleAsync()).Text).IsEqualTo(stored);
     }
 
     [Test]
@@ -403,7 +413,8 @@ public sealed class ConversationContinuityTests
         db2.Summaries.Add(new ConversationSummary
         {
             BotId = f.Bot, SessionId = next.Message.SessionId!.Value,
-            Text = "derived from the old session", MessageIdsJson = Json.Write(snapshot.SourceMessageIds)
+            Text = "derived from the old session", MessageIdsJson = Json.Write(snapshot.SourceMessageIds),
+            SourcesJson = Json.Write(snapshot.Sources)
         });
         await db2.SaveChangesAsync();
         await scope2.ServiceProvider.GetRequiredService<MemoryService>()

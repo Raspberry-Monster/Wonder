@@ -23,7 +23,7 @@ public static class EventContracts
     public static void ValidateVersion(OutboxMessage job)
     {
         if (job.SchemaVersion != Version || !PayloadTypes.ContainsKey(job.Type))
-            throw new JsonException("Unsupported event type or version; run the database migration.");
+            throw new JsonException("Unsupported event type or version.");
     }
 
     public static JsonObject Schema()

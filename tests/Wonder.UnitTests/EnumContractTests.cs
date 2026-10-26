@@ -19,7 +19,9 @@ public sealed class EnumContractTests
         await Assert.That(EnumWire.Name(DeliveryResolutionAction.ConfirmSent)).IsEqualTo("confirm-sent");
         await Assert.That(Convert.ToInt32(Enum.Parse<JobStatus>("DeadLetter"))).IsEqualTo(3);
         await Assert.That(Convert.ToInt32(Enum.Parse<MemoryStatus>("Revoked"))).IsEqualTo(2);
-        await Assert.That(Convert.ToInt32(Enum.Parse<TaskKind>("DailyNarrative"))).IsEqualTo(3);
+        await Assert.That(Enum.IsDefined(typeof(TaskKind), 3)).IsFalse();
+        await Assert.That(Enum.IsDefined(typeof(JobKind), 9)).IsFalse();
+        await Assert.That(Enum.IsDefined(typeof(JobKind), 11)).IsFalse();
         await Assert.That(Convert.ToInt32(Enum.Parse<ModelTaskKind>("RollingSummary"))).IsEqualTo(4);
         await Assert.That(Convert.ToInt32(Enum.Parse<ModelTaskKind>("Embedding"))).IsEqualTo(5);
         await Assert.That(Convert.ToInt32(Enum.Parse<JobKind>("Summary"))).IsEqualTo(10);

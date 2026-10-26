@@ -132,8 +132,8 @@ public sealed class OutgoingWorkflow(
                             (fresh is not null &&
                              !fresh.ContextInvalidated &&
                              await ContentSources.MessageValidAsync(db, fresh, ct, now: clock.UtcNow) &&
-                             (snapshot?.Sources is null || await ContentSources.ValidAsync(db, job.BotId,
-                                 snapshot.Sources, ct, now: clock.UtcNow)));
+                             snapshot?.Sources is not null && snapshot.BotInstanceId == job.BotId &&
+                             await ContentSources.ValidAsync(db, job.BotId, snapshot.Sources, ct, now: clock.UtcNow));
                 valid = valid && actualActors is not null &&
                         await NoteSources.ValidAsync(db, NoteDependencyTargetKind.Chat, batch.SourceJobId, ct) &&
                         !await db.ChatDispositions.AnyAsync(x => x.ChatJobId == batch.SourceJobId, ct);

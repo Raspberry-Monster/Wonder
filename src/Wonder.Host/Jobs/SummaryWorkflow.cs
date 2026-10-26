@@ -112,7 +112,7 @@ public sealed class SummaryWorkflow(
                 progress.Sources.Add(ContentSources.ProjectionReady(previous)
                     ? ContentSources.Projection(previous)
                     : ContentSources.Summary(previous));
-                progress.Sources.AddRange(await ContentSources.SummaryRootsAsync(db, previous, ct));
+                progress.Sources.AddRange(ContentSources.SummaryRoots(previous));
                 var subjects = Json.Read<Guid[]>(previous.SubjectIdsJson);
                 progress.Epochs = await db.LogicalUsers.Where(x => subjects.Contains(x.Id))
                     .ToDictionaryAsync(x => x.Id, x => x.RevocationEpoch, ct);

@@ -58,7 +58,7 @@ flowchart TD
 
 Embedding Profile 按 Bot、接口、模型、维度和版本隔离；向量带 `SourceRevision`。写回前重新核验源 Revision、当前 Profile、授权、归档/撤销状态、租约及到期时间。晚到结果不能覆盖当前索引。
 
-有 Profile 但当前事实缺少向量时，检索合并最多 5 条未索引正文，去重后总数最多 5；供应商异常也使用相同授权下的有界回退。索引失败通过 Outbox 重试/死信和本人索引状态呈现，不恢复旧事实。旧无可信 Revision 的向量不参与当前召回，通过原 Outbox 重建。
+有 Profile 但当前事实缺少向量时，检索合并最多 5 条未索引正文，去重后总数最多 5；供应商异常也使用相同授权下的有界回退。索引失败通过 Outbox 重试/死信和本人索引状态呈现，不恢复旧事实。向量的来源 Revision 必须与当前正文一致。
 
 ## 来源与安全历史读取
 
@@ -74,7 +74,9 @@ Embedding Profile 按 Bot、接口、模型、维度和版本隔离；向量带 
 
 预算最终保留的参考组、引用消息与工具返回都进入该轮来源快照。Notes 沿用 `NoteDependency` 版本机制。每次模型续请求、最终写回、历史消费和发送领取重新验证来源。
 
-旧 ID 集合只有部分溯源意义，不回填虚构版本；旧生成文本的全部来源集合为空、来源 JSON 损坏、资源缺失、循环或超出深度/数量上限时拒绝具体读取。来源图遍历限制为深度 16、资源 512。
+摘要正文使用 `SourcesJson`，安全投影使用 `SafeProjectionJson.Sources`，生成消息的上下文快照使用 `ContextSnapshot.Sources`。这些记录必须提供当前格式的来源列表；缺失或损坏时拒绝使用，即使旧 ID 索引指向的记录仍然存在，也不重建来源或补造版本。显式空列表与缺失来源不同；没有上下文快照的原始用户消息按原消息及证据抑制规则校验。
+
+ID 集合继续用于查询与失效索引，不能替代 ContentSource 来源和版本。资源缺失、循环或超出深度/数量上限时同样拒绝具体读取；来源图遍历设有深度 16、资源约 512 的保护上限。
 
 失效沿实际 Memory→Message/Summary/投影及 Notes 依赖传播，不按 Session 扩大，不通过提高整个 Bot 设置版本取消无关生成。Relationship 投影自身也有来源版本；预算未消费的关系参考不加入来源。
 
@@ -93,7 +95,9 @@ Embedding Profile 按 Bot、接口、模型、维度和版本隔离；向量带 
 
 旧引用不因时间较新就成为新证据；本人合法当前表达可以自动重新学习，无须额外“重新记录”指令。旧保留混合消息只有在版本和抑制范围均可证明时生成等宽遮罩提取视图；未知范围阻断提取。分批合并保留全部锚点，模型在途结果在持锁写入前重新过滤。
 
-`RelationshipClaim` 为原 RelationshipState 提供每项来源、Explicit/Inferred/Unknown 类型及 Current/Tentative/Unverified/Blocked 资格。消息根去重，数量不是充分证据裁决。失源推断项降级；明确或 Unknown 的独立交流边界不因 Memory 删除而自动解除。关系文本不能改变工具权限、隐私授权或静音状态。Notes 原正文与修订链继续独立维护。
+`RelationshipClaims` 是关系声明的唯一来源，提供每项来源、Explicit/Inferred/Unknown 类型及 Current/Tentative/Unverified/Blocked 资格；`RelationshipState` 仅保留标识、归属和 Revision，不保存偏好或边界数组。写入端合并每项证据并推进声明和关系 Revision，明确提案会将该项 Origin 标记为 Explicit。
+
+投影排除 Blocked 项，对其他普通声明检查消息、记忆及证据抑制状态；Tentative / Unverified 仅作为非事实参考。消息根去重，数量不是充分证据裁决。失源推断项降级；明确或 Unknown 的独立交流边界不因 Memory 删除而自动解除。关系文本不能改变工具权限、隐私授权或静音状态。Notes 原正文与修订链继续独立维护。
 
 ## 隐私操作、清单与续跑
 
@@ -101,11 +105,11 @@ Embedding Profile 按 Bot、接口、模型、维度和版本隔离；向量带 
 
 1. Erase 预览从本人同 Bot 私聊证据构造完整消息及实际派生闭包，十分钟过期。确认包含消息中的全部事实损失；版本、作者、证据或范围变化要求重新预览。
 2. 在作者锁下复验范围，原子提交栅栏、抑制、数据库撤销记录、清单和原 Outbox 的 `memory-privacy` 作业，不等待外部服务。
-3. 清目标族的所有向量 Profile、确切候选、生产 Reflection 的 Memory 子项、可证草稿与投影；不清独立关系/情绪子项。旧序列化兼容按完整断言和证据哈希，不按语义猜测。
+3. 清目标族的所有向量 Profile、确切候选、生产 Reflection 的 Memory 子项、可证草稿与投影；不清独立关系/情绪子项。候选匹配使用当前 `MemoryCandidate` 序列化哈希，不尝试旧的缺字段哈希形状；未知残留继续阻止完成。防回写依据当前 `EvidenceSuppression` 的确切证据范围，不回退到旧的仅 FactKey 哈希撤销记录。
 4. 未证明的残余副载荷为 NeedsReview，相关 Memory 子源保持阻断。媒体核验 Bot、冻结版本、相对定位、共享路径、链接和真实内容哈希；文件 I/O 在持久认领后执行。URL 缓存 Hash 不等同文件 ContentHash。
 5. 已完成项单调保留，重试只推进冻结范围内未完成项，不能偷扩或缩小确认范围。同步预算内全部核验通过返回 200，否则返回 202、持久 operationId 和查询位置。
 
-整体 Completed 需要所有确认项目的在线清理核验完成。只读退役归档、旧备份、独立导出和外部 QQ 分别报告未覆盖；不能宣称所有副本都被擦除。
+整体 Completed 需要所有确认项目的在线清理核验完成。历史备份、独立导出和外部 QQ 分别报告未覆盖；不能宣称所有副本都被擦除。
 
 ## 生成轮次与发送边界
 
@@ -115,7 +119,7 @@ Embedding Profile 按 Bot、接口、模型、维度和版本隔离；向量带 
 
 ## 迁移与运维恢复
 
-迁移仅前向，保留操作回执、抑制与业务撤销记录。功能精简迁移删除恢复专用字段，将已隔离的 Forget／Erase 重新排入在线清理；已完成项目也重新核验实际在线结果，不伪造恢复成功。叙事任务与账本导出任务取消并清空进度，历史用量保持用途标识。
+当前数据库只有 `InitialCreate` 基线，首次应用需空库；已使用相同基线时可重复检查迁移。旧迁移链的开发库必须手动重建，不提供旧版本库的升级、导入或回填。当前模型继续保存操作回执、证据抑制、业务撤销记录、记忆版本链和 Notes 历史，这不代表能够迁入旧库的数据。
 
 备份和恢复由运维使用外部 PostgreSQL 工具处理，详见 [运行指南](operations.md#运维备份与恢复)。恢复旧备份后的数据状态以备份时点为准，不自动重放后续删除；备份之后删除过的数据可能重新出现。数据库之外需保存 Data Protection 密钥目录，需要图片时另行保存媒体目录。
 
@@ -130,16 +134,16 @@ Embedding Profile 按 Bot、接口、模型、维度和版本隔离；向量带 
 | 精确范围与本人权限 | 多事实、多 Session、跨 Bot/作者哨兵；只改确认族及实际依赖；Owner 不越权 | MemoryLifecycleTests、PrivacyTests、PrivacyBoundaryTests、ApiTests |
 | 版本与历史授权 | Edit/Update/取代 Supplement 原子过时；Merge/独立 Archive 不过时；RetainMemoryHistory 不扩展为聊天清理 | MemoryLifecycleTests、MemoryMaintenanceTests |
 | 新正文与索引分离 | 无当前向量/供应商失败仍有有界授权回退；旧 Revision/Profile/租约结果不写回 | MemoryLifecycleTests、LiveInfrastructureTests |
-| 实际来源与安全历史 | 引用/工具返回/预算保留项有 ID/版本；只沿实际链失效；损坏/空旧来源阻断具体产物 | MemoryLifecycleTests、ConversationContinuityTests、PrivateContextTests |
+| 实际来源与安全历史 | 引用/工具返回/预算保留项有 ID/版本；只沿实际链失效；缺失/损坏来源阻断具体产物 | MemoryLifecycleTests、ConversationContinuityTests、PrivateContextTests |
 | 同表 Summary 投影 | 原 Text/正文 Revision 不因投影改变；正常更新使投影失效；来源/租约/双版本 CAS 和 TTL 不误写新版 | MemoryLifecycleTests |
 | Notes、关系与情绪独立性 | 独立正文/修订保留；失源推断降级，Explicit/Unknown Boundary 不被解除；不改变权限或静音状态 | PrivacyTests、PrivacyBoundaryTests、AgentAutonomyTests |
 | 旧证据与当前确认 | 旧引用不洗成新证据；当前确认和独立新事实可再学；同源多批次保留全部锚点 | PrivacyTests、PrivacyBoundaryTests、ReflectionEvidenceTests |
 | 持久幂等与冲突 | 缺版本/键拒绝、同键同参返回原操作、异参 409、跨工厂重试仍幂等 | MemoryLifecycleTests、PrivacyTests、MemoryReleaseTests |
 | Erase 完整消息与逐项续跑 | 预览过期/变更/跨身份拒绝；A/B 完成、C 失败不能整体 Completed；文件/DB 不同水位可恢复 | PrivacyTests、PrivacyBoundaryTests |
-| 混合副载荷与兼容 | 只清精确 Memory 子项，保留关系/情绪；兼容旧 Assertions 哈希形状，未知残留待核验 | PrivacyTests、PrivacyBoundaryTests |
+| 混合副载荷清理 | 只清精确 Memory 子项，保留关系/情绪；按当前 Assertions 格式精确匹配哈希，未知残留待核验 | PrivacyTests、PrivacyBoundaryTests |
 | 整轮发送线性化 | 用 PG barrier 控制删除先赢/发送先赢；两 Memory 三段停相关 Pending、独立轮次继续、Sent/Unknown 保真 | PrivacyBoundaryTests、InteractionTests |
 | 统一入口与前端契约 | 无恢复配置时四项可用；关闭自动学习仍可管理；完整消息确认、409、逐项进度和重试不虚报成功 | MemoryReleaseTests、memory-lifecycle.spec.ts |
-| 升级兼容 | 旧叙事数据与配置移除，历史用量保留；旧任务取消；已隔离及已完成隐私操作重新核验在线结果 | SimplificationUpgradeTests |
+| 数据库基线 | 空库及重复迁移、模型一致性；无退役 schema、Quartz 表与旧业务结构 | LiveInfrastructureTests |
 
 这些测试验证在线权限、精确范围及清理结果；运维备份恢复需另行演练。
 

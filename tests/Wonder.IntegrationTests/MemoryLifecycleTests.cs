@@ -48,18 +48,24 @@ public sealed class MemoryLifecycleTests
             BotId = bot.Id, ConversationId = conversation.Id, SessionId = sessions[0].Id,
             ExternalMessageId = "reply", Role = MessageRole.Assistant, Text = "old belief",
             ContextSnapshotJson = Json.Write(new ContextSnapshot(bot.Id, sessions[0].Id, 1, 1, 0, 0,
-                [memory.Id], "test")),
+                [memory.Id], "test", Sources: [ContentSources.Memory(memory)])),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
         };
         db.Messages.Add(dependent);
         var summaries = sessions.Select(session => new ConversationSummary
         {
             BotId = bot.Id, SessionId = session.Id, Revision = 1, Text = "independent summary",
-            MemoryIdsJson = Json.Write(new[] { independent.Id })
+            MemoryIdsJson = Json.Write(new[] { independent.Id }),
+            SourcesJson = Json.Write(new[] { ContentSources.Memory(independent) })
         }).ToArray();
         db.Summaries.AddRange(summaries);
-        var relationship = new RelationshipState { BotId = bot.Id, UserId = user.Id, PreferencesJson = "[\"piano\"]" };
+        var relationship = new RelationshipState { BotId = bot.Id, UserId = user.Id };
         db.Relationships.Add(relationship);
+        db.RelationshipClaims.Add(new RelationshipClaim
+        {
+            RelationshipId = relationship.Id, BotId = bot.Id, SubjectId = user.Id,
+            Kind = "Preference", Text = "piano", Origin = "Explicit"
+        });
         var independentNote = new Note
             { BotId = bot.Id, UserId = user.Id, ConversationId = conversation.Id, Content = "independent note" };
         var dependentNote = new Note
@@ -97,8 +103,7 @@ public sealed class MemoryLifecycleTests
             await Assert.That(actual.ContextInvalidated).IsFalse();
         }
 
-        await Assert.That((await db.Relationships.SingleAsync()).PreferencesJson)
-            .IsEqualTo(relationship.PreferencesJson);
+        await Assert.That((await db.RelationshipClaims.SingleAsync()).Text).IsEqualTo("piano");
         foreach (var fact in new[] { independent, otherAuthor, otherBotFact })
             await Assert.That((await db.Memories.SingleAsync(x => x.Id == fact.Id)).Revision).IsEqualTo(1);
         await Assert.That((await db.Notes.SingleAsync(x => x.Id == independentNote.Id)).SourceInvalidated).IsFalse();
@@ -419,6 +424,14 @@ public sealed class MemoryLifecycleTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var memory = await db.Memories.SingleAsync();
+        var unproven = new ChatMessage
+        {
+            BotId = f.Bot, SessionId = f.Session, ConversationId = f.Conversation,
+            ExternalMessageId = "missing-sources", Role = MessageRole.Assistant, Text = "unproven derived text",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+            ContextSnapshotJson = Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 1, 0, 0, [memory.Id], "test"))
+        };
+        db.Messages.Add(unproven);
         var first = new ConversationSummary
         {
             BotId = f.Bot, SessionId = f.Session, Revision = 1,
@@ -434,8 +447,24 @@ public sealed class MemoryLifecycleTests
         };
         db.Summaries.AddRange(first, second);
         await db.SaveChangesAsync();
+        await Assert.That(await ContentSources.MessageValidAsync(db, unproven, default)).IsFalse();
+        await Assert.That(await ContentSourceActors.ResolveAsync(db, f.Bot, [ContentSources.Message(unproven)], default))
+            .IsNull();
         await Assert.That(await ContentSources.ValidAsync(db, f.Bot, [ContentSources.Summary(second)], default, f.User))
             .IsTrue();
+        // ID indexes cannot substitute for versioned provenance, even when every referenced row exists.
+        await db.Summaries.Where(x => x.Id == first.Id).ExecuteUpdateAsync(s => s
+            .SetProperty(x => x.SourcesJson, (string?)null)
+            .SetProperty(x => x.MemoryIdsJson, Json.Write(new[] { memory.Id })));
+        await Assert.That(await ContentSources.ValidAsync(db, f.Bot, [ContentSources.Summary(second)], default, f.User))
+            .IsFalse();
+        await Assert.That(await ContentSourceActors.ResolveAsync(db, f.Bot, [ContentSources.Summary(second)], default))
+            .IsNull();
+        await Assert.That(() => ContentSources.SummaryRoots(
+            new ConversationSummary { BotId = f.Bot, MemoryIdsJson = Json.Write(new[] { memory.Id }) }))
+            .ThrowsExactly<InvalidOperationException>();
+        await db.Summaries.Where(x => x.Id == first.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.SourcesJson, first.SourcesJson));
         await db.Summaries.Where(x => x.Id == second.Id)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.SourcesJson, "not-json"));
         await Assert.That(await ContentSources.ValidAsync(db, f.Bot, [ContentSources.Summary(second)], default, f.User))
@@ -514,47 +543,4 @@ public sealed class MemoryLifecycleTests
         await Assert.That(await db.MemoryOperations.CountAsync()).IsEqualTo(0);
     }
 
-    [Test]
-    public async Task ForwardMigrationPreservesBodiesAndRebuildsUnprovenVectorsThroughExistingOutbox()
-    {
-        await using var pg = await TestPostgres.CreateAsync("20261024185718_PrivateMemoryOnly");
-        using var app = pg.CreateApp();
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var owner = new ApplicationUser { Id = Guid.NewGuid() };
-        var bot = new BotInstance { OwnerId = owner.Id };
-        var user = new LogicalUser { AllowMemory = true };
-        db.Users.Add(owner);
-        db.Bots.Add(bot);
-        db.LogicalUsers.Add(user);
-        await db.SaveChangesAsync();
-        var old = Guid.NewGuid();
-        var current = Guid.NewGuid();
-        var archive = Guid.NewGuid();
-        foreach (var id in new[] { old, current, archive })
-        {
-            Guid? parent = id == current ? old : null;
-            DateTimeOffset? archivedAt = id == current ? null : DateTimeOffset.UtcNow;
-            await db.Database.ExecuteSqlInterpolatedAsync($"""
-                                                           INSERT INTO "Memories" ("Id","BotId","SubjectId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision","ArchivedAt","SupersedesMemoryId")
-                                                           VALUES ({id},{bot.Id},{user.Id},'key','retained body',1,{Guid.Empty},'[]',{DateTimeOffset.UtcNow},'',1,{archivedAt},{parent})
-                                                           """);
-        }
-
-        var profile = new EmbeddingProfile { BotId = bot.Id, Model = "legacy", Dimensions = 3 };
-        db.EmbeddingProfiles.Add(profile);
-        await db.SaveChangesAsync();
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"INSERT INTO \"Embeddings\" (\"MemoryId\",\"ProfileId\",\"Values\") VALUES ({current},{profile.Id},'[1,0,0]'::vector)");
-        await db.Database.MigrateAsync();
-        await db.Database.MigrateAsync();
-        await Assert.That(db.Database.HasPendingModelChanges()).IsFalse();
-        var rows = await db.Memories.AsNoTracking().ToListAsync();
-        await Assert.That(rows.Single(x => x.Id == old).IsOutdated).IsTrue();
-        await Assert.That(rows.Single(x => x.Id == archive).IsOutdated).IsFalse();
-        await Assert.That(rows.All(x => x.Text == "retained body")).IsTrue();
-        await Assert.That((await db.Embeddings.SingleAsync()).SourceRevision).IsEqualTo(0);
-        await Assert.That((await db.Outbox.SingleAsync(x => x.Type == JobKind.Embedding)).Payload)
-            .IsEqualTo(Json.Write(new IdPayload(current)));
-    }
 }

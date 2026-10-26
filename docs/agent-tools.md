@@ -48,7 +48,7 @@ Force 绑定原静音期，跨 Session 仍使用同一余额。只有永久失�
 
 `reflection_list_runs`、`reflection_get_run` 只读取本人运行记录。界面分别显示反思阶段、实际 Job 状态、直接下游和记忆维护进度；反思完成不代表所有记忆已落地。整理原因保留到本人清除，清除原因不删除整理结果、次数或任务记录。
 
-来源签名、自动与主动 Full 去重及旧任务处理见 [Reflection 与 Memory](reflection-memory.md#会话结束反思-full)。
+自动与主动 Full 共用来源签名和 generation 受理路径；重复、无合格来源或不可复用的请求不新建 generation，也不消耗新的主动次数。来源签名、结果复用与原任务重试见 [Reflection 与 Memory](reflection-memory.md#会话结束反思-full)。
 
 ## Notes 授权与版本
 

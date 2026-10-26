@@ -38,12 +38,7 @@ public static class Scheduling
         {
             q.SchedulerId = "AUTO";
             q.SchedulerName = "Wonder";
-            q.UsePersistentStore(store =>
-            {
-                store.UseProperties = true;
-                store.UsePostgres(configuration.GetConnectionString("Postgres")!);
-                store.UseSystemTextJsonSerializer();
-            });
+            q.UseInMemoryStore();
             q.AddJob<SessionLifecycleJob>(j => j.WithIdentity("sessions"));
             q.AddTrigger(t => t.WithIdentity("sessions-interval").ForJob("sessions").StartNow()
                 .WithSimpleSchedule(s =>

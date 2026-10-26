@@ -26,7 +26,6 @@ public enum TaskKind
     Chat = 0,
     LightReflection = 1,
     StrongReflection = 2,
-    DailyNarrative = 3, // Retained only for historical usage statistics.
     RollingSummary = 4,
     Embedding = 5
 }
@@ -247,7 +246,7 @@ public sealed class ConversationSummary
 
     public string Text { get; set; } = "";
 
-    // Null is legacy/unknown provenance, never an asserted empty source set.
+    // Missing provenance never represents an asserted empty source set.
     public string? SourcesJson { get; set; }
     public Guid? BaseSummaryId { get; set; }
     public long? BaseSummaryRevision { get; set; }
@@ -284,8 +283,6 @@ public sealed class RelationshipState
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
     public Guid UserId { get; set; }
-    public string PreferencesJson { get; set; } = "[]";
-    public string BoundariesJson { get; set; } = "[]";
     public long Revision { get; set; } = 1;
 }
 

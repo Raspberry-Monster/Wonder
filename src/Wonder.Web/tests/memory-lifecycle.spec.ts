@@ -51,7 +51,7 @@ test("Forget displays persistent partial verification and retries without claimi
   const operation = { operationId: 'op', kind: 'Forget', stage: 'NeedsReview', revision: 3, fenced: true,
     cleanupVerified: false, completed: false, targetMemoryId: 'memory', targetRevision: 10,
     items: [{ id: 'i', kind: 'Candidate', state: 'Completed' }, { id: 'm', kind: 'Media', state: 'NeedsReview', errorCode: 'MediaOwnershipUnprovenOrShared' }],
-    uncoveredLayers: ['ReadOnlyArchive', 'HistoricalBackups', 'IndependentExports', 'ExternalQQ'] };
+    uncoveredLayers: ['HistoricalBackups', 'IndependentExports', 'ExternalQQ'] };
   await page.route('**/api/v1/**', route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path.endsWith('/me')) return route.fulfill({ json: { logicalUserId: 'self' } });

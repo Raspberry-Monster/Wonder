@@ -6,7 +6,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [运行指南](operations.md) | 配置、升级迁移、密钥排错、任务重试、外部数据库备份与恢复 |
+| [运行指南](operations.md) | 配置、数据库基线初始化、密钥排错、任务重试、外部数据库备份与恢复 |
 | [Quadlet 部署](../deploy/quadlet/README.md) | Podman、持久目录、OneBot 连接和 PostgreSQL 管理 |
 | [模型路由](model-routes.md) | 五类任务、批量应用、Tokenizer 和模型参数 |
 | [DeepSeek 示例](deepseek.md) | 可选供应商的配置示例 |
@@ -31,3 +31,5 @@
 - [测试指南](../tests/README.md)：后端、前端和隔离 PostgreSQL 测试。
 
 功能规则放在对应专题，运行命令与恢复步骤以运行指南为准；测试执行方式集中在测试指南。
+
+当前数据库使用唯一 `InitialCreate` 基线，旧迁移链的开发库需要手动重建；初始化与同基线更新的区别见 [运行指南](operations.md#数据库基线与首次初始化)。Quartz 内存触发器和持久 Outbox 的职责见 [调度器与重启恢复](operations.md#调度器与重启恢复)。

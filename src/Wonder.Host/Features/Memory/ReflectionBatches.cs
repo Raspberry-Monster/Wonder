@@ -42,7 +42,7 @@ public static class ReflectionBatches
     private static EvidenceAssertion[]? MergeAssertions(IEnumerable<EvidenceAssertion[]?> groups)
     {
         var rows = groups.ToArray();
-        // Keep legacy null semantics; never invent an anchor for an evidence ID that had none.
+        // Missing assertions cannot supply an anchor for an evidence ID.
         return rows.All(x => x is null) ? null : rows.SelectMany(x => x ?? []).Distinct().ToArray();
     }
 

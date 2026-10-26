@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
     <ItemGroup>
         <PackageReference Include="Quartz.Extensions.Hosting" Version="3.21.0"/>
-        <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.21.0"/>
         <ProjectReference Include="../Wonder.Platforms/Wonder.Platforms.csproj"/>
         <ProjectReference Include="../Wonder.Infrastructure/Wonder.Infrastructure.csproj"/>
         <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1"/>

@@ -16,7 +16,4 @@
         <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0"/>
         <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13"/>
     </ItemGroup>
-    <ItemGroup>
-        <EmbeddedResource Include="Persistence/quartz-postgres.sql"/>
-    </ItemGroup>
 </Project>

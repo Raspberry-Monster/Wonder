@@ -14,6 +14,22 @@ namespace Wonder.IntegrationTests;
 public sealed class BudgetWorkflowTests
 {
     [Test]
+    public async Task FullReflectionWithoutScheduledGenerationIsRejectedBeforeModelUse()
+    {
+        using var app = new TestApp();
+        var f = await SeedAsync(app, 1, true);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
+        var job = Jobs.Add(db, f.Bot, JobKind.Reflection,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), f.Conversation);
+        await db.SaveChangesAsync();
+        await Assert.That(() => scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>()
+            .GenerateAsync(job.Id, default)).ThrowsExactly<InvalidOperationException>();
+        await Assert.That(await db.ReflectionGenerations.AnyAsync()).IsFalse();
+        await Assert.That(app.ModelRequests).IsEmpty();
+    }
+
+    [Test]
     public async Task SummaryResumesFromDatabaseAndNeverSkipsTheOldestBacklogOrLongFragments()
     {
         var folder = Directory.CreateTempSubdirectory("wonder-budget-");
@@ -81,10 +97,10 @@ public sealed class BudgetWorkflowTests
         };
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var job = Jobs.Add(db, f.Bot, JobKind.Reflection,
-            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), f.Conversation);
+        var (run, _) = await ReflectionRuns.AdmitAsync(db, f.Bot, f.Conversation,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), default);
         await db.SaveChangesAsync();
-        await DrainAsync(app, job.Id, true);
+        await DrainAsync(app, run!.JobId, true);
         var result = await db.Reflections.AsNoTracking().SingleAsync();
         var proposal = Json.Read<ReflectionProposal>(result.Payload);
         await Assert.That(seen.Count).IsEqualTo(110);
@@ -168,31 +184,6 @@ public sealed class BudgetWorkflowTests
 
 
     [Test]
-    public async Task RetiredNarrativeJobsAreCancelledWithoutUsingTheModel()
-    {
-        using var app = new TestApp();
-        var f = await SeedAsync(app, 1);
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        await db.Bots.Where(x => x.Id == f.Bot).ExecuteUpdateAsync(s => s.SetProperty(x => x.DailyTokenLimit, 1000));
-        db.Usage.Add(new UsageRecord { BotId = f.Bot, InputTokens = 950, OutputTokens = 0 });
-        var job = new OutboxMessage
-            { BotId = f.Bot, Type = JobKind.Narrative, Payload = "{}", ProgressJson = "old narrative draft" };
-        db.Outbox.Add(job);
-        job.Status = JobStatus.Running;
-        job.LeaseId = Guid.NewGuid();
-        job.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(10);
-        job.Attempts = 1;
-        await db.SaveChangesAsync();
-        await scope.ServiceProvider.GetRequiredService<JobProcessor>().ProcessAsync(job, default);
-        var saved = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == job.Id);
-        await Assert.That(saved.Status).IsEqualTo(JobStatus.Cancelled);
-        await Assert.That(saved.ErrorCode).IsEqualTo("FeatureRetired");
-        await Assert.That(saved.ProgressJson).IsNull();
-        await Assert.That(app.ModelRequests).IsEmpty();
-    }
-
-    [Test]
     public async Task SmallerStrongReflectionRouteRepartitionsTheLightEvidence()
     {
         using var app = new TestApp();
@@ -216,8 +207,9 @@ public sealed class BudgetWorkflowTests
             app.ModelResponses.Enqueue(Response(Json.Write(new ReflectionProposal(!strong, null, [], []))));
             return Task.CompletedTask;
         };
-        var job = Jobs.Add(db, f.Bot, JobKind.Reflection,
-            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), f.Conversation);
+        var (run, _) = await ReflectionRuns.AdmitAsync(db, f.Bot, f.Conversation,
+            new ReflectionJob(f.Session, f.User, f.Messages[^1].Sequence, 0, ReflectionKind.Full), default);
+        var job = db.Outbox.Local.Single(x => x.Id == run!.JobId);
         await db.SaveChangesAsync();
         await DrainAsync(app, job.Id, true);
         await Assert.That(string.Concat(strongFragments)).IsEqualTo(string.Concat(f.Messages.Select(x => x.Text)));

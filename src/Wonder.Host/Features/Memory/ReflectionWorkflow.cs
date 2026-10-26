@@ -45,9 +45,10 @@ public sealed class ReflectionWorkflow(
 
         if (input.Kind == ReflectionKind.Full)
         {
-            if (generation is not null && (generation.Status == ReflectionGenerationStatus.Cancelled ||
-                                           generation.SourceSignature !=
-                                           await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct)))
+            if (generation is null)
+                throw new InvalidOperationException("Full reflection requires a scheduled generation.");
+            if (generation.Status == ReflectionGenerationStatus.Cancelled ||
+                generation.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct))
             {
                 ReflectionRuns.Cancel(generation, ReflectionCancellationReason.SourceChanged);
                 Jobs.Complete(db, job);
@@ -63,18 +64,15 @@ public sealed class ReflectionWorkflow(
             }
             else
             {
-                var (run, status) = await ReflectionRuns.AdmitAsync(db, job.BotId, conv.Id, input, ct, job);
-                generation = run;
-                if (run is null || run.JobId != job.Id ||
-                    run.Status is ReflectionGenerationStatus.Completed or ReflectionGenerationStatus.Cancelled)
+                if (generation.Status is ReflectionGenerationStatus.Completed or ReflectionGenerationStatus.Cancelled)
                     Jobs.Complete(db, job);
-                else run.Status = ReflectionGenerationStatus.Running;
+                else generation.Status = ReflectionGenerationStatus.Running;
             }
 
             await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
             await admission.CommitAsync(ct);
             if (job.Status is JobStatus.Completed or JobStatus.Cancelled) return;
-            if (generation!.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct))
+            if (generation.SourceSignature != await ReflectionRuns.SignatureAsync(db, job.BotId, input, ct))
             {
                 ReflectionRuns.Cancel(generation, ReflectionCancellationReason.NoEligibleSources);
                 Jobs.Complete(db, job);
@@ -398,20 +396,10 @@ public sealed class ReflectionWorkflow(
                     db.Relationships.Add(state);
                 }
 
-                var preferences =
-                    Json.Read<List<string>>(candidate.Kind == "Boundary"
-                        ? state.BoundariesJson
-                        : state.PreferencesJson);
-                if (!preferences.Contains(candidate.Preference))
-                {
-                    preferences.Add(candidate.Preference);
-                    if (candidate.Kind == "Boundary") state.BoundariesJson = Json.Write(preferences.TakeLast(20));
-                    else state.PreferencesJson = Json.Write(preferences.TakeLast(20));
-                    state.Revision++;
-                }
-
-                var claim = await db.RelationshipClaims.SingleOrDefaultAsync(x => x.RelationshipId == state.Id &&
-                    x.Kind == candidate.Kind && x.Text == candidate.Preference, ct);
+                var claim = db.RelationshipClaims.Local.SingleOrDefault(x => x.RelationshipId == state.Id &&
+                    x.Kind == candidate.Kind && x.Text == candidate.Preference) ??
+                    await db.RelationshipClaims.SingleOrDefaultAsync(x => x.RelationshipId == state.Id &&
+                        x.Kind == candidate.Kind && x.Text == candidate.Preference, ct);
                 if (claim is null)
                 {
                     claim = new RelationshipClaim
@@ -426,8 +414,10 @@ public sealed class ReflectionWorkflow(
                 var roots = Json.Read<Guid[]>(claim.EvidenceJson).Concat(candidate.EvidenceMessageIds).Distinct()
                     .ToArray();
                 claim.EvidenceJson = Json.Write(roots);
+                if (candidate.Explicit) claim.Origin = "Explicit";
                 claim.Qualification = candidate.Explicit ? "Current" : "Tentative";
                 claim.Revision++;
+                state.Revision++;
             }
         }
         else if (job.Type == JobKind.Memory)

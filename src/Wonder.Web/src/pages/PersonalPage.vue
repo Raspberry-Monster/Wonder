@@ -28,7 +28,7 @@ let progressTimer: ReturnType<typeof setTimeout> | undefined;
 onUnmounted(() => { if (progressTimer) clearTimeout(progressTimer); });
 const itemLabel: Record<string, string> = { Memory: '记忆版本', Candidate: '记忆提案', ReflectionMemory: '反思中的记忆子项', ReflectionDraft: '记忆草稿', SummaryDraft: '摘要草稿', SummaryProjection: '安全投影', Message: '完整消息', Summary: '关联摘要', Media: '媒体', OutgoingPart: '出站分段' };
 const stateLabel: Record<string, string> = { Completed: '已核验完成', Pending: '待处理', Processing: '处理中', Failed: '失败 · 保持隔离', NeedsReview: '待核验 · 保持隔离', Fenced: '已隔离', Deleting: '清理中', PendingCleanup: '清理待完成' };
-const layerLabel: Record<string, string> = { IndependentNotesAndRelationships: '独立 Notes / 关系正文', ReadOnlyArchive: '只读归档', HistoricalBackups: '历史备份', IndependentExports: '独立导出', ExternalQQ: '外部 QQ 已发送内容' };
+const layerLabel: Record<string, string> = { IndependentNotesAndRelationships: '独立 Notes / 关系正文', HistoricalBackups: '历史备份', IndependentExports: '独立导出', ExternalQQ: '外部 QQ 已发送内容' };
 const selectionMatchesPreview = computed(() => erasePreview.value && JSON.stringify([...eraseSelected.value].sort()) === JSON.stringify(erasePreview.value.receipt.messages.map((m: any) => m.id).sort()));
 const tab = computed(() => String(route.params.tab || "settings"));
 const fields: Field[] = [
@@ -459,7 +459,7 @@ async function confirmErase() {
   <a-modal :visible="!!erasePreview" title="确认擦除完整消息" :footer="false" unmount-on-close @cancel="erasePreview = undefined">
     <template v-if="erasePreview">
       <a-alert type="warning" title="每条被选消息中的所有事实都会丢失；首版不支持片段擦除。" />
-      <p>仅处理本人同 Bot 私聊中经核验的消息及预览列出的派生资源。独立 Notes、关系正文、只读归档、历史备份、独立导出和外部 QQ 分别保留或报告未覆盖。</p>
+      <p>仅处理本人同 Bot 私聊中经核验的消息及预览列出的派生资源。独立 Notes、关系正文、历史备份、独立导出和外部 QQ 分别保留或报告未覆盖。</p>
       <a-checkbox-group v-model="eraseSelected" direction="vertical">
         <a-checkbox v-for="m in erasePreview.available" :key="m.id" :value="m.id">
           <span>Bot：{{ m.botId }} · 作者（本人）：{{ m.authorId }} · {{ new Date(m.sentAt).toLocaleString() }}</span>

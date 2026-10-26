@@ -17,10 +17,9 @@ namespace Wonder.IntegrationTests;
 public sealed class PrivacyBoundaryTests
 {
     [Test]
-    [Arguments("MissingAssertionsField")]
-    [Arguments("LegacyHash")]
+    [Arguments("Current")]
     [Arguments("UnprovenChangedAssertion")]
-    public async Task ProducerCleanupHandlesOldRecordShapesAndNeverCompletesUnprovenPayloads(string shape)
+    public async Task ProducerCleanupMatchesCurrentAssertionsAndNeverCompletesUnprovenPayloads(string shape)
     {
         await using var pg = await TestPostgres.CreateAsync();
         using var app = PrivacyTests.App(pg);
@@ -30,14 +29,6 @@ public sealed class PrivacyBoundaryTests
         var reflection = await db.Reflections.SingleAsync();
         var node = JsonNode.Parse(reflection.Payload)!;
         var assertion = node["memories"]![0]!;
-        if (shape == "MissingAssertionsField") assertion.AsObject().Remove("assertions");
-        if (shape == "LegacyHash")
-        {
-            var legacy = assertion.DeepClone();
-            legacy.AsObject().Remove("assertions");
-            (await db.MemoryCandidates.SingleAsync()).CandidateHash = Json.Hash(legacy.ToJsonString(Json.Options));
-        }
-
         if (shape == "UnprovenChangedAssertion") assertion["factKey"] = "unknown-renamed-key";
         reflection.Payload = node.ToJsonString(Json.Options);
         await db.SaveChangesAsync();
@@ -108,11 +99,11 @@ public sealed class PrivacyBoundaryTests
         };
         db.Messages.Add(later);
         await db.SaveChangesAsync();
-        var second = Jobs.Add(db, f.Bot, JobKind.Reflection,
-            new ReflectionJob(f.Session, f.User, later.Sequence, 0, ReflectionKind.Full), f.Conversation);
+        var (run, _) = await ReflectionRuns.AdmitAsync(db, f.Bot, f.Conversation,
+            new ReflectionJob(f.Session, f.User, later.Sequence, 0, ReflectionKind.Full), default);
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Response(new ReflectionProposal(false, null, [], [])));
-        await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().GenerateAsync(second.Id, default);
+        await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().GenerateAsync(run!.JobId, default);
         var wire = JsonNode.Parse(app.ModelRequests.Last())!;
         var statements = JsonNode.Parse(wire["messages"]![1]!["content"]!.GetValue<string>())!;
         var text = statements[0]!["text"]!.GetValue<string>();

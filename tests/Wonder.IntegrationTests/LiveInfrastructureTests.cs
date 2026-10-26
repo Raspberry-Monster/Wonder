@@ -1,10 +1,5 @@
-using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,9 +42,24 @@ public sealed class LiveInfrastructureTests
             var options = new DbContextOptionsBuilder<WonderDbContext>()
                 .UseNpgsql(cs.ConnectionString, pg => pg.UseVector()).Options;
             await using var db = new WonderDbContext(options);
-            await VerifyUpgradeAsync(db, cs.ConnectionString);
+            await db.Database.MigrateAsync();
             await db.Database.MigrateAsync();
             await Assert.That(db.Database.HasPendingModelChanges()).IsFalse();
+            await Assert.That((await db.Database.GetAppliedMigrationsAsync()).Single()).EndsWith("_InitialCreate");
+            await Assert.That(await db.Database.SqlQueryRaw<int>("""
+                SELECT count(*)::int AS "Value" FROM information_schema.schemata WHERE schema_name = 'retired_context'
+                """).SingleAsync()).IsEqualTo(0);
+            await Assert.That(await db.Database.SqlQueryRaw<int>("""
+                SELECT count(*)::int AS "Value" FROM information_schema.tables
+                WHERE table_schema = 'public' AND (table_name ILIKE 'qrtz_%'
+                    OR table_name IN ('Narratives', 'ContextSpaces'))
+                """).SingleAsync()).IsEqualTo(0);
+            await Assert.That(await db.Database.SqlQueryRaw<int>("""
+                SELECT count(*)::int AS "Value" FROM information_schema.columns
+                WHERE table_schema = 'public' AND
+                    ((table_name = 'Relationships' AND column_name IN ('PreferencesJson', 'BoundariesJson', 'GroupId'))
+                    OR (table_name = 'Memories' AND column_name IN ('Scope', 'ScopeOwnerId', 'SharedFromMemoryId')))
+                """).SingleAsync()).IsEqualTo(0);
             var user = new ApplicationUser { Id = Guid.NewGuid() };
             db.Users.Add(user);
             var bot = new BotInstance { OwnerId = user.Id };
@@ -114,7 +124,8 @@ public sealed class LiveInfrastructureTests
             {
                 BotId = bot.Id, SessionId = previousSession.Id,
                 ThroughSequence = historical.Sequence, Text = "previous summary",
-                MessageIdsJson = Json.Write(new[] { historical.Id })
+                MessageIdsJson = Json.Write(new[] { historical.Id }),
+                SourcesJson = Json.Write(new[] { ContentSources.Message(historical) })
             };
             db.Summaries.Add(summary);
             var currentMessage = new ChatMessage
@@ -250,54 +261,6 @@ public sealed class LiveInfrastructureTests
             .SumAsync(x => x.InputTokens + x.OutputTokens)).IsEqualTo(200);
     }
 
-    private static async Task VerifyUpgradeAsync(WonderDbContext db, string connection)
-    {
-        await db.GetService<IMigrator>().MigrateAsync("20261021093316_AutonomousMemoryMaintenance");
-        var user = new ApplicationUser
-        {
-            Id = Guid.NewGuid(), Email = "legacy@example.com", NormalizedEmail = "LEGACY@EXAMPLE.COM",
-            UserName = "legacy@example.com", NormalizedUserName = "LEGACY@EXAMPLE.COM", LockoutEnabled = false
-        };
-        const string password = "Legacy-password-that-still-works!";
-        user.PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(user, password);
-        db.Users.Add(user);
-        var bot = new BotInstance { OwnerId = user.Id };
-        db.Bots.Add(bot);
-        var profile = new EmbeddingProfile { BotId = bot.Id, Model = "legacy", Dimensions = 3 };
-        var memory = new Memory { BotId = bot.Id, SubjectId = Guid.NewGuid(), Text = "legacy vector" };
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE \"Memories\" ALTER COLUMN \"Scope\" SET DEFAULT 0; ALTER TABLE \"Memories\" ALTER COLUMN \"ScopeOwnerId\" SET DEFAULT '';");
-        db.EmbeddingProfiles.Add(profile);
-        await db.SaveChangesAsync();
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
-                                                       INSERT INTO "Memories" ("Id","BotId","SubjectId","FactKey","Text","Status","SourceReflectionId","EvidenceJson","CreatedAt","FactKeyHash","Revision")
-                                                       VALUES ({memory.Id},{memory.BotId},{memory.SubjectId},'legacy','legacy vector',0,{Guid.Empty},'[]',{DateTimeOffset.UtcNow},'',1)
-                                                       """);
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
-                                                       INSERT INTO "Embeddings" ("MemoryId", "ProfileId", "Values") VALUES ({memory.Id}, {profile.Id}, ARRAY[1, 0, 0]::real[])
-                                                       """);
-        var oldJob = Guid.NewGuid();
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
-                                                       INSERT INTO "Outbox" ("Id", "BotId", "CorrelationId", "SchemaVersion", "Type", "Payload", "Status", "Attempts", "CreatedAt", "NextAttemptAt")
-                                                       VALUES ({oldJob}, {bot.Id}, {Guid.NewGuid()}, 1, 'maintenance', {Json.Write(new IdPayload(bot.Id))}, 0, 0, {DateTimeOffset.UtcNow}, {DateTimeOffset.UtcNow})
-                                                       """);
-        await db.Database.MigrateAsync();
-        var upgradedJob = await db.Outbox.AsNoTracking().SingleAsync(x => x.Id == oldJob);
-        await Assert.That(upgradedJob.SchemaVersion).IsEqualTo(2);
-        await Assert.That(Json.Read<DailyJob>(upgradedJob.Payload).Date)
-            .IsEqualTo(DateOnly.FromDateTime(upgradedJob.CreatedAt.UtcDateTime));
-        await Assert.That(upgradedJob.Status).IsEqualTo(JobStatus.Pending);
-        await db.Entry(user).ReloadAsync();
-        await Assert.That(user.LockoutEnabled).IsTrue();
-        await Assert.That((await db.Embeddings.SingleAsync(x => x.MemoryId == memory.Id)).Values.ToArray())
-            .IsEquivalentTo(new float[] { 1, 0, 0 });
-        using var app = new TestApp(postgresConnection: connection);
-        using var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Wonder", "1");
-        var login = await client.PostAsJsonAsync("/api/v1/auth/login",
-            new { email = user.Email, password });
-        await Assert.That(login.StatusCode).IsEqualTo(HttpStatusCode.OK);
-    }
 
     private static async Task VerifyQueueAsync(DbContextOptions<WonderDbContext> options, Guid botId)
     {

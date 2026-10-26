@@ -8,7 +8,7 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
 {
     public static readonly string[] UncoveredLayers =
     [
-        "IndependentNotesAndRelationships", "ReadOnlyArchive", "HistoricalBackups", "IndependentExports", "ExternalQQ"
+        "IndependentNotesAndRelationships", "HistoricalBackups", "IndependentExports", "ExternalQQ"
     ];
 
     public async Task<ErasePreviewView> PreviewAsync(Guid actor, Guid memoryId, long revision, Guid[] selectedMessages,

@@ -46,17 +46,9 @@ public static class RelationshipClaims
     {
         var claims = await db.RelationshipClaims.AsNoTracking().Where(x => x.RelationshipId == state.Id)
             .OrderBy(x => x.Id).ToListAsync(ct);
-        var legacy = Json.Read<string[]>(state.PreferencesJson);
         var rows = new List<object>();
-        foreach (var boundary in Json.Read<string[]>(state.BoundariesJson)
-                     .Where(x => !claims.Any(c => c.Kind == "Boundary" && c.Text == x)))
-            rows.Add(new
-                { text = boundary, qualification = "IndependentBoundary", origin = "Unknown", kind = "Boundary" });
         var hasDeletionRisk =
             await db.EvidenceSuppressions.AnyAsync(x => x.BotId == state.BotId && x.SubjectId == state.UserId, ct);
-        foreach (var text in legacy.Where(x => !claims.Any(c => c.Kind == "Preference" && c.Text == x)))
-            if (!hasDeletionRisk)
-                rows.Add(new { text, qualification = "Unverified", origin = "Unknown", kind = "Preference" });
         foreach (var claim in claims)
         {
             if (claim.Qualification == "Blocked") continue;

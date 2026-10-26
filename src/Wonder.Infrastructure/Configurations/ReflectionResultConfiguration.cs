@@ -8,7 +8,9 @@ public sealed class ReflectionResultConfiguration : IEntityTypeConfiguration<Ref
 {
     public void Configure(EntityTypeBuilder<ReflectionResult> builder)
     {
-        builder.HasIndex(x => new { x.SessionId, x.SubjectId, x.Kind, x.Boundary }).IsUnique();
+        // Full results are deduplicated by their generation's canonical source signature.
+        builder.HasIndex(x => new { x.SessionId, x.SubjectId, x.Kind, x.Boundary }).IsUnique()
+            .HasFilter("\"Kind\" = 'light'");
         builder.HasOne<BotInstance>().WithMany().HasForeignKey(x => x.BotId).OnDelete(DeleteBehavior.Restrict);
     }
 }

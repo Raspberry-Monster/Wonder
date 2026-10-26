@@ -145,10 +145,7 @@ public enum AgentCapability
 public enum DeletionResourceKind
 {
     Memory = 0,
-    Note = 1,
-
-    // Retires context from a removed source without deleting unrelated private facts.
-    MemoryContext = 2
+    Note = 1
 }
 
 [StringStoredEnum]
@@ -183,12 +180,7 @@ public enum JobKind
     [JsonStringEnumMemberName("maintenance")]
     Maintenance = 8,
 
-    [JsonStringEnumMemberName("narrative")]
-    Narrative = 9, // Retired; retained for historical queue records.
     [JsonStringEnumMemberName("summary")] Summary = 10,
-
-    [JsonStringEnumMemberName("deletion-ledger")]
-    Ledger = 11, // Retired; never reuse this value.
 
     [JsonStringEnumMemberName("memory-privacy")]
     MemoryPrivacy = 12

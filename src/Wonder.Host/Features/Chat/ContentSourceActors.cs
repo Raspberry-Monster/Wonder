@@ -26,20 +26,6 @@ public static class ContentSourceActors
             return true;
         }
 
-        async Task<bool> Legacy(string memoryJson, string messageJson, int depth)
-        {
-            if (!ConversationHistory.TryMemoryIds(memoryJson, false, out var memoryIds) ||
-                !ConversationHistory.TryMemoryIds(messageJson, false, out var messageIds) ||
-                memoryIds.Count + messageIds.Count == 0) return false;
-            var memories = await db.Memories.AsNoTracking().Where(x => memoryIds.Contains(x.Id) && x.BotId == bot)
-                .ToListAsync(ct);
-            var messages = await db.Messages.AsNoTracking().Where(x => messageIds.Contains(x.Id) && x.BotId == bot)
-                .ToListAsync(ct);
-            return memories.Count == memoryIds.Distinct().Count() && messages.Count == messageIds.Distinct().Count() &&
-                   await All(memories.Select(ContentSources.Memory).Concat(messages.Select(ContentSources.Message)),
-                       depth);
-        }
-
         async Task<bool> Visit(ContentSource source, int depth)
         {
             if (source is null || depth > 16 || seen.Count > 512 || path.Contains(source)) return false;
@@ -80,10 +66,8 @@ public static class ContentSourceActors
                     else
                     {
                         var snapshot = Json.Read<ContextSnapshot>(message.ContextSnapshotJson);
-                        valid = snapshot.BotInstanceId == bot && (snapshot.Sources is { } sources
-                            ? await All(sources, depth)
-                            : await Legacy(Json.Write(snapshot.RetrievedMemoryIds),
-                                Json.Write(snapshot.SourceMessageIds ?? []), depth));
+                        valid = snapshot.BotInstanceId == bot && snapshot.Sources is { } sources &&
+                                await All(sources, depth);
                     }
 
                     valid = valid && await Notes(NoteDependencyTargetKind.Message, message.Id);
@@ -94,15 +78,17 @@ public static class ContentSourceActors
                         .SingleOrDefaultAsync(x => x.Id == source.Id && x.BotId == bot, ct);
                     if (summary is null) break;
                     if (source.Kind == "SummaryProjection")
+                    {
+                        var projection = summary.SafeProjectionJson is null
+                            ? null
+                            : Json.Read<SafeSummaryProjection>(summary.SafeProjectionJson);
                         valid = ContentSources.Projection(summary) == source &&
-                                summary.SafeProjectionJson is not null &&
-                                await All(Json.Read<SafeSummaryProjection>(summary.SafeProjectionJson).Sources, depth);
+                                projection?.Sources is not null && await All(projection.Sources, depth);
+                    }
                     else
                         valid = ContentSources.Summary(summary) == source &&
-                                (ContentSources.TryRead(summary.SourcesJson, out var sources)
-                                    ? await All(sources, depth)
-                                    : summary.SourcesJson is null && await Legacy(summary.MemoryIdsJson,
-                                        summary.MessageIdsJson, depth)) &&
+                                ContentSources.TryRead(summary.SourcesJson, out var sources) &&
+                                await All(sources, depth) &&
                                 await Notes(NoteDependencyTargetKind.Summary, summary.Id);
                     break;
             }

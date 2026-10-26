@@ -9,18 +9,12 @@ public static class MemoryAssertionPayload
 {
     public static bool Matches(MemoryCandidate candidate, IReadOnlySet<string> hashes)
     {
-        if (hashes.Contains(Json.Hash(Json.Write(candidate)))) return true;
-        // Compatibility with the actual pre-assertions record shape; no semantic or same-session guessing.
-        return candidate.Assertions is null && hashes.Contains(Json.Hash(Json.Write(new
-        {
-            candidate.FactKey, candidate.Text, candidate.Explicit, candidate.Sensitive, candidate.EvidenceMessageIds
-        })));
+        return hashes.Contains(Json.Hash(Json.Write(candidate)));
     }
 
     public static bool Matches(JsonNode assertion, IReadOnlySet<string> hashes)
     {
-        return hashes.Contains(Json.Hash(assertion.ToJsonString(Json.Options))) ||
-               Matches(Json.Read<MemoryCandidate>(assertion.ToJsonString(Json.Options)), hashes);
+        return Matches(Json.Read<MemoryCandidate>(assertion.ToJsonString(Json.Options)), hashes);
     }
 
     public static async Task<bool> RemainingSafeAsync(WonderDbContext db, Guid bot, Guid subject, JsonArray assertions,

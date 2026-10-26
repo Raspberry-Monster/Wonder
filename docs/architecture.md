@@ -6,7 +6,7 @@ Wonder 是基于 QQ 的多 Bot AI 聊天平台。每个 Bot 拥有独立身份�
 
 ## 系统结构
 
-.NET 10 / ASP.NET Core 模块化单体，使用一个 Host、一个业务 DbContext 和一套 EF Core Migrations。Vue 管理台由 Host 同源托管。PostgreSQL + pgvector 保存业务数据、Outbox 持久任务和 Quartz 调度状态。完整应用按单 Host 部署。
+.NET 10 / ASP.NET Core 模块化单体，使用一个 Host、一个业务 DbContext 和一套 EF Core Migrations。Vue 管理台由 Host 同源托管。PostgreSQL + pgvector 保存业务数据和 Outbox 持久任务；Quartz 触发器使用内存存储，启动时重新注册。完整应用按单 Host 部署。
 
 ```mermaid
 flowchart TB
@@ -14,7 +14,8 @@ flowchart TB
     WEB[Vue 管理台] --> API[MVC API / Identity / 资源授权]
     INGEST --> DB[(PostgreSQL + pgvector)]
     API --> DB
-    QUARTZ[Quartz 定时检查] --> DB
+    QUARTZ[Quartz 内存触发器] --> MAINT[会话扫描 / 清理 / 每日排队]
+    MAINT --> DB
     DB --> WORKERS[Outbox 消费者 / 租约]
     WORKERS --> CHAT[聊天 / 发送]
     WORKERS --> REFLECT[反思 / 记忆维护 / 摘要]
@@ -46,19 +47,19 @@ Current = 当前用户消息
 
 Identity 描述 Bot 自身，历史版本保留；用户称呼来自经过 QQ 验证的本人设置。关系、记忆、历史和工具结果均作为不可信参考数据，不能覆盖系统规则。发言者通过 Conversation 范围内稳定的匿名标签区分。
 
-Conversation 对应一个私聊或群聊；Session 用于空闲结束和任务分段。私聊上下文可以跨 Session 延续，读取有效摘要及摘要之后最近 40 条有效消息，再按预算选择。群聊只提供基础聊天和当前发言者识别，不读取历史、摘要、关系或记忆。
+Conversation 对应一个私聊或群聊；Session 用于空闲结束和任务分段。私聊上下文可以跨 Session 延续，读取有效摘要及摘要之后最近 40 条候选消息，逐条校验来源后按预算选择。群聊只提供基础聊天和当前发言者识别，不读取历史、摘要、关系或记忆。
 
-每轮固定来源快照，记录身份、心境、关系、摘要版本及记忆、原消息和作者来源；Notes 版本另外通过依赖边传递。只保留消息时间与固定时区，当前钟点按需调用时间工具；私聊可启用历史工具。写工具另需独立服务端能力开关、有效 Chat 租约及本人授权。详见 [对话延续与时间](conversation-continuity.md)。
+每轮固定来源快照，记录身份、心境、关系、摘要版本及记忆、原消息和作者来源。摘要和生成快照使用 `ContentSource(Kind, Id, Version)` 记录实际来源，ID 索引不能替代版本校验；Notes 版本另外通过依赖边传递。只保留消息时间与固定时区，当前钟点按需调用时间工具；私聊可启用历史工具。写工具另需独立服务端能力开关、有效 Chat 租约及本人授权。详见 [对话延续与时间](conversation-continuity.md)。
 
 ## 反思、心境与关系
 
 - 用户长期记忆默认关闭。开启后，符合回复及持久化条件的私聊消息可触发即时反思；群聊不再生成或应用 Reflection。
 - 每条合格消息排入 `light`；会话空闲到期或主动结束后，按发言者排入 `full`。默认私聊和群聊均空闲 10 分钟结束，每 15 秒检查，并等待聊天、发送任务完成。
 - light 和 full 均先调用 `LightReflection`；模型要求复核时才调用 `StrongReflection`。长内容分批并保存进度，完成后发布一份结果，再派生 Emotion、Relationship、Memory 任务。
-- 主动 Full 不结束聊天，按 Bot 共用每日 2 Normal + 1 Important；与自动 Full 按有效用户来源签名共享规范运行，助手消息增加 Boundary 不导致重复分析。过程与下游进度分别展示。
+- 主动 Full 不结束聊天，按 Bot 共用每日 2 Normal + 1 Important；与自动 Full 按有效用户来源签名共享 generation。Full 在排队时原子创建 generation 和 Outbox，执行时不补建记录；助手消息增加 Boundary 不导致重复分析，来源变化则允许在相同 Boundary 创建新的 generation。Light 独立处理，结果按 Session、本人和 Boundary 唯一。过程与下游进度分别展示。
 - 每 Bot 一份全局模拟心境，包含 Valence、Arousal、Energy。演化时按经过小时数自然回归基线，并将单事件各维度变化限于 ±0.08；状态保存时间与版本。
-- 情绪应用检查证据重复，同一用户对同一 Bot 每个 UTC 日最多应用 5 次。关系初次准入保留明确偏好或独立消息数门槛，并以逐项来源/资格区分当前、待核验和推断参考；失源不能仅凭票数判定充分，独立交流边界不改变服务器权限。
-- 日常维护按 `Chat:TimeZone` 的零点排入，每 5 分钟补查当日遗漏；停机恢复只补当日。维护仅推进心境。
+- 情绪应用检查证据重复，同一用户对同一 Bot 每个 UTC 日最多应用 5 次。关系声明只保存在 `RelationshipClaims`；准入后按逐项来源和资格区分当前、待核验和推断参考。失源不能仅凭票数判定充分，独立交流边界不改变服务器权限。
+- 日常维护按 `Chat:TimeZone` 的零点排入，启动时及每 5 分钟补查启用 Bot 的当日遗漏；停机恢复只补当日。维护仅推进心境。
 
 完整触发链路见 [Reflection 与 Memory](reflection-memory.md)。模拟心境是角色表达状态，不宣称真实主观体验。
 
@@ -66,15 +67,15 @@ Conversation 对应一个私聊或群聊；Session 用于空闲结束和任务�
 
 用户先通过 5 分钟有效的一次性口令在 QQ 私聊绑定身份，再由本人选择是否开启自动学习；管理已有记忆不要求开启自动学习。Bot Owner 管理权不包含读取其他用户私人记忆的权限。
 
-Memory 只存在于同一 Bot 的本人私聊，以 BotId + SubjectId 表达所有权。共享 API、ContextSpace、共享副本及 Scope/ScopeOwnerId 字段已删除，群聊没有个人上下文读取能力。
+Memory 来自本人私聊，以 BotId + SubjectId 表达所有权。当前模型没有共享空间或共享记忆副本，群聊没有个人上下文读取能力。
 
 自动生成仅接受已授权、明确、非敏感且有本人证据的事实。Memory 先保存候选，MemoryMaintenance 在同一作者及作用域内对照已有事实，决定新增、合并、补充、更新、归档或暂缓。提交前校验用户设置、撤销 Epoch、证据与并发版本。详见 [自主维护记忆](memory-maintenance.md)。
 
 向量使用 `Pgvector.Vector` 映射 PostgreSQL `vector` 列；Embedding Profile 按 Bot、接口、模型、维度和版本隔离。授权过滤、关联、余弦距离排序和 Top-K 通过 EF LINQ 组合为数据库查询。当前使用精确检索，没有近似向量索引或“相似度超过阈值即合并”的规则。
 
-更正原子创建当前新版并标记被取代版本过时，独立归档只退出当前检索；两者保留原消息、媒体、Summary 和独立 Notes/关系正文。Forget 只清精确版本族与记忆副载荷，Erase 另需完整本人私聊消息确认；旧证据抑制及源版本复核防止旧任务回写，不按 Session 扩大清理。旧群／共享记录进入无业务读取入口的只读归档；恢复旧备份后的状态以备份时点为准，不自动重放后续删除。QQ 已发送内容不能通过本地清理收回。见 [生命周期架构](memory-lifecycle.md) 和 [退役归档](operations.md#群共享退役归档)。
+更正原子创建当前新版并标记被取代版本过时，独立归档只退出当前检索；两者保留原消息、媒体、Summary 和独立 Notes/关系正文。Forget 只清精确版本族与记忆副载荷，Erase 另需完整本人私聊消息确认；旧证据抑制及源版本复核防止旧任务回写，不按 Session 扩大清理。恢复旧备份后的状态以备份时点为准，不自动重放后续删除。QQ 已发送内容不能通过本地清理收回。见 [生命周期架构](memory-lifecycle.md)。
 
-封闭业务标签使用 Enum，数据库通过稳定的文本映射或已冻结的整数值存储，并有 CHECK 约束；JSON 不接受数字或未定义枚举值。模型配置使用五类 ModelTaskKind，历史用量另保留原 TaskKind 编号；后台任务使用 JobKind。Epoch、版本、序列及配额计数仍为数值数据。
+封闭业务标签使用 Enum，数据库通过稳定的文本映射或固定整数值存储，并有 CHECK 约束；JSON 不接受数字或未定义枚举值。模型配置的 `ModelTaskKind` 与模型、用量记录的 `TaskKind` 均仅包含五类当前任务，整数值保持 0、1、2、4、5，不复用空缺值 3；后台任务使用当前 `JobKind`，不包含 Narrative 或 Ledger。Epoch、版本、序列及配额计数仍为数值数据。
 
 ## 持久任务与可靠发送
 
@@ -83,6 +84,8 @@ Memory 只存在于同一 Bot 的本人私聊，以 BotId + SubjectId 表达所�
 3. Outbox 维护 Pending、Running、Completed、DeadLetter、Cancelled，以及尝试次数、下次时间、租约和分批进度；完成时写入 Inbox。
 4. 网络生成不持有长数据库事务。摘要、反思和维护可将进度写入任务并重新排队，重启后继续。
 5. 完整回复先持久化，再逐段发送，保存每段状态及平台消息 ID。
+
+Quartz 仅保存内存触发器，重启时重新注册，不持久化执行历史。会话扫描和清理启动即运行；每日维护按启用 Bot 的当地日期入队并去重。停机期间不逐次重放触发，已保存的业务任务由 Outbox 消费者恢复。四个触发器的配置见 [调度器与重启恢复](operations.md#调度器与重启恢复)。
 
 租约为 10 分钟，每 30 秒续期，LeaseId 作为并发令牌约束写入；过期 Running 可以重新领取。消费者分组：Chat 两个；Outgoing 一个；Reflection / Emotion / Relationship 共一个；Memory / Embedding / MemoryMaintenance / MemoryPrivacy 共一个；Maintenance / Summary 共一个。空队列等待 1 秒后再查。
 
@@ -102,7 +105,7 @@ ModelRouter 创建每次请求的 ModelContextBudget。输入上限为上下文�
 
 ## 运行与实现边界
 
-- 普通启动不执行迁移；更新时停止 Host，备份数据库与 Data Protection 密钥，再显式运行 `--migrate`。
+- 普通启动不执行迁移；首次应用唯一 `InitialCreate` 基线需要空库，旧迁移链的开发库需手动重建。显式运行 `--migrate` 后再启动 Host；相同基线的重复迁移跳过已应用项。
 - 密钥和 QQ 令牌使用 Data Protection 加密，密钥目录必须与数据库配套持久化。媒体位于私有目录；数据库备份由运维另行保存。
 - 消息默认保留 90 天，图片缓存 7 天，满足完成条件的发送正文缓存按 30 天清理。长期记忆和关系不随原始消息自动过期。
 - 图片仅下载 HTTPS 公网地址，不跟随跳转；每轮最多 3 张，单张 5 MiB，每 Bot 缓存有约 128 MiB 的准入限制。

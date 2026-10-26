@@ -396,7 +396,7 @@ public sealed class ApiTests
                 }
             });
         await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding && x != TaskKind.DailyNarrative)
+        var tasks = Enum.GetValues<TaskKind>().Where(x => x != TaskKind.Embedding)
             .ToArray();
         var configured = await client.PutAsJsonAsync(url, tasks.Select(task => new
         {

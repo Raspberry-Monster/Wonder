@@ -22,10 +22,14 @@
 
 记忆管理权限见 [Memory 生命周期](memory-lifecycle.md)；工具配置与独立 Notes 授权见 [交互工具与 Notes](agent-tools.md)。
 
-## 首次部署和更新应用
+## 数据库基线与首次初始化
 
-1. 首次部署准备 .NET 10、Node.js 24、PostgreSQL 18 + pgvector，或使用仓库容器配置。数据库账号需要执行迁移及创建 vector 扩展的权限。
-2. 更新时停止当前 Host，包括 IDE 调试进程和后台任务；备份数据库、密钥和必要的媒体文件。
+当前只有一条 `InitialCreate` 迁移，位于 `src/Wonder.Infrastructure/Migrations`，包含当前业务表、Identity、pgvector、索引和约束。首次应用这条基线需要空库；不创建 `retired_context` 或 Quartz 表。
+
+使用旧迁移链的开发库不能直接升级到此基线。开发者需自行备份、重建开发库并修改连接串；应用不提供旧库转换、导入或回填，也不会自动删除数据库。以下初始化命令不承担重建旧库的工作。
+
+1. 准备 .NET 10、Node.js 24、PostgreSQL 18 + pgvector，或使用仓库容器配置。数据库账号需要执行迁移及创建 vector 扩展的权限。
+2. 停止当前 Host，包括 IDE 调试进程和后台任务，确认连接串指向准备好的空库。
 3. 构建前端及应用。容器构建包含这些步骤；源码运行可执行：
 
    ```powershell
@@ -35,12 +39,31 @@
    dotnet run --project src/Wonder.Host -- --migrate
    ```
 
-4. 发布包使用 `dotnet Wonder.Host.dll --migrate`；容器使用对应指南中的手动迁移入口。普通启动不会自动执行迁移，不要让旧 Host 同时使用正在升级的数据库。
-5. 保持数据库与原密钥目录，迁移完成后启动新版并检查健康探针、本人身份和任务状态。迁移失败应先修复，再启动普通业务。
+4. 发布包使用 `dotnet Wonder.Host.dll --migrate`；容器使用对应指南中的手动迁移入口。普通启动不会自动执行迁移，不要让其他 Host 同时使用正在初始化的数据库。
+5. 初始化完成后启动 Host，检查健康探针，再创建账号、Bot 并配置模型路由和 QQ 连接。迁移失败应先修复，再启动普通业务。
 
-迁移链位于 `src/Wonder.Infrastructure/Migrations`，由 EF Core 按数据库记录依次应用。运行时任务只接受事件 v2。隐私与功能精简迁移只允许前向；升级会取消旧叙事／账本导出任务、清空其进度、删除叙事配置及数据表，并将已隔离的隐私操作重新排入在线核验。已有完成操作也按在线目标重新核验，不生成恢复成功回执。
+已经应用相同基线的数据库可以重复运行 `--migrate`；EF Core 根据迁移历史跳过已应用项，不重建表或清空数据。更新使用同一基线的应用时，先停止 Host、备份数据库和配套文件，再构建、检查迁移并启动。容器命令见 [主 README](../README.md#更新已有部署)；旧迁移链的数据库不适用该更新流程。
+
+运行时仅接受事件 v2 和当前注册的任务类型，没有旧任务升级或取消兼容流程。
 
 配置五类模型路由：Chat、LightReflection、StrongReflection、RollingSummary、Embedding。缺少路由的任务会失败；修正后可在“状态与任务”重试。触发条件见 [Reflection 与 Memory](reflection-memory.md)。
+
+## 调度器与重启恢复
+
+保持单 Host 部署。`Workers:Enabled=true` 时启动 OneBot 连接、Outbox 消费者和 Quartz；设为 `false` 时这三部分均不启动，HTTP 服务仍可运行。
+
+Quartz 显式使用内存存储，每次启动注册三个 Job 和四个触发器：
+
+| 触发器 | 启动与周期 | 执行内容 |
+| --- | --- | --- |
+| `sessions-interval` | 启动后立即执行，此后每 15 秒 | 扫描到期会话、排入符合条件的 Full 反思并检查会话关闭条件 |
+| `retention-interval` | 启动后立即执行，此后每 5 分钟 | 分批清理到期消息、媒体、投影和其他到期缓存 |
+| `daily-cron` | `Chat:TimeZone` 的每日零点 | 检查启用 Bot 当天的心境维护任务 |
+| `daily-reconcile` | 启动后立即执行，此后每 5 分钟 | 补排当天缺少的心境维护任务，也覆盖当天新启用的 Bot |
+
+这些触发器不写入数据库，不需要独立调度库或 Quartz SQL 初始化。停机期间不会保存并逐次重放触发；重启后重新扫描到期状态，只补排当前当地日期的每日维护，不为停机期间每一天建任务。
+
+业务任务、状态、租约和 `ProgressJson` 保存在 PostgreSQL Outbox。重启后，已入队任务继续按到期时间和租约规则领取；过期 Running 可以恢复，DeadLetter 仍需人工重试。每日维护按 Bot、任务类型和当地日期查询去重，并有数据库唯一索引；当天已有任务即不再补排，包括已完成或失败的任务。维护任务执行时仅推进模拟心境，不调用模型。
 
 ## 密钥解密失败
 
@@ -97,7 +120,7 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 
 ## 运维备份与恢复
 
-应用不提供备份、删除账本导出、恢复包或恢复重放入口。由运维在应用外使用匹配数据库版本的 PostgreSQL 客户端；应用镜像不再包含 pg_dump、pg_restore 或 age。
+备份和恢复由运维在应用外使用匹配数据库版本的 PostgreSQL 客户端执行。应用没有备份、恢复包或删除记录重放入口；应用镜像不包含 pg_dump、pg_restore 或 age。
 
 备份可在运维终端执行以下命令。连接参数可通过 PGHOST、PGPORT、PGUSER、PGDATABASE 与受限权限的 .pgpass 提供，避免将密码放入命令历史。
 
@@ -105,11 +128,11 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 pg_dump --format=custom --file=wonder.dump --dbname=wonder
 ~~~
 
-数据库转储包含在线隐私操作和撤销记录，以及只读 schema retired_context。另行安全保存整个 Storage:KeysPath 目录；API Key、QQ Token 与登录 Cookie 使用 Data Protection，数据库转储不能替代原密钥环。需要保留图片时，另行备份 Storage:MediaPath。备份保留、加密、异机保存和定期恢复演练由运维安排。
+数据库转储包含业务数据、Outbox、在线隐私操作和撤销记录。Quartz 内存触发器不需要备份。另行安全保存整个 Storage:KeysPath 目录；API Key、QQ Token 与登录 Cookie 使用 Data Protection，数据库转储不能替代原密钥环。需要保留图片时，另行备份 Storage:MediaPath。备份保留、加密、异机保存和定期恢复演练由运维安排。
 
 恢复步骤：
 
-1. 停止 Host、Worker 和 OneBot，在隔离环境先演练恢复。
+1. 确认备份使用当前 `InitialCreate` 基线，停止 Host（包括其中的 Worker、Quartz 和 OneBot 连接），在隔离环境先演练恢复。
 2. 准备空的 PostgreSQL + pgvector 数据库，由运维执行：
 
    ~~~bash
@@ -117,20 +140,16 @@ pg_dump --format=custom --file=wonder.dump --dbname=wonder
    ~~~
 
 3. 恢复配套密钥目录及需要的媒体，确认运行账号权限，将连接串指向恢复库。
-4. 显式执行 dotnet Wonder.Host.dll --migrate，再启动 Host。
+4. 确认恢复库已记录当前基线，再启动 Host；需要检查迁移时可显式运行 `--migrate`。不要对完整恢复库重新执行建表脚本，旧版本备份也不能作为当前基线的升级入口。
 5. 检查 /health/ready、登录、本人记忆、隐私清理进度及发送不确定状态。
 
 **恢复后的数据状态以备份时点为准。备份之后的更正、Forget、Erase 或 Notes 删除不会自动重放，旧数据可能重新出现。** 应根据运维恢复范围重新核对并处理；应用不提供后续删除记录的恢复保障。
 
-## 群／共享退役归档
-
-旧群／共享记录保存在只读 schema retired_context.entries，没有应用读取入口，不会自动导入在线表。迁移只允许前向。归档随外部数据库备份保存；需要单独导出时由运维使用 PostgreSQL 工具处理。媒体文件需另行备份。
-
 ## 保留与清理
 
-交互、主动整理与 Notes 写工具默认关闭，启用方式及授权见 [交互工具与 Notes](agent-tools.md#启用工具)。迁移统一按停止应用、外部备份、执行迁移、启动应用的流程部署。
+交互、主动整理与 Notes 写工具默认关闭，启用方式及授权见 [交互工具与 Notes](agent-tools.md#启用工具)。
 
-数据库撤销记录继续使用 DeletionResourceKind 区分 Memory、Note 和退役上下文 MemoryContext，保留业务栅栏、防回写及审计所需的 ResourceId／ResourceVersion。Notes 与整理原因按本人确认保留到主动删除／清除，不自动过期。
+数据库撤销记录继续使用 DeletionResourceKind 区分 Memory 和 Note，保留业务栅栏、防回写及审计所需的 ResourceId／ResourceVersion。Notes 与整理原因按本人确认保留到主动删除／清除，不自动过期。
 
 原始消息默认保留 90 天，创建时记录 ExpiresAt，修改 Bot 保留期只影响后续消息；图片缓存 7 天。清理每 5 分钟分批执行，符合条件的完成发送正文按 30 天清理。Memory / Relationship 不随原始消息自动过期。
 

@@ -57,7 +57,8 @@ public sealed class MemoryMaintenanceTests
             BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session,
             ExternalMessageId = "reply", Role = MessageRole.Assistant, Text = "你住杭州。",
             ContextSnapshotJson =
-                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, 0, 0, [f.Old!.Value], "model"))
+                Json.Write(new ContextSnapshot(f.Bot, f.Session, 1, 0, 0, 0, [f.Old!.Value], "model",
+                    Sources: [ContentSources.Memory(await db.Memories.SingleAsync(x => x.Id == f.Old))]))
         });
         await db.SaveChangesAsync();
         app.ModelResponses.Enqueue(Vector());

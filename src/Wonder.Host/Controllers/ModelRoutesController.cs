@@ -24,7 +24,7 @@ public sealed class ModelRoutesController(WonderDbContext db, SecretProtector se
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
-        var routes = await Db.Models.AsNoTracking().Where(x => x.BotId == id && x.TaskKind != TaskKind.DailyNarrative)
+        var routes = await Db.Models.AsNoTracking().Where(x => x.BotId == id)
             .OrderBy(x => x.TaskKind).ToListAsync(ct);
         return Ok(routes.Select(x =>
             new ModelRouteResponse(

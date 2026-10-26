@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 using Wonder.Infrastructure;
 
@@ -20,7 +18,7 @@ internal sealed class TestPostgres(string adminConnection, string databaseName) 
         await drop.ExecuteNonQueryAsync();
     }
 
-    public static async Task<TestPostgres> CreateAsync(string? migration = null)
+    public static async Task<TestPostgres> CreateAsync()
     {
         var connection = Environment.GetEnvironmentVariable("WONDER_TEST_POSTGRES");
         if (string.IsNullOrWhiteSpace(connection))
@@ -39,7 +37,7 @@ internal sealed class TestPostgres(string adminConnection, string databaseName) 
         {
             await using var db = new WonderDbContext(new DbContextOptionsBuilder<WonderDbContext>()
                 .UseNpgsql(database.ConnectionString, pg => pg.UseVector()).Options);
-            await db.GetService<IMigrator>().MigrateAsync(migration);
+            await db.Database.MigrateAsync();
             return database;
         }
         catch

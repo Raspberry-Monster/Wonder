@@ -12,6 +12,8 @@
 
 ## 首次部署
 
+首次应用当前 `InitialCreate` 基线需要空库。旧迁移链的开发库需手动重建并修改应用及迁移单元的连接串；迁移服务不会转换或删除旧库。已采用相同基线时重复运行迁移会跳过已应用项。详细边界见 [数据库基线与首次初始化](../../docs/operations.md#数据库基线与首次初始化)。
+
 在项目根目录构建镜像，并复制单元文件。镜像构建命令与 Docker Compose 的对应方式见 [主 README：构建容器镜像](../../README.md#构建容器镜像)。
 
 ~~~bash
@@ -134,6 +136,8 @@ PostgreSQL 18 镜像的默认 PGDATA 为 `/var/lib/postgresql/18/docker`，因�
 
 ## 更新、日志与恢复
 
+以下更新命令适用于已采用当前 `InitialCreate` 基线的部署，执行前备份数据库和配套文件；不适用于旧迁移链的数据库。Quartz 触发器在内存中保存，每次启动重新注册，业务任务通过同一 PostgreSQL 中的 Outbox 持久化并恢复。调度周期和停机补排规则见 [调度器与重启恢复](../../docs/operations.md#调度器与重启恢复)。
+
 ~~~bash
 set -e
 systemctl --user stop wonder-app.service
@@ -145,7 +149,7 @@ journalctl --user -u wonder-app.service -f
 
 修改 `.container` 后先 `daemon-reload`，再重启对应服务。更新 SnowLuma 时修改 `wonder-snowluma.container` 的镜像标签，再 reload / restart。PostgreSQL 已有数据目录的密码不会随 `POSTGRES_PASSWORD` 自动改变；已有库需同步修改数据库角色密码。
 
-外部 pg_dump／pg_restore 备份恢复步骤见 [运行指南](../../docs/operations.md#运维备份与恢复)。恢复时停止应用，恢复数据库、Data Protection 密钥及需要的媒体，运行迁移后启动。数据库状态以备份时点为准，不自动重放后续删除。
+外部 pg_dump／pg_restore 备份恢复步骤见 [运行指南](../../docs/operations.md#运维备份与恢复)。恢复时停止应用，恢复与当前基线匹配的数据库、Data Protection 密钥及需要的媒体，确认基线后启动。数据库状态以备份时点为准，不自动重放后续删除。
 
 单元 generator 校验、QQ 扫码、容器联调及备份恢复需在实际部署的 Linux 主机验收。
 

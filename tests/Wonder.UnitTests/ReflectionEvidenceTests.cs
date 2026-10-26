@@ -26,9 +26,9 @@ public sealed class ReflectionEvidenceTests
         await Assert.That(merged.Relationships.Select(x => x.Kind)).IsEquivalentTo(new[] { "Preference", "Boundary" });
         await Assert.That(merged.Relationships.Single(x => x.Kind == "Preference").Assertions!)
             .IsEquivalentTo(new[] { a, b });
-        var legacy = ReflectionBatches.Merge([
+        var unanchored = ReflectionBatches.Merge([
             new ReflectionProposal(false, null, [], [new MemoryCandidate("key", "body", true, false, [first])])
         ]);
-        await Assert.That(legacy.Memories.Single().Assertions).IsNull();
+        await Assert.That(unanchored.Memories.Single().Assertions).IsNull();
     }
 }
