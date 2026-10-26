@@ -47,19 +47,19 @@ public sealed class LiveInfrastructureTests
             await Assert.That(db.Database.HasPendingModelChanges()).IsFalse();
             await Assert.That((await db.Database.GetAppliedMigrationsAsync()).Single()).EndsWith("_InitialCreate");
             await Assert.That(await db.Database.SqlQueryRaw<int>("""
-                SELECT count(*)::int AS "Value" FROM information_schema.schemata WHERE schema_name = 'retired_context'
-                """).SingleAsync()).IsEqualTo(0);
+                                                                 SELECT count(*)::int AS "Value" FROM information_schema.schemata WHERE schema_name = 'retired_context'
+                                                                 """).SingleAsync()).IsEqualTo(0);
             await Assert.That(await db.Database.SqlQueryRaw<int>("""
-                SELECT count(*)::int AS "Value" FROM information_schema.tables
-                WHERE table_schema = 'public' AND (table_name ILIKE 'qrtz_%'
-                    OR table_name IN ('Narratives', 'ContextSpaces'))
-                """).SingleAsync()).IsEqualTo(0);
+                                                                 SELECT count(*)::int AS "Value" FROM information_schema.tables
+                                                                 WHERE table_schema = 'public' AND (table_name ILIKE 'qrtz_%'
+                                                                     OR table_name IN ('Narratives', 'ContextSpaces'))
+                                                                 """).SingleAsync()).IsEqualTo(0);
             await Assert.That(await db.Database.SqlQueryRaw<int>("""
-                SELECT count(*)::int AS "Value" FROM information_schema.columns
-                WHERE table_schema = 'public' AND
-                    ((table_name = 'Relationships' AND column_name IN ('PreferencesJson', 'BoundariesJson', 'GroupId'))
-                    OR (table_name = 'Memories' AND column_name IN ('Scope', 'ScopeOwnerId', 'SharedFromMemoryId')))
-                """).SingleAsync()).IsEqualTo(0);
+                                                                 SELECT count(*)::int AS "Value" FROM information_schema.columns
+                                                                 WHERE table_schema = 'public' AND
+                                                                     ((table_name = 'Relationships' AND column_name IN ('PreferencesJson', 'BoundariesJson', 'GroupId'))
+                                                                     OR (table_name = 'Memories' AND column_name IN ('Scope', 'ScopeOwnerId', 'SharedFromMemoryId')))
+                                                                 """).SingleAsync()).IsEqualTo(0);
             var user = new ApplicationUser { Id = Guid.NewGuid() };
             db.Users.Add(user);
             var bot = new BotInstance { OwnerId = user.Id };

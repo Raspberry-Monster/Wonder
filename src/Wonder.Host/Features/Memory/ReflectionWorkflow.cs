@@ -397,9 +397,10 @@ public sealed class ReflectionWorkflow(
                 }
 
                 var claim = db.RelationshipClaims.Local.SingleOrDefault(x => x.RelationshipId == state.Id &&
-                    x.Kind == candidate.Kind && x.Text == candidate.Preference) ??
-                    await db.RelationshipClaims.SingleOrDefaultAsync(x => x.RelationshipId == state.Id &&
-                        x.Kind == candidate.Kind && x.Text == candidate.Preference, ct);
+                                                                             x.Kind == candidate.Kind &&
+                                                                             x.Text == candidate.Preference) ??
+                            await db.RelationshipClaims.SingleOrDefaultAsync(x => x.RelationshipId == state.Id &&
+                                x.Kind == candidate.Kind && x.Text == candidate.Preference, ct);
                 if (claim is null)
                 {
                     claim = new RelationshipClaim

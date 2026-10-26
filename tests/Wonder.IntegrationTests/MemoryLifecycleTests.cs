@@ -448,7 +448,8 @@ public sealed class MemoryLifecycleTests
         db.Summaries.AddRange(first, second);
         await db.SaveChangesAsync();
         await Assert.That(await ContentSources.MessageValidAsync(db, unproven, default)).IsFalse();
-        await Assert.That(await ContentSourceActors.ResolveAsync(db, f.Bot, [ContentSources.Message(unproven)], default))
+        await Assert
+            .That(await ContentSourceActors.ResolveAsync(db, f.Bot, [ContentSources.Message(unproven)], default))
             .IsNull();
         await Assert.That(await ContentSources.ValidAsync(db, f.Bot, [ContentSources.Summary(second)], default, f.User))
             .IsTrue();
@@ -461,7 +462,7 @@ public sealed class MemoryLifecycleTests
         await Assert.That(await ContentSourceActors.ResolveAsync(db, f.Bot, [ContentSources.Summary(second)], default))
             .IsNull();
         await Assert.That(() => ContentSources.SummaryRoots(
-            new ConversationSummary { BotId = f.Bot, MemoryIdsJson = Json.Write(new[] { memory.Id }) }))
+                new ConversationSummary { BotId = f.Bot, MemoryIdsJson = Json.Write(new[] { memory.Id }) }))
             .ThrowsExactly<InvalidOperationException>();
         await db.Summaries.Where(x => x.Id == first.Id)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.SourcesJson, first.SourcesJson));
@@ -542,5 +543,4 @@ public sealed class MemoryLifecycleTests
         await Assert.That((await db.Memories.AsNoTracking().SingleAsync(x => x.Id == selected.Id)).ArchivedAt).IsNull();
         await Assert.That(await db.MemoryOperations.CountAsync()).IsEqualTo(0);
     }
-
 }

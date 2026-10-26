@@ -22,7 +22,7 @@ public sealed class AgentAutonomyTests
         var f = await MemoryMaintenanceTests.SeedAsync(app, false);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
-        var later = new Wonder.Core.ChatMessage
+        var later = new ChatMessage
         {
             BotId = f.Bot, ConversationId = f.Conversation, SessionId = f.Session, SenderId = f.User,
             ExternalMessageId = "surviving-source", Text = "我喜欢钢琴", AllowReflection = true,
@@ -52,7 +52,8 @@ public sealed class AgentAutonomyTests
 
             app.ModelResponses.Enqueue(Json.Write(new
             {
-                choices = new[] { new { message = new { content = Json.Write(new ReflectionProposal(false, null, [], [])) } } },
+                choices = new[]
+                    { new { message = new { content = Json.Write(new ReflectionProposal(false, null, [], [])) } } },
                 usage = new { prompt_tokens = 1, completion_tokens = 1 }
             }));
             await scope.ServiceProvider.GetRequiredService<ReflectionWorkflow>().GenerateAsync(runs[^1], default);
@@ -63,7 +64,8 @@ public sealed class AgentAutonomyTests
 
         await Assert.That(runs.Distinct().Count()).IsEqualTo(2);
         await Assert.That(await db.Reflections.CountAsync(x => x.Boundary == input.Boundary)).IsEqualTo(2);
-        await Assert.That(await db.ReflectionGenerations.AllAsync(x => x.Status == ReflectionGenerationStatus.Completed))
+        await Assert
+            .That(await db.ReflectionGenerations.AllAsync(x => x.Status == ReflectionGenerationStatus.Completed))
             .IsTrue();
         db.ChangeTracker.Clear();
         var (_, repeated) = await ReflectionRuns.AdmitAsync(db, f.Bot, f.Conversation, input, default);

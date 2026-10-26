@@ -94,7 +94,8 @@ public sealed class MemoriesController(
     [ProducesResponseType(400)]
     [ProducesResponseType(409)]
     public async Task<IActionResult> Delete(Guid id,
-        [BindRequired] [FromQuery] [Range(1, long.MaxValue)] long expectedRevision,
+        [BindRequired] [FromQuery] [Range(1, long.MaxValue)]
+        long expectedRevision,
         [BindRequired] [FromHeader(Name = "Idempotency-Key")]
         string idempotencyKey, CancellationToken ct)
     {

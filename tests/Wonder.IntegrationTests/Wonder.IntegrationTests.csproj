@@ -6,9 +6,9 @@
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="../../src/Wonder.Host/Wonder.Host.csproj"/>
-        <PackageReference Include="TUnit" Version="1.75.0"/>
-        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13"/>
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13"/>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13"/>
+        <PackageReference Include="TUnit" Version="1.76.28"/>
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.14"/>
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14"/>
     </ItemGroup>
 </Project>

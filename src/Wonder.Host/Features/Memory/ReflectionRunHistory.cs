@@ -57,12 +57,9 @@ public static class ReflectionRunHistory
             x.Id, x.BotId, x.RawBoundary,
             status = x.Status == ReflectionGenerationStatus.Completed
                 ? ReflectionRunDisplayStatus.ReflectionCompleted
-                :
-                x.Status == ReflectionGenerationStatus.Cancelled || x.taskStatus == JobStatus.Cancelled
-                    ?
-                    ReflectionRunDisplayStatus.Cancelled
-                    :
-                    x.taskStatus == JobStatus.DeadLetter
+                : x.Status == ReflectionGenerationStatus.Cancelled || x.taskStatus == JobStatus.Cancelled
+                    ? ReflectionRunDisplayStatus.Cancelled
+                    : x.taskStatus == JobStatus.DeadLetter
                         ? ReflectionRunDisplayStatus.Failed
                         : x.taskStatus == JobStatus.Running
                             ? ReflectionRunDisplayStatus.Running

@@ -86,10 +86,13 @@ public static class ContentSourceActors
                                 projection?.Sources is not null && await All(projection.Sources, depth);
                     }
                     else
+                    {
                         valid = ContentSources.Summary(summary) == source &&
                                 ContentSources.TryRead(summary.SourcesJson, out var sources) &&
                                 await All(sources, depth) &&
                                 await Notes(NoteDependencyTargetKind.Summary, summary.Id);
+                    }
+
                     break;
             }
 

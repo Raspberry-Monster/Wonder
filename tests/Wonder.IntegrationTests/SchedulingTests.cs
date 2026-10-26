@@ -3,8 +3,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quartz;
-using Quartz.Impl.Matchers;
-using Quartz.Logging;
 using Wonder.Core;
 using Wonder.Host;
 using Wonder.Infrastructure;

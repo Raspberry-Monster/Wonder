@@ -41,10 +41,8 @@ public static class ReflectionRuns
             if (await db.Outbox.AnyAsync(x => x.Id == run.JobId && x.Status == JobStatus.DeadLetter, ct))
                 return (run, ReflectionAdmissionOutcome.FailedRetryExisting);
             return (run, run.Status == ReflectionGenerationStatus.Completed
-                ?
-                ReflectionAdmissionOutcome.AlreadyProcessed
-                :
-                run.Status == ReflectionGenerationStatus.Cancelled
+                ? ReflectionAdmissionOutcome.AlreadyProcessed
+                : run.Status == ReflectionGenerationStatus.Cancelled
                     ? ReflectionAdmissionOutcome.ResultNotReusable
                     : ReflectionAdmissionOutcome.AlreadyScheduled);
         }
