@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Quartz;
 using Wonder.Core;
 using Wonder.Host;
@@ -25,19 +24,19 @@ public sealed class SchedulingTests
             services.AddWonderScheduling(new ConfigurationBuilder().AddInMemoryCollection(
                 new Dictionary<string, string?> { ["Chat:TimeZone"] = "Asia/Shanghai" }).Build());
             await using var provider = services.BuildServiceProvider();
-            // Quartz's process-wide logger can outlive a disposed WebApplicationFactory.
-            LogContext.SetCurrentLogProvider(NullLoggerFactory.Instance);
             var scheduler = await provider.GetRequiredService<ISchedulerFactory>().GetScheduler();
             try
             {
-                await Assert.That((await scheduler.GetMetaData()).JobStoreSupportsPersistence).IsFalse();
+                var metadata = await scheduler.GetMetadata();
+                await Assert.That(metadata.JobStorePersistent).IsFalse();
+                await Assert.That(metadata.JobStoreTypeName).Contains("Quartz.Impl.RAMJobStore");
                 var triggers = await scheduler.GetTriggerKeys(GroupMatcher<TriggerKey>.AnyGroup());
                 await Assert.That(triggers.Select(x => x.Name).ToArray()).IsEquivalentTo(new[]
                     { "sessions-interval", "retention-interval", "daily-cron", "daily-reconcile" });
                 var daily = (ICronTrigger)(await scheduler.GetTrigger(new TriggerKey("daily-cron")))!;
                 await Assert.That(daily.TimeZone.Id).IsEqualTo("Asia/Shanghai");
                 await scheduler.Start();
-                await Assert.That(scheduler.IsStarted).IsTrue();
+                await Assert.That(await scheduler.GetStatus()).IsEqualTo(SchedulerStatus.Running);
             }
             finally
             {

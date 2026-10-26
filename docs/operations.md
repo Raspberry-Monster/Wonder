@@ -118,6 +118,8 @@ docker compose -f deploy/compose.yaml logs --tail 200 -f app
 
 `/health/live` 检查进程，`/health/ready` 检查数据库连接。ready 成功不代表 QQ 已登录、模型路由可调用或全部迁移已经应用，仍需分别检查控制台和任务记录。
 
+当前使用 Quartz 4 的内存存储，不需要调度表。若仍出现 `Database schema validation failed`，检查启动目录和实际加载的依赖是否来自旧构建：先停止 IDE 调试或旧 Host，确认重新生成成功，再启动新产物。升级依赖后若编译失败，不要继续启动上次成功的程序。关闭 schema validation 不能将数据库存储改为内存存储。
+
 ## 运维备份与恢复
 
 备份和恢复由运维在应用外使用匹配数据库版本的 PostgreSQL 客户端执行。应用没有备份、恢复包或删除记录重放入口；应用镜像不包含 pg_dump、pg_restore 或 age。

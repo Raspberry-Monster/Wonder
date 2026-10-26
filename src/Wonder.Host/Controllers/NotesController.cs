@@ -59,8 +59,7 @@ public sealed class NotesController(WonderDbContext db) : WonderControllerBase(d
             join p in Db.PlatformIdentities on c.ExternalId equals p.ExternalId
             join b in Db.Bots on c.BotId equals b.Id
             where c.Kind == ConversationKind.Private && p.Platform == "qq" && p.UserId == user
-            orderby b.Name, b.Id
-            select new { b.Id, b.Name }).Distinct().ToArrayAsync(ct));
+            select new { b.Id, b.Name }).Distinct().OrderBy(x => x.Name).ThenBy(x => x.Id).ToArrayAsync(ct));
     }
 
     [HttpGet("{noteId:guid}/history")]

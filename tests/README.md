@@ -50,7 +50,7 @@ dotnet test --solution Wonder.slnx --configuration Release
 
 `TestPostgres` 为调用它的用例在空库上应用唯一 `InitialCreate` 基线，并在结束后删除该随机库；不接受历史迁移目标。`LiveInfrastructureTests` 自行管理临时库，验证空库及重复迁移、模型一致性，并检查没有退役 schema、Quartz 表或旧业务字段。普通测试的 SQLite 不用于替代 pgvector SQL、迁移或 PostgreSQL 并发语义。模型响应和 QQ 发送由测试适配器模拟；当前未引入 Testcontainers 或 DbSet Mock 库。
 
-`SchedulingTests` 在进程内重新创建并启动 Quartz 调度器，检查内存存储、完整触发器及 cron 时区。Worker 关闭测试在宿主注册服务前设置环境变量，验证没有注册调度器；相关用例独占执行，避免进程级环境和 Quartz 日志器相互影响。持久恢复用例使用同一临时 PG 库重新创建 TestApp，手动调用扫描和消费者入口，验证到期会话 generation、当天任务去重及已有 Outbox 的继续处理；它不等同于真实容器或操作系统重启演练。
+`SchedulingTests` 在进程内重新创建并启动 Quartz 调度器，检查内存存储、完整触发器及 cron 时区。Worker 关闭测试在宿主注册服务前设置环境变量，验证没有注册调度器；相关用例独占执行，避免进程级环境与启动过程相互影响。持久恢复用例使用同一临时 PG 库重新创建 TestApp，手动调用扫描和消费者入口，验证到期会话 generation、当天任务去重及已有 Outbox 的继续处理；它不等同于真实容器或操作系统重启演练。
 
 ## 契约与验收边界
 
