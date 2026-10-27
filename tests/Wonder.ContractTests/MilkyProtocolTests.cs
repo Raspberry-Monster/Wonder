@@ -12,15 +12,16 @@ public sealed class MilkyProtocolTests
     public async Task MilkyNormalizesMixedSegmentsAndUsesMessageTime()
     {
         using var document = JsonDocument.Parse("""
-            {"self_id":123,"time":1792454500,"event_type":"message_receive","data":{
-              "message_scene":"group","peer_id":789,"sender_id":456,"message_seq":100,"time":1792454400,
-              "segments":[{"type":"text","data":{"text":"你好"}},
-                {"type":"mention","data":{"user_id":123}},
-                {"type":"image","data":{"temp_url":"https://example.com/a.png","resource_id":"image"}},
-                {"type":"reply","data":{"message_seq":99,"sender_id":123}},
-                {"type":"face","data":{"face_id":"1"}}]}}
-            """);
-        var e = MilkyProtocol.Normalize(123, document.RootElement.Deserialize(MilkyJsonSerializerContext.Default.Event)!)!;
+                                                {"self_id":123,"time":1792454500,"event_type":"message_receive","data":{
+                                                  "message_scene":"group","peer_id":789,"sender_id":456,"message_seq":100,"time":1792454400,
+                                                  "segments":[{"type":"text","data":{"text":"你好"}},
+                                                    {"type":"mention","data":{"user_id":123}},
+                                                    {"type":"image","data":{"temp_url":"https://example.com/a.png","resource_id":"image"}},
+                                                    {"type":"reply","data":{"message_seq":99,"sender_id":123}},
+                                                    {"type":"face","data":{"face_id":"1"}}]}}
+                                                """);
+        var e = MilkyProtocol.Normalize(123,
+            document.RootElement.Deserialize(MilkyJsonSerializerContext.Default.Event)!)!;
         await Assert.That(e.AccountId).IsEqualTo("123");
         await Assert.That(e.ConversationId).IsEqualTo("789");
         await Assert.That(e.SenderId).IsEqualTo("456");
@@ -36,17 +37,23 @@ public sealed class MilkyProtocolTests
     public async Task MilkyScopesSequencesAndRejectsForeignSelfAndTemporaryMessages()
     {
         var message = JsonNode.Parse("""
-            {"self_id":123,"event_type":"message_receive","data":{"message_scene":"group",
-            "peer_id":789,"sender_id":456,"message_seq":100,"time":1792454400,"segments":[]}}
-            """)!;
-        NormalizedEvent? Normalize() => MilkyProtocol.Normalize(123, message.Deserialize(MilkyJsonSerializerContext.Default.Event)!);
+                                     {"self_id":123,"event_type":"message_receive","data":{"message_scene":"group",
+                                     "peer_id":789,"sender_id":456,"message_seq":100,"time":1792454400,"segments":[]}}
+                                     """)!;
+
+        NormalizedEvent? Normalize()
+        {
+            return MilkyProtocol.Normalize(123, message.Deserialize(MilkyJsonSerializerContext.Default.Event)!);
+        }
+
         var groupA = Normalize()!;
         message["data"]!["peer_id"] = 987;
         var groupB = Normalize()!;
         message["data"]!["message_scene"] = "friend";
         message["data"]!["peer_id"] = 456;
         var friend = Normalize()!;
-        await Assert.That(new[] { groupA.MessageId, groupB.MessageId, friend.MessageId }.Distinct().Count()).IsEqualTo(3);
+        await Assert.That(new[] { groupA.MessageId, groupB.MessageId, friend.MessageId }.Distinct().Count())
+            .IsEqualTo(3);
         await Assert.That(friend.Kind).IsEqualTo(ConversationKind.Private);
         message["self_id"] = 999;
         await Assert.That(Normalize()).IsNull();
@@ -68,6 +75,8 @@ public sealed class MilkyProtocolTests
     [Arguments("http://milky:3000?access_token=secret")]
     [Arguments("http://milky:3000/api")]
     [Arguments("http://milky:3000/event/")]
-    public async Task MilkyRejectsInvalidBaseUrls(string url) =>
+    public async Task MilkyRejectsInvalidBaseUrls(string url)
+    {
         await Assert.That(MilkyConnection.IsValidBaseUrl(url)).IsFalse();
+    }
 }

@@ -8,10 +8,12 @@ public static class MilkyProtocol
 {
     public static NormalizedEvent? Normalize(long accountId, Event envelope)
     {
-        if (accountId <= 0 || envelope.SelfId != accountId || envelope is not Event<IncomingMessage> received) return null;
+        if (accountId <= 0 || envelope.SelfId != accountId ||
+            envelope is not Event<IncomingMessage> received) return null;
         var (kind, peer, sender, sequence, time, incoming) = received.Data switch
         {
-            FriendIncomingMessage m => (ConversationKind.Private, m.PeerId, m.SenderId, m.MessageSeq, m.Time, m.Segments),
+            FriendIncomingMessage m => (ConversationKind.Private, m.PeerId, m.SenderId, m.MessageSeq, m.Time,
+                m.Segments),
             GroupIncomingMessage m => (ConversationKind.Group, m.PeerId, m.SenderId, m.MessageSeq, m.Time, m.Segments),
             _ => default
         };
@@ -20,13 +22,13 @@ public static class MilkyProtocol
         var target = Id(peer);
         var segments = new List<MessageSegment>();
         foreach (var segment in incoming)
-        {
             switch (segment)
             {
                 case IncomingSegment<TextIncomingSegmentData> text:
                     segments.Add(new MessageSegment(SegmentKind.Text, text.Data.Text ?? ""));
                     break;
-                case IncomingSegment<ImageIncomingSegmentData> image when !string.IsNullOrWhiteSpace(image.Data.TempUrl):
+                case IncomingSegment<ImageIncomingSegmentData> image
+                    when !string.IsNullOrWhiteSpace(image.Data.TempUrl):
                     segments.Add(new MessageSegment(SegmentKind.Image, image.Data.TempUrl));
                     break;
                 case IncomingSegment<MentionIncomingSegmentData> mention:
@@ -37,15 +39,19 @@ public static class MilkyProtocol
                         MessageKey(kind, target, reply.Data.MessageSeq)));
                     break;
             }
-        }
 
         return new NormalizedEvent(Id(accountId), MessageKey(kind, target, sequence), Id(sender), target, kind,
             segments, time);
     }
 
     // Milky sequences are scoped to a conversation, including private-message client sequences.
-    public static string MessageKey(ConversationKind kind, string target, long sequence) =>
-        $"{(kind == ConversationKind.Group ? "group" : "private")}:{target}:{Id(sequence)}";
+    public static string MessageKey(ConversationKind kind, string target, long sequence)
+    {
+        return $"{(kind == ConversationKind.Group ? "group" : "private")}:{target}:{Id(sequence)}";
+    }
 
-    private static string Id(long value) => value.ToString(CultureInfo.InvariantCulture);
+    private static string Id(long value)
+    {
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
 }

@@ -1,9 +1,9 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
+using Wonder.Core.Protocols;
 using Wonder.Host.Features.Chat;
 using Wonder.Infrastructure;
-using Wonder.Core.Protocols;
 
 namespace Wonder.Host;
 

@@ -25,13 +25,15 @@ public sealed class ConversationContinuityTests
         using var app = new TestApp(new Clock(Start));
         var f = await SeedAsync(app, tools);
         var next = await QueueAsync(app, f.Binding, "dsml", "请解释这段 DSML 文本");
-        var text = example ? "这是语法示例：<｜｜DSML｜｜ invoke name=\"get_current_time\">" : """
-                                            <｜｜DSML｜｜ calls>
-                                            <｜｜DSML｜｜ invoke name="search_conversation_history">
-                                            <｜｜DSML｜｜ parameter name="query" string="true">Wonder</｜｜DSML｜｜ parameter>
-                                            </｜｜DSML｜｜ invoke>
-                                            </｜｜DSML｜｜ calls>
-                                            """;
+        var text = example
+            ? "这是语法示例：<｜｜DSML｜｜ invoke name=\"get_current_time\">"
+            : """
+              <｜｜DSML｜｜ calls>
+              <｜｜DSML｜｜ invoke name="search_conversation_history">
+              <｜｜DSML｜｜ parameter name="query" string="true">Wonder</｜｜DSML｜｜ parameter>
+              </｜｜DSML｜｜ invoke>
+              </｜｜DSML｜｜ calls>
+              """;
         app.ModelResponses.Enqueue(Response(text));
         await RunAsync(app, next.Job);
         using var scope = app.Services.CreateScope();

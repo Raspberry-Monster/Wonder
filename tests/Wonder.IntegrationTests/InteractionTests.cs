@@ -114,7 +114,7 @@ public sealed class InteractionTests
         await Assert.That(await db.Sessions.CountAsync()).IsEqualTo(0);
         await Assert.That(await db.Outbox.AnyAsync(x => x.Type != JobKind.Outgoing)).IsFalse();
         await Assert.That(await db.Messages.AnyAsync(x => !x.ContextInvalidated || x.Text != "" ||
-            x.SegmentsJson != "[]")).IsFalse();
+                                                          x.SegmentsJson != "[]")).IsFalse();
         await Assert.That(await db.Parts.AnyAsync(x => x.Text.Contains("invalid-secret"))).IsFalse();
         await Assert.That(app.ModelRequests).IsEmpty();
     }

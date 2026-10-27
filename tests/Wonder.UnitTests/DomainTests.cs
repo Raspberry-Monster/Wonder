@@ -1,5 +1,6 @@
 using System.Net;
 using Wonder.Core;
+using Wonder.Core.Protocols;
 using Wonder.Host;
 using Wonder.Host.Features.Chat;
 using Wonder.Host.Features.Emotion;
@@ -7,7 +8,6 @@ using Wonder.Host.Features.Memory;
 using Wonder.Host.Features.Persona;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Core.Protocols;
 
 namespace Wonder.UnitTests;
 

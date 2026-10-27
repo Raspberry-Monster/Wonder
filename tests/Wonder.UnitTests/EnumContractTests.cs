@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Wonder.Core;
+using Wonder.Core.Models;
 using Wonder.Host;
 using Wonder.Host.Contracts;
-using Wonder.Core.Models;
 
 namespace Wonder.UnitTests;
 

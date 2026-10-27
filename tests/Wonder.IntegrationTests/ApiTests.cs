@@ -8,11 +8,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Wonder.Core;
+using Wonder.Core.Exceptions;
 using Wonder.Host;
 using Wonder.Host.Contracts;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Core.Exceptions;
 using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.IntegrationTests;
@@ -28,18 +28,21 @@ public sealed class ApiTests
         var created = await owner.PostAsJsonAsync("/api/v1/bots", new { name = "QQ", identity = "Wonder" });
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         var url = $"/api/v1/bots/{id}/binding";
-        await Assert.That((await owner.PutAsJsonAsync(url, new { platformAccountId = "123", apiBaseUrl = "http://milky:3000", enabled = true })).StatusCode)
+        await Assert.That((await owner.PutAsJsonAsync(url,
+                new { platformAccountId = "123", apiBaseUrl = "http://milky:3000", enabled = true })).StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WonderDbContext>();
         var binding = await db.Bindings.SingleAsync(x => x.BotId == id);
         await Assert.That(binding.AdapterType).IsEqualTo("milky");
         await Assert.That((await owner.PutAsJsonAsync(url,
-            new { platformAccountId = "123", apiBaseUrl = "http://milky:3000", accessToken = "test-secret" })).StatusCode)
+                    new { platformAccountId = "123", apiBaseUrl = "http://milky:3000", accessToken = "test-secret" }))
+                .StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         await db.Entry(binding).ReloadAsync();
         await Assert.That(binding.ProtectedAccessToken == "test-secret").IsFalse();
-        await Assert.That(scope.ServiceProvider.GetRequiredService<SecretProtector>().Unprotect(binding.ProtectedAccessToken))
+        await Assert.That(scope.ServiceProvider.GetRequiredService<SecretProtector>()
+                .Unprotect(binding.ProtectedAccessToken))
             .IsEqualTo("test-secret");
         var view = await owner.GetFromJsonAsync<JsonElement>(url);
         await Assert.That(view.GetProperty("hasAccessToken").GetBoolean()).IsTrue();
@@ -48,34 +51,48 @@ public sealed class ApiTests
         await Assert.That(view.TryGetProperty("accessToken", out _)).IsFalse();
         await Assert.That(view.GetProperty("apiBaseUrl").GetString()).IsEqualTo("http://milky:3000");
         await Assert.That((await stranger.GetAsync(url)).StatusCode).IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That((await stranger.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://milky:3000" })).StatusCode)
+        await Assert
+            .That((await stranger.PutAsJsonAsync(url,
+                new { platformAccountId = "456", apiBaseUrl = "http://milky:3000" })).StatusCode)
             .IsEqualTo(HttpStatusCode.NotFound);
-        await Assert.That((await owner.PutAsJsonAsync(url, new { platformAccountId = "123", apiBaseUrl = "http://milky:3000" })).StatusCode)
+        await Assert
+            .That((await owner.PutAsJsonAsync(url, new { platformAccountId = "123", apiBaseUrl = "http://milky:3000" }))
+                .StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         await db.Entry(binding).ReloadAsync();
         await Assert.That(binding.ProtectedAccessToken.Length > 0).IsTrue();
-        await Assert.That((await owner.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://milky:3000" })).StatusCode)
+        await Assert
+            .That((await owner.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://milky:3000" }))
+                .StatusCode)
             .IsEqualTo(HttpStatusCode.NoContent);
         await db.Entry(binding).ReloadAsync();
         await Assert.That(binding.ProtectedAccessToken).IsEqualTo("");
-        await owner.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://milky:3000", accessToken = "new-secret" });
+        await owner.PutAsJsonAsync(url,
+            new { platformAccountId = "456", apiBaseUrl = "http://milky:3000", accessToken = "new-secret" });
         await owner.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://other-milky:3000" });
         await db.Entry(binding).ReloadAsync();
         await Assert.That(binding.ProtectedAccessToken).IsEqualTo("");
-        await owner.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://other-milky:3000", accessToken = "new-secret" });
-        await owner.PutAsJsonAsync(url, new { platformAccountId = "456", apiBaseUrl = "http://other-milky:3000", clearAccessToken = true });
+        await owner.PutAsJsonAsync(url,
+            new { platformAccountId = "456", apiBaseUrl = "http://other-milky:3000", accessToken = "new-secret" });
+        await owner.PutAsJsonAsync(url,
+            new { platformAccountId = "456", apiBaseUrl = "http://other-milky:3000", clearAccessToken = true });
         await db.Entry(binding).ReloadAsync();
         await Assert.That(binding.ProtectedAccessToken).IsEqualTo("");
-        foreach (var invalidUrl in new[] { "ws://milky:3000", "http://milky:3000/api", "http://milky:3000?access_token=secret" })
+        foreach (var invalidUrl in new[]
+                     { "ws://milky:3000", "http://milky:3000/api", "http://milky:3000?access_token=secret" })
             await Assert.That((await owner.PutAsJsonAsync(url,
-                new { platformAccountId = "456", apiBaseUrl = invalidUrl })).StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+                    new { platformAccountId = "456", apiBaseUrl = invalidUrl })).StatusCode)
+                .IsEqualTo(HttpStatusCode.BadRequest);
         foreach (var invalid in new[] { "0", "0123", "-1", "abc", "9223372036854775808" })
-            await Assert.That((await owner.PutAsJsonAsync(url, new { platformAccountId = invalid, apiBaseUrl = "http://milky:3000" })).StatusCode)
+            await Assert
+                .That((await owner.PutAsJsonAsync(url,
+                    new { platformAccountId = invalid, apiBaseUrl = "http://milky:3000" })).StatusCode)
                 .IsEqualTo(HttpStatusCode.BadRequest);
         var second = await owner.PostAsJsonAsync("/api/v1/bots", new { name = "Second QQ", identity = "Wonder" });
         var secondId = (await second.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         await Assert.That((await owner.PutAsJsonAsync($"/api/v1/bots/{secondId}/binding",
-            new { platformAccountId = "456", apiBaseUrl = "http://milky:3000" })).StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+                new { platformAccountId = "456", apiBaseUrl = "http://milky:3000" })).StatusCode)
+            .IsEqualTo(HttpStatusCode.Conflict);
     }
 
     [Test]
@@ -231,12 +248,15 @@ public sealed class ApiTests
         var input = new NormalizedEvent("123", "100", "456", "456", ConversationKind.Private,
             [new MessageSegment(SegmentKind.Text, "hello")], DateTimeOffset.UtcNow);
         if (concurrent)
+        {
             await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => ingestor.IngestAsync(binding.Id, input, default)));
+        }
         else
         {
             await ingestor.IngestAsync(binding.Id, input, default);
             await ingestor.IngestAsync(binding.Id, input, default);
         }
+
         await Assert.That(await db.Messages.ToListAsync()).HasSingleItem();
         await Assert.That(await db.Outbox.Where(x => x.Type == JobKind.Chat).ToListAsync()).HasSingleItem();
         await Assert.That(await db.Sessions.ToListAsync()).HasSingleItem();

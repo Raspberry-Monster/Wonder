@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
+using Wonder.Core.Exceptions;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Core.Exceptions;
 
 namespace Wonder.Host;
 

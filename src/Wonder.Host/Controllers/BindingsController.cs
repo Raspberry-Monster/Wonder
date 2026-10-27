@@ -8,15 +8,18 @@ using Wonder.Infrastructure;
 namespace Wonder.Host.Controllers;
 
 [Route("/api/v1/bots/{id:guid}/binding")]
-public sealed class BindingsController(WonderDbContext db, MilkyConnectionManager connections, SecretProtector secrets) : WonderControllerBase(db)
+public sealed class BindingsController(WonderDbContext db, MilkyConnectionManager connections, SecretProtector secrets)
+    : WonderControllerBase(db)
 {
     [HttpGet]
     public async Task<ActionResult<BindingResponse?>> Get(Guid id, CancellationToken ct)
     {
         if (await FindOwnedBotAsync(id, ct) is null) return NotFound();
         var binding = await Db.Bindings.AsNoTracking().SingleOrDefaultAsync(x => x.BotId == id, ct);
-        return Ok(binding is null ? null : new BindingResponse(binding.Id, binding.PlatformAccountId, binding.ApiBaseUrl,
-            binding.Enabled, binding.ProtectedAccessToken.Length > 0, connections.GetStatus(binding.Id)));
+        return Ok(binding is null
+            ? null
+            : new BindingResponse(binding.Id, binding.PlatformAccountId, binding.ApiBaseUrl,
+                binding.Enabled, binding.ProtectedAccessToken.Length > 0, connections.GetStatus(binding.Id)));
     }
 
     [HttpPut]
@@ -36,7 +39,8 @@ public sealed class BindingsController(WonderDbContext db, MilkyConnectionManage
         var changed = binding.PlatformAccountId != input.PlatformAccountId || binding.ApiBaseUrl != apiBaseUrl ||
                       input.ClearAccessToken || !string.IsNullOrEmpty(input.AccessToken);
         // Never forward a saved credential to a newly configured server or account.
-        if (binding.PlatformAccountId != input.PlatformAccountId || binding.ApiBaseUrl != apiBaseUrl || input.ClearAccessToken)
+        if (binding.PlatformAccountId != input.PlatformAccountId || binding.ApiBaseUrl != apiBaseUrl ||
+            input.ClearAccessToken)
             binding.ProtectedAccessToken = "";
         if (!string.IsNullOrEmpty(input.AccessToken)) binding.ProtectedAccessToken = secrets.Protect(input.AccessToken);
         binding.AdapterType = "milky";
@@ -49,5 +53,10 @@ public sealed class BindingsController(WonderDbContext db, MilkyConnectionManage
     }
 }
 
-public sealed record BindingResponse(Guid Id, string PlatformAccountId, string ApiBaseUrl, bool Enabled, bool HasAccessToken,
+public sealed record BindingResponse(
+    Guid Id,
+    string PlatformAccountId,
+    string ApiBaseUrl,
+    bool Enabled,
+    bool HasAccessToken,
     PlatformLoginStatus Login);

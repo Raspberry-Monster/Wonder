@@ -23,19 +23,19 @@ public sealed class MilkyConnection : IAsyncDisposable
                 info.Properties.Single(p => p.Name == "message_seq").IsRequired = true;
         })
     };
+
     private readonly long accountId;
-    private readonly HttpClient http;
     private readonly MilkySdkClient client;
-    private readonly Func<NormalizedEvent, CancellationToken, Task> onMessage;
+    private readonly HttpClient http;
     private readonly CancellationTokenSource lifetime;
+
     private readonly Channel<Event<IncomingMessage>> messages = Channel.CreateBounded<Event<IncomingMessage>>(
         new BoundedChannelOptions(256) { SingleReader = true, SingleWriter = true });
-    private ClientWebSocket? socket;
-    private Task receiving = Task.CompletedTask;
-    private volatile PlatformLoginStatus status = new(PlatformLoginState.Connecting);
 
-    public PlatformLoginStatus Status => status;
-    public Task Completion { get; private set; } = Task.CompletedTask;
+    private readonly Func<NormalizedEvent, CancellationToken, Task> onMessage;
+    private Task receiving = Task.CompletedTask;
+    private ClientWebSocket? socket;
+    private volatile PlatformLoginStatus status = new(PlatformLoginState.Connecting);
 
     public MilkyConnection(long accountId, string apiBaseUrl, string? accessToken, HttpMessageHandler transport,
         Func<NormalizedEvent, CancellationToken, Task> onMessage, CancellationToken stoppingToken)
@@ -67,10 +67,28 @@ public sealed class MilkyConnection : IAsyncDisposable
         };
     }
 
-    public static bool IsValidBaseUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-        uri.Scheme is "http" or "https" && string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Query) &&
-        string.IsNullOrEmpty(uri.Fragment) && !uri.AbsolutePath.TrimEnd('/').EndsWith("/api", StringComparison.OrdinalIgnoreCase) &&
-        !uri.AbsolutePath.TrimEnd('/').EndsWith("/event", StringComparison.OrdinalIgnoreCase);
+    public PlatformLoginStatus Status => status;
+    public Task Completion { get; private set; } = Task.CompletedTask;
+
+    public async ValueTask DisposeAsync()
+    {
+        await lifetime.CancelAsync();
+        await ObserveAsync(receiving);
+        await ObserveAsync(Completion);
+        status = new PlatformLoginStatus(PlatformLoginState.Stopped);
+        http.Dispose();
+        lifetime.Dispose();
+    }
+
+    public static bool IsValidBaseUrl(string? value)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+               uri.Scheme is "http" or "https" && string.IsNullOrEmpty(uri.UserInfo) &&
+               string.IsNullOrEmpty(uri.Query) &&
+               string.IsNullOrEmpty(uri.Fragment) &&
+               !uri.AbsolutePath.TrimEnd('/').EndsWith("/api", StringComparison.OrdinalIgnoreCase) &&
+               !uri.AbsolutePath.TrimEnd('/').EndsWith("/event", StringComparison.OrdinalIgnoreCase);
+    }
 
     public async Task ConnectAsync()
     {
@@ -94,14 +112,17 @@ public sealed class MilkyConnection : IAsyncDisposable
                     await receiving;
                     throw new HttpRequestException("Milky event stream closed while connecting.");
                 }
+
                 await Task.Delay(TimeSpan.FromMilliseconds(20), connect.Token);
             }
+
             await VerifyAccountAsync(connect.Token);
             if (receiving.IsCompleted)
             {
                 await receiving;
                 throw new HttpRequestException("Milky event stream closed while connecting.");
             }
+
             status = new PlatformLoginStatus(PlatformLoginState.Online);
             Completion = ReceiveAsync();
         }
@@ -127,16 +148,20 @@ public sealed class MilkyConnection : IAsyncDisposable
         if (status.State != PlatformLoginState.Online || socket?.State != WebSocketState.Open || receiving.IsCompleted)
             throw new HttpRequestException("Milky is disconnected.");
         lifetime.Token.ThrowIfCancellationRequested();
-        if (!long.TryParse(target, out var peer) || peer <= 0) throw new ArgumentException("Invalid QQ target.", nameof(target));
-        if (kind is not (ConversationKind.Private or ConversationKind.Group)) throw new ArgumentOutOfRangeException(nameof(kind));
-        OutgoingSegment[] message = [new OutgoingSegment<TextOutgoingSegmentData>(new(text))];
+        if (!long.TryParse(target, out var peer) || peer <= 0)
+            throw new ArgumentException("Invalid QQ target.", nameof(target));
+        if (kind is not (ConversationKind.Private or ConversationKind.Group))
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        OutgoingSegment[] message = [new OutgoingSegment<TextOutgoingSegmentData>(new TextOutgoingSegmentData(text))];
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetime.Token);
         cancel.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
             var sequence = kind == ConversationKind.Group
-                ? (await client.Message.SendGroupMessageAsync(new(peer, message), cancel.Token)).MessageSeq
-                : (await client.Message.SendPrivateMessageAsync(new(peer, message), cancel.Token)).MessageSeq;
+                ? (await client.Message.SendGroupMessageAsync(new SendGroupMessageRequest(peer, message), cancel.Token))
+                .MessageSeq
+                : (await client.Message.SendPrivateMessageAsync(new SendPrivateMessageRequest(peer, message),
+                    cancel.Token)).MessageSeq;
             if (sequence < 0) throw new InvalidDataException("Invalid Milky receipt.");
             return MilkyProtocol.MessageKey(kind, target, sequence);
         }
@@ -176,25 +201,20 @@ public sealed class MilkyConnection : IAsyncDisposable
 
     private static async Task ObserveAsync(Task task)
     {
-        try { await task; }
-        catch (Exception) { } // The connection owner observes the primary failure through Completion/ConnectAsync.
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await lifetime.CancelAsync();
-        await ObserveAsync(receiving);
-        await ObserveAsync(Completion);
-        status = new PlatformLoginStatus(PlatformLoginState.Stopped);
-        http.Dispose();
-        lifetime.Dispose();
+        try
+        {
+            await task;
+        }
+        catch (Exception)
+        {
+        } // The connection owner observes the primary failure through Completion/ConnectAsync.
     }
 
     // Milky.Net uses absolute /api and /event paths. Preserve configured reverse-proxy prefixes
     // for both transports without taking ownership of the factory's pooled handler.
     private sealed class EndpointHandler(Uri baseUri, HttpMessageHandler transport) : HttpMessageHandler
     {
-        private readonly HttpMessageInvoker invoker = new(transport, disposeHandler: false);
+        private readonly HttpMessageInvoker invoker = new(transport, false);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {

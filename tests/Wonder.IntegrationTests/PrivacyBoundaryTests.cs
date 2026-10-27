@@ -8,9 +8,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Wonder.Core;
+using Wonder.Core.Exceptions;
 using Wonder.Host;
 using Wonder.Infrastructure;
-using Wonder.Core.Exceptions;
 
 namespace Wonder.IntegrationTests;
 

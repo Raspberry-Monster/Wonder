@@ -74,7 +74,8 @@ public static class EvidencePolicy
 
                 if (!AnchorExists(message.Text, assertion.Start, assertion.Length, assertion.Anchor) ||
                     IsQuotedSpan(message.Text, assertion.Start, assertion.Length)) return false;
-                if (assertion.Role == "CurrentStatement" && !EvidenceRegex.HistoricalMarker().IsMatch(assertion.Anchor)) continue;
+                if (assertion.Role == "CurrentStatement" &&
+                    !EvidenceRegex.HistoricalMarker().IsMatch(assertion.Anchor)) continue;
                 if (assertion.Role != "CurrentConfirmation" || assertion.ConfirmationStart is not { } start ||
                     string.IsNullOrWhiteSpace(assertion.ConfirmationAnchor) ||
                     !AnchorExists(message.Text, start, assertion.ConfirmationAnchor.Length,

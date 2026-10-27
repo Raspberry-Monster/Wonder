@@ -1,10 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Wonder.Core;
+using Wonder.Core.Protocols;
 using Wonder.Host.Features.Chat;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Core.Protocols;
 using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.Host;
