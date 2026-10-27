@@ -1,10 +1,23 @@
+using Microsoft.Extensions.AI;
 using Wonder.Core;
 using Wonder.Infrastructure.Models;
+using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.UnitTests;
 
 public sealed class TokenCounterTests
 {
+    [Test]
+    public async Task StandardReasoningContentIsIncludedInTheMessageBudget()
+    {
+        using var counter = new TokenCounter(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        var profile = new ModelProfile { TokenizerId = "estimate" };
+        var message = new AiMessage(ChatRole.Assistant, "answer");
+        var plain = counter.Messages(profile, [message]);
+        message.Contents.Add(new TextReasoningContent("internal reasoning"));
+        await Assert.That(counter.Messages(profile, [message]) - plain).IsEqualTo(18);
+    }
+
     [Test]
     public async Task DirectoryVocabulariesAreDiscoveredAndAppliedByModelAliasOrExplicitChoice()
     {

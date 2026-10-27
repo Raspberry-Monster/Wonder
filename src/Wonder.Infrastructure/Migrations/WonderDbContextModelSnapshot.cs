@@ -18,7 +18,7 @@ namespace Wonder.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.13")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -1624,6 +1624,10 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ApiBaseUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<Guid>("BotId")
                         .HasColumnType("uuid");
 
@@ -1635,10 +1639,6 @@ namespace Wonder.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("ProtectedAccessToken")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("WebSocketUrl")
                         .IsRequired()
                         .HasColumnType("text");
 

@@ -98,11 +98,8 @@ public sealed class ModelRouter(
         if (result.FinishReason == ChatFinishReason.Length)
             throw new OutputLimitException("Model response was truncated. " + details +
                                            " Increase the output limit or reduce input/thinking before retrying.");
-        if (ToolCallMarkup.Contains(result.Text))
-            throw new ModelResponseException(
-                "Model returned unparsed or ambiguous tool call markup instead of a final answer. " + details);
         var calls = result.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().Any();
-        if (calls && (tools is not { Count: > 0 } || disableTools || result.FinishReason == ChatFinishReason.Length))
+        if (calls && (tools is not { Count: > 0 } || disableTools))
             throw new ModelResponseException("Unexpected, truncated or excessive tool calls. " + details);
         if (string.IsNullOrWhiteSpace(result.Text) && !calls)
             throw new ModelResponseException("Model returned no final content. " + details);

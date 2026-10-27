@@ -8,13 +8,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Wonder.Core;
+using Wonder.Core.Abstractions;
 using Wonder.Host;
 using Wonder.Host.Features.Chat;
 using Wonder.Host.Features.Emotion;
 using Wonder.Host.Features.Persona;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Platforms;
 
 var builder = WebApplication.CreateBuilder(args);
 var frontendRoot = Path.GetFullPath("../Wonder.Web/dist", builder.Environment.ContentRootPath);
@@ -86,6 +86,8 @@ builder.Services.AddRateLimiter(o =>
 });
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddHttpClient("models");
+builder.Services.AddHttpClient("milky")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHybridCache(o => o.MaximumPayloadBytes = 5 * 1024 * 1024);
 builder.Services.AddHttpClient("media", c => c.Timeout = TimeSpan.FromSeconds(30))
     .ConfigurePrimaryHttpMessageHandler(MediaStore.CreateHandler)
@@ -119,11 +121,11 @@ builder.Services.AddScoped<MemoryMaintenanceWorkflow>();
 builder.Services.AddScoped<MaintenanceWorkflow>();
 builder.Services.AddScoped<SummaryWorkflow>();
 builder.Services.AddScoped<SummaryProjections>();
-builder.Services.AddSingleton<OneBotConnectionManager>();
-builder.Services.AddSingleton<IPlatformConnection>(sp => sp.GetRequiredService<OneBotConnectionManager>());
+builder.Services.AddSingleton<MilkyConnectionManager>();
+builder.Services.AddSingleton<IPlatformConnection>(sp => sp.GetRequiredService<MilkyConnectionManager>());
 if (builder.Configuration.GetValue("Workers:Enabled", true))
 {
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<OneBotConnectionManager>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<MilkyConnectionManager>());
     builder.Services.AddHostedService<JobWorkers>();
     builder.Services.AddWonderScheduling(builder.Configuration);
 }

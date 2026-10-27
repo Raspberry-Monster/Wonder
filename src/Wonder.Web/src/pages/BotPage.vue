@@ -9,6 +9,7 @@ const route = useRoute(),
   router = useRouter(),
   bot = ref<any>(),
   data = ref<any>(),
+  loginStatus = ref<components["schemas"]["PlatformLoginStatus"]>(),
   tokenizers = ref<components["schemas"]["TokenizerResponse"][]>([]),
   loading = ref(false),
   error = ref(""),
@@ -138,10 +139,39 @@ const modelFields = computed<Field[]>(() => [
 ]);
 const bindingFields: Field[] = [
   { key: "platformAccountId", label: "Bot QQ 号", required: true },
-  { key: "webSocketUrl", label: "OneBot WebSocket 地址", required: true },
-  { key: "accessToken", label: "Access Token", type: "password" },
+  {
+    key: "apiBaseUrl",
+    label: "Milky 服务地址",
+    required: true,
+    help: "例如 http://milky:3000，不包含 /api 或 /event",
+  },
+  {
+    key: "accessToken",
+    label: "Milky 访问令牌",
+    type: "password",
+    help: "与 Milky.AccessToken 一致；更换地址或 QQ 号时请重新填写。",
+  },
+  { key: "clearAccessToken", label: "清除已保存的访问令牌", type: "switch" },
   { key: "enabled", label: "启用连接", type: "switch" },
 ];
+const bindingFormValue = computed(() => ({
+  platformAccountId: "",
+  apiBaseUrl: "",
+  accessToken: "",
+  clearAccessToken: false,
+  enabled: true,
+  ...data.value,
+}));
+const loginStateNames: Record<
+  components["schemas"]["PlatformLoginState"],
+  string
+> = {
+  Stopped: "连接已停止",
+  Connecting: "正在连接 Milky",
+  Online: "Milky 已连接",
+  Disconnected: "Milky 已断开，等待重连",
+  LoginFailed: "连接失败，请检查 Milky 服务及 QQ 登录状态",
+};
 const groupFields = computed<Field[]>(() => [
   { key: "respondToMention", label: "响应 @", type: "switch" },
   { key: "respondToReply", label: "响应引用回复", type: "switch" },
@@ -171,7 +201,10 @@ async function load() {
       data.value = routes;
       tokenizers.value = available;
     } else if (tab.value === "settings") data.value = bot.value;
-    else data.value = await api(base.value + "/" + tab.value);
+    else {
+      data.value = await api(base.value + "/" + tab.value);
+      if (tab.value === "binding") loginStatus.value = data.value?.login;
+    }
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -185,6 +218,34 @@ watch(
     data.value = undefined;
     skip.value = 0;
     void load();
+  },
+  { immediate: true },
+);
+watch(
+  [tab, id],
+  ([currentTab, currentId], _, onCleanup) => {
+    loginStatus.value = undefined;
+    if (currentTab !== "binding") return;
+    let active = true;
+    let pending = false;
+    const timer = setInterval(async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const binding = await api<
+          components["schemas"]["BindingResponse"] | null
+        >(`/bots/${currentId}/binding`);
+        if (active) loginStatus.value = binding?.login;
+      } catch {
+        /* Keep the form usable while a status refresh fails. */
+      } finally {
+        pending = false;
+      }
+    }, 3000);
+    onCleanup(() => {
+      active = false;
+      clearInterval(timer);
+    });
   },
   { immediate: true },
 );
@@ -331,19 +392,40 @@ const jobColumns = [
         ></a-collapse
       ></a-card
     >
-    <a-card v-if="!loading && tab === 'binding'" title="平台连接"
-      ><EditorForm
-        :value="{
-          platformAccountId: '',
-          webSocketUrl: '',
-          enabled: true,
-          ...data,
-          accessToken: '',
-        }"
+    <a-card
+      v-if="!loading && tab === 'binding'"
+      title="QQ 连接 · Lagrange.Milky"
+    >
+      <p class="muted">
+        请先在独立部署的 Lagrange.Milky 完成 QQ 登录，再填写服务地址和访问令牌。
+        QQ 扫码、登录凭据及签名服务均由 Milky 管理。
+      </p>
+      <EditorForm
+        :value="bindingFormValue"
         :fields="bindingFields"
         :path="base + '/binding'"
+        :transform="
+          (v) => ({
+            platformAccountId: v.platformAccountId,
+            apiBaseUrl: v.apiBaseUrl,
+            accessToken: v.accessToken || null,
+            clearAccessToken: v.clearAccessToken,
+            enabled: v.enabled,
+          })
+        "
         @saved="load"
-    /></a-card>
+      />
+      <div v-if="loginStatus" class="editor-form">
+        <a-divider />
+        <p role="status">
+          {{ loginStateNames[loginStatus.state] }}
+        </p>
+        <p v-if="loginStatus.error" class="muted">{{ loginStatus.error }}</p>
+        <p v-if="loginStatus.state === 'Stopped'" class="muted">
+          请确认 Bot 和连接均已启用，并且服务已开启 Worker。
+        </p>
+      </div>
+    </a-card>
     <a-card v-if="data && tab === 'model-routes'" title="模型路由"
       ><template #extra
         ><a-space

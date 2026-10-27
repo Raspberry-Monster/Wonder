@@ -14,8 +14,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Pgvector;
 using Wonder.Core;
+using Wonder.Core.Abstractions;
+using Wonder.Core.Exceptions;
 using Wonder.Infrastructure;
-using Wonder.Platforms;
 
 namespace Wonder.IntegrationTests;
 

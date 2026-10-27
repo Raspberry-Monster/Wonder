@@ -1641,7 +1641,7 @@ namespace Wonder.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("WebSocketUrl")
+                    b.Property<string>("ApiBaseUrl")
                         .IsRequired()
                         .HasColumnType("text");
 

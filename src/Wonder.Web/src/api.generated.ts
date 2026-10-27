@@ -204,7 +204,11 @@ export interface paths {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "text/plain": components["schemas"]["BindingResponse"];
+            "application/json": components["schemas"]["BindingResponse"];
+            "text/json": components["schemas"]["BindingResponse"];
+          };
         };
       };
     };
@@ -2026,10 +2030,21 @@ export interface components {
     };
     BindingInput: {
       platformAccountId: string;
-      webSocketUrl: string;
-      accessToken: null | string;
+      apiBaseUrl: string;
+      accessToken?: null | string;
       /** @default true */
       enabled: boolean;
+      /** @default false */
+      clearAccessToken: boolean;
+    };
+    BindingResponse: {
+      /** Format: uuid */
+      id: string;
+      platformAccountId: string;
+      apiBaseUrl: string;
+      enabled: boolean;
+      hasAccessToken: boolean;
+      login: components["schemas"]["PlatformLoginStatus"];
     };
     BotResponse: {
       /** Format: uuid */
@@ -2259,6 +2274,13 @@ export interface components {
       | "Embedding";
     NotesSettingsInput: {
       allowNotes: boolean;
+    };
+    /** @enum {unknown} */
+    PlatformLoginState:
+      "Stopped" | "Connecting" | "Online" | "Disconnected" | "LoginFailed";
+    PlatformLoginStatus: {
+      state: components["schemas"]["PlatformLoginState"];
+      error?: null | string;
     };
     PrivacyItemView: {
       /** Format: uuid */

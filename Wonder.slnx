@@ -1,7 +1,6 @@
 <Solution>
     <Folder Name="/src/">
         <Project Path="src/Wonder.Core/Wonder.Core.csproj"/>
-        <Project Path="src/Wonder.Platforms/Wonder.Platforms.csproj"/>
         <Project Path="src/Wonder.Infrastructure/Wonder.Infrastructure.csproj"/>
         <Project Path="src/Wonder.Host/Wonder.Host.csproj"/>
     </Folder>

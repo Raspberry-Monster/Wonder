@@ -26,7 +26,9 @@ test("management pages and forms stay centered on wide and narrow screens", asyn
           : path.endsWith("/binding")
             ? {
                 platformAccountId: "12345",
-                webSocketUrl: "ws://localhost:3001",
+                apiBaseUrl: "http://milky:3000",
+                hasAccessToken: false,
+                login: { state: "Stopped" },
                 enabled: true,
               }
             : path.endsWith("/memory-settings")

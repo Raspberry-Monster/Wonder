@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
+using Wonder.Core.Abstractions;
+using Wonder.Core.Exceptions;
 using Wonder.Infrastructure;
-using Wonder.Infrastructure.Models;
-using Wonder.Platforms;
 
 namespace Wonder.Host;
 
@@ -49,25 +49,6 @@ public sealed class OutgoingWorkflow(
             return;
         }
 
-        // Protect already-queued replies from older versions as well, including markers split across parts.
-        if (ToolCallMarkup.Contains(string.Concat(parts.Select(x => x.Text))))
-        {
-            foreach (var part in parts.Where(x => x.Status == DeliveryStatus.Pending))
-                part.Status = DeliveryStatus.Failed;
-            var externalId = "generated:" + batch.SourceJobId;
-            await db.Messages.Where(x => x.BotId == job.BotId && x.ExternalMessageId == externalId)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.ContextInvalidated, true), ct);
-            if (parts.Any(x => x.Status is DeliveryStatus.Sending or DeliveryStatus.DeliveryUnknown))
-            {
-                await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
-                throw new DeliveryUnknownException("Unconfirmed delivery contains tool markup and requires review.");
-            }
-
-            Jobs.Complete(db, job);
-            await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
-            return;
-        }
-
         foreach (var part in parts)
         {
             await db.Entry(part).ReloadAsync(ct);
@@ -76,7 +57,7 @@ public sealed class OutgoingWorkflow(
             {
                 part.Status = DeliveryStatus.DeliveryUnknown;
                 await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
-                throw new DeliveryUnknownException("Unconfirmed OneBot delivery requires review.");
+                throw new DeliveryUnknownException("Unconfirmed QQ delivery requires review.");
             }
 
             await using (var claim = await db.Database.BeginTransactionAsync(ct))

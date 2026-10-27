@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Wonder.Core;
 using Wonder.Host;
 using Wonder.Host.Contracts;
+using Wonder.Core.Models;
 
 namespace Wonder.UnitTests;
 
@@ -14,6 +15,9 @@ public sealed class EnumContractTests
         await Assert.That(Json.Write(AgentAction.NoteUpdate)).IsEqualTo("\"notes_update\"");
         await Assert.That(Json.Write(JobKind.MemoryMaintenance)).IsEqualTo("\"memory-maintenance\"");
         await Assert.That(Json.Write(MessageRole.Assistant)).IsEqualTo("\"assistant\"");
+        await Assert.That(Json.Write(PlatformLoginState.Online)).IsEqualTo("\"Online\"");
+        await Assert.That(Json.Read<PlatformLoginStatus>("""{"state":"Stopped"}""").State)
+            .IsEqualTo(PlatformLoginState.Stopped);
         await Assert.That(EnumWire.Parse<ReflectionKind>("full")).IsEqualTo(ReflectionKind.Full);
         await Assert.That(EnumWire.Parse<NoteClaimKind>("guess")).IsEqualTo(NoteClaimKind.Guess);
         await Assert.That(EnumWire.Name(DeliveryResolutionAction.ConfirmSent)).IsEqualTo("confirm-sent");
@@ -35,6 +39,7 @@ public sealed class EnumContractTests
     public async Task UnknownOrNumericEnumInputIsRejected(string json)
     {
         await Assert.That(() => Json.Read<ReflectionPriority>(json)).ThrowsExactly<JsonException>();
+        await Assert.That(() => Json.Read<PlatformLoginState>(json)).ThrowsExactly<JsonException>();
     }
 
     [Test]

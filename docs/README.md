@@ -7,7 +7,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [运行指南](operations.md) | 配置、数据库基线初始化、密钥排错、任务重试、外部数据库备份与恢复 |
-| [Quadlet 部署](../deploy/quadlet/README.md) | Podman、持久目录、OneBot 连接和 PostgreSQL 管理 |
+| [Quadlet 部署](../deploy/quadlet/README.md) | Podman、持久目录、Milky 连接和 PostgreSQL 管理 |
 | [模型路由](model-routes.md) | 五类任务、批量应用、Tokenizer 和模型参数 |
 | [DeepSeek 示例](deepseek.md) | 可选供应商的配置示例 |
 

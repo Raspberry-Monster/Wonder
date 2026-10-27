@@ -1,0 +1,18 @@
+[Unit]
+Description=Wonder Lagrange.Milky QQ Service
+
+[Container]
+ContainerName=wonder-milky
+Image=ghcr.io/lagrangedev/lagrange.milky:master
+Network=wonder
+NetworkAlias=milky
+WorkingDir=/app/milky
+Environment=TZ=Asia/Shanghai
+Volume=%h/quadlet.config.d/Wonder/Milky:/app/milky:Z
+StopTimeout=60
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

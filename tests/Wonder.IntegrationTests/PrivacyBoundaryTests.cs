@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Wonder.Core;
 using Wonder.Host;
 using Wonder.Infrastructure;
-using Wonder.Platforms;
+using Wonder.Core.Exceptions;
 
 namespace Wonder.IntegrationTests;
 

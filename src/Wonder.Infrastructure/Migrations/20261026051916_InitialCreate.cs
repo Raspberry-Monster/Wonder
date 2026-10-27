@@ -391,7 +391,7 @@ namespace Wonder.Infrastructure.Migrations
                     BotId = table.Column<Guid>(type: "uuid", nullable: false),
                     AdapterType = table.Column<string>(type: "text", nullable: false),
                     PlatformAccountId = table.Column<string>(type: "text", nullable: false),
-                    WebSocketUrl = table.Column<string>(type: "text", nullable: false),
+                    ApiBaseUrl = table.Column<string>(type: "text", nullable: false),
                     ProtectedAccessToken = table.Column<string>(type: "text", nullable: false),
                     Enabled = table.Column<bool>(type: "boolean", nullable: false)
                 },

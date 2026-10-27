@@ -1,0 +1,23 @@
+{
+  "Logging": {
+    "LogLevel": { "Default": "Information" }
+  },
+  "Lagrange": {
+    "Protocol": {
+      "Signer": {
+        "BaseUrl": "https://sign.lagrangecore.org/api/",
+        "Token": ""
+      }
+    },
+    "Login": {
+      "Uin": 0,
+      "AutoReLogin": true
+    }
+  },
+  "Milky": {
+    "AccessToken": "replace-with-a-long-random-token",
+    "HttpServer": { "Host": "*", "Port": 3000 },
+    "Api": { "Http": { "Enabled": true } },
+    "Event": { "WebSocket": { "Enabled": true } }
+  }
+}

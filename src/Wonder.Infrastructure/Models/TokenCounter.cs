@@ -80,8 +80,6 @@ public sealed class TokenCounter : IDisposable
         foreach (var message in messages)
         {
             count += profile.MessageTokenOverhead + Text(profile, message.Text);
-            if (message.AdditionalProperties?.TryGetValue("reasoning_content", out var reasoning) == true)
-                count += Text(profile, reasoning?.ToString() ?? "");
             foreach (var content in message.Contents)
                 count += content switch
                 {

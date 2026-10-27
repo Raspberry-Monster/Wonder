@@ -1,5 +1,13 @@
 name: wonder
 services:
+  milky:
+    image: ghcr.io/lagrangedev/lagrange.milky:master
+    working_dir: /app/milky
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - "~/quadlet.config.d/Wonder/Milky:/app/milky:Z"
+    restart: unless-stopped
   postgres:
     image: pgvector/pgvector:pg18
     environment:
@@ -10,26 +18,6 @@ services:
       POSTGRES_PASSWORD: replace-with-a-long-random-password
     volumes: ["~/quadlet.config.d/Wonder/PostgreSQL:/var/lib/postgresql:Z"]
     ports: ["127.0.0.1:5432:5432"]
-    restart: unless-stopped
-  snowluma:
-    image: docker.io/motricseven7/snowluma:v2.0.3
-    environment:
-      TZ: Asia/Shanghai
-      SNOWLUMA_ONEBOT_HOST: 0.0.0.0
-      SNOWLUMA_WEBUI_HOST: 0.0.0.0
-    volumes:
-      - "~/quadlet.config.d/Wonder/SnowLuma/Data:/app/data:Z"
-      - "~/quadlet.config.d/Wonder/SnowLuma/Config:/app/.config:Z"
-      - "~/quadlet.config.d/Wonder/SnowLuma/Share:/app/.local/share:Z"
-    ports:
-      - "192.168.1.102:6081:6081"
-      - "192.168.1.102:5099:5099"
-      - "127.0.0.1:3001:3001"
-    shm_size: 1g
-    ulimits:
-      nofile: {soft: 65536, hard: 1048576}
-    cap_add: [SYS_PTRACE]
-    security_opt: [seccomp=unconfined]
     restart: unless-stopped
   app:
     build:
@@ -43,5 +31,5 @@ services:
     ports: ["127.0.0.1:5080:8080"]
     depends_on:
       - postgres
-      - snowluma
+      - milky
     restart: unless-stopped

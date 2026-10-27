@@ -10,7 +10,7 @@
 
 Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「我家的 Miku」。希望她有稳定的个性，能记住相处中的点滴，让心境与关系随着日常交流慢慢延续。这个念头是 Wonder 的起点，名字则取自 r-906 的《Wonder》。
 
-目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，通过 OneBot 11 / SnowLuma 接入 QQ；PostgreSQL 保存业务状态，并通过 Outbox 持久任务表完成异步调度、租约、重试和死信处理。
+目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，使用 [Milky.Net](https://github.com/frg2089/Milky.Net) 客户端连接独立部署的 [Lagrange.Milky](https://github.com/LagrangeDev/Lagrange.Core/tree/master/Lagrange.Milky) HTTP/WebSocket 服务接入 QQ；PostgreSQL 保存业务状态，并通过 Outbox 持久任务表完成异步调度、租约、重试和死信处理。
 
 主要面向个人自部署和少量可信用户，按单 Host 运行。可以直接从源码构建并部署，无需等待 Public Release；首次配置和上线检查见 [内部自部署验收](docs/operations.md#内部自部署验收)。
 
@@ -28,14 +28,14 @@ Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「�
 
 ## 本地启动
 
-需要 .NET 10 SDK、Node.js 24、PostgreSQL 18 + pgvector。模型供应商及 OneBot 地址由控制台配置，不内置任何 API Key。
+需要 .NET 10 SDK、Node.js 24、PostgreSQL 18 + pgvector。模型供应商及 Bot QQ 账号由控制台配置，不内置任何 API Key。
 
 首次应用当前 `InitialCreate` 基线需要空库。使用旧迁移链的开发库必须手动重建，不提供旧版本库的升级、导入或回填；应用不会自动删除数据库。已应用相同基线的库可重复执行 `--migrate`，已应用项会被跳过。
 
 已绑定用户可直接管理已有记忆，无需配置启用开关或恢复证明；“允许记忆”控制后续自动学习。记忆更正、归档、精确删除和安全投影见 [Memory 生命周期架构](docs/memory-lifecycle.md)。
 
 ~~~powershell
-# 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL / SnowLuma。
+# 先按下方容器运行说明准备目录、密码，并启动 PostgreSQL。
 
 $env:ConnectionStrings__Postgres = 'Host=localhost;Database=wonder;Username=wonder;Password=你的密码;Maximum Pool Size=20'
 npm --prefix src/Wonder.Web ci
@@ -82,7 +82,7 @@ podman build -t localhost/wonder:0.1 -f Dockerfile .
 docker compose -f deploy/compose.yaml build app
 ~~~
 
-Compose 从仓库根目录的 Dockerfile 构建应用镜像；PostgreSQL 和 SnowLuma 使用部署配置中指定的现成镜像。
+Compose 从仓库根目录的 Dockerfile 构建应用镜像；PostgreSQL 与 Lagrange.Milky 使用部署配置中指定的现成镜像。
 
 ### 更新已有部署
 
@@ -112,29 +112,35 @@ docker compose -f deploy/compose.yaml up -d --no-deps app
 
 ## 容器运行
 
-Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值，并将 SnowLuma 两处端口绑定中的 `192.168.1.102` 改为宿主机实际局域网 IP。仅通过 SSH 转发管理时可改成 `127.0.0.1`；绑定宿主机不存在的 IP 会导致启动失败。配置完成后运行：
+Linux 上使用 Docker Compose；所有环境变量直接在 deploy/compose.yaml 中设置，不需要独立 env 文件。先将 postgres 的 POSTGRES_PASSWORD 与 app 的 ConnectionStrings__Postgres 中的密码改成相同的随机值。配置完成后运行：
 
 ~~~bash
-mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Host}
-mkdir -p ~/quadlet.config.d/Wonder/SnowLuma/{Data,Config,Share}
+mkdir -p ~/quadlet.config.d/Wonder/{PostgreSQL,Host,Milky}
+cp deploy/milky.appsettings.example.json ~/quadlet.config.d/Wonder/Milky/appsettings.json
+# 编辑该文件：设置 QQ 号、访问令牌及签名服务。
+chmod 700 ~/quadlet.config.d/Wonder/Milky
+chmod 600 ~/quadlet.config.d/Wonder/Milky/appsettings.json
 docker compose -f deploy/compose.yaml build app
-docker compose -f deploy/compose.yaml up -d postgres snowluma
+docker compose -f deploy/compose.yaml up -d postgres
 # 等 PostgreSQL 报告 accepting connections 后继续；未就绪时稍后重试。
 docker compose -f deploy/compose.yaml exec postgres pg_isready -U wonder -d wonder
 # 首次初始化应用挂载目录的所有者；之后迁移和服务均使用镜像内 app 用户。
 docker compose -f deploy/compose.yaml run --rm --no-deps --user root --entrypoint sh app -c 'chown -R app:app /app/data'
 docker compose -f deploy/compose.yaml run --rm --no-deps app --migrate
-docker compose -f deploy/compose.yaml up -d app
+docker compose -f deploy/compose.yaml up -d milky app
+# 在 Milky 日志中查看二维码并完成登录。
+docker compose -f deploy/compose.yaml logs -f milky
+# 完成后按 Ctrl+C 退出日志查看，后台服务继续运行。
 curl --fail http://127.0.0.1:5080/health/ready
 ~~~
 
 Compose 的 `depends_on` 只控制启动顺序，当前配置没有等待数据库健康的条件；首次部署必须按上面的顺序检查 PostgreSQL 就绪并显式执行迁移。参见 [Compose 启动顺序](https://docs.docker.com/compose/how-tos/startup-order/)。
 
-Compose 内置 motricseven7/snowluma:v2.0.3。运行 `docker compose -f deploy/compose.yaml logs snowluma` 查看首次生成的远程桌面密码和 WebUI 登录信息。打开 `http://192.168.1.102:6081/` 扫码登录 QQ，再在 `http://192.168.1.102:5099/` 配置账号的 OneBot 11 正向 WebSocket（0.0.0.0:3001、数组消息段），复制该服务的 Access Token。在 Wonder 的 QQ 连接中填写 QQ 账号、ws://snowluma:3001/ 和相同 Token；宿主运行 .NET 时用 ws://127.0.0.1:3001/。三种密码 / Token 分别管理。
+QQ 登录、设备验证、凭据保存及 Signing 均由独立的 Lagrange.Milky 处理。先在 Milky 完成登录，再在控制台的 Bot「平台连接」填写相同 QQ 号、Milky 服务基础地址和访问令牌。Compose / Quadlet 的地址为 `http://milky:3000`；本地 Host 连接其他 Milky 时使用该服务实际可达的 HTTP(S) 地址。Wonder 自动连接 `/event` WebSocket 并通过 `/api/*` 发送消息，访问令牌由 Data Protection 加密保存。每个 QQ 账号部署一个 Milky 实例；多个 Bot 使用不同实例和地址。配置示例及签名说明见 [运行指南](docs/operations.md#lagrangemilky-与签名服务)。
 
-所有数据使用宿主目录映射，统一放在 ~/quadlet.config.d/Wonder/ 下：PostgreSQL、Host，以及 SnowLuma/Data、SnowLuma/Config、SnowLuma/Share。后者分别保存协议端数据、QQ 配置及客户端数据。PostgreSQL 18 使用 pgvector/pgvector:pg18，挂载到容器的 /var/lib/postgresql，实际数据库文件位于宿主 PostgreSQL/18/docker。Compose 与 Quadlet 共用目录布局，不能同时访问同一份数据。
+所有数据使用宿主目录映射，统一放在 ~/quadlet.config.d/Wonder/ 下：PostgreSQL、Host 和 Milky。Host 保存 Data Protection 密钥和媒体，数据库保存加密的 Milky 访问令牌；Milky 目录保存独立服务配置与 QQ 登录凭据。PostgreSQL 18 使用 pgvector/pgvector:pg18，挂载到容器的 /var/lib/postgresql，实际数据库文件位于宿主 PostgreSQL/18/docker。Compose 与 Quadlet 共用目录布局，不能同时访问同一份数据。
 
-SnowLuma 管理端口 5099 和 6081 绑定配置中的宿主局域网地址，防火墙按需允许管理电脑访问这两个 TCP 端口；其他已发布端口绑定本机回环地址。上面的 SnowLuma 访问地址也要随实际 IP 修改。应用默认使用 Production，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问 http://127.0.0.1:5080 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 Authentication__RequireHttps=true。创建所需账号后可按需添加 Authentication__AllowRegistration=false。
+应用与数据库发布端口均绑定本机回环地址。应用默认使用 Production，同时支持 HTTP 访问和登录，无需配置 Development；可直接访问 http://127.0.0.1:5080 或通过 SSH 转发访问。登录 Cookie 随请求协议设置 Secure；需要仅允许 Cookie 经 HTTPS 传输时，按需添加 Authentication__RequireHttps=true。创建所需账号后可按需添加 Authentication__AllowRegistration=false。
 
 仓库默认开启交互、主动整理和 Notes 的 Host 能力开关；模型路由的“支持工具调用（聊天）”仍需单独开启，长期记忆与 Notes 还需本人授权。`/help`、`/bind`、`/end` 由 Wonder 处理，只有已受理的 `/force` 会进入 Miku 的聊天流程。图片允许 DNS 解析到内网及 FakeIP，仍要求 HTTPS 443 且不跟随跳转。配置边界见 [交互工具与 Notes](docs/agent-tools.md) 和 [图片下载与网络](docs/operations.md#图片下载与网络)。
 

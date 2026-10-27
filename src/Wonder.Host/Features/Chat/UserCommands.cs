@@ -1,6 +1,6 @@
 using Wonder.Core;
 using Wonder.Infrastructure;
-using Wonder.Platforms;
+using Wonder.Core.Protocols;
 
 namespace Wonder.Host;
 
@@ -51,7 +51,7 @@ public static class UserCommands
         };
         db.Batches.Add(batch);
         var sequence = 0;
-        foreach (var part in OneBotProtocol.Split(text))
+        foreach (var part in MessageProtocol.Split(text))
             db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Sequence = sequence++, Text = part });
         Jobs.Add(db, botId, JobKind.Outgoing, new IdPayload(batch.Id), conversationId, sourceId);
     }

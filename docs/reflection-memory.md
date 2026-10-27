@@ -98,7 +98,7 @@ MemoryMaintenance 是候选触发的任务，不是固定时间全库扫描：
 
 | 文件 | 职责 |
 | --- | --- |
-| [OneBotProtocol.cs](../src/Wonder.Platforms/OneBotProtocol.cs) | 保存、回复及反思触发判断 |
+| [MessageProtocol.cs](../src/Wonder.Core/Protocols/MessageProtocol.cs) | 保存、回复及反思触发判断 |
 | [MessageIngestor.cs](../src/Wonder.Host/Features/Chat/MessageIngestor.cs) | 会话活动、截止时间与 light 创建 |
 | [MaintenanceWorkflow.cs](../src/Wonder.Host/Jobs/MaintenanceWorkflow.cs) | 会话扫描、full 创建和关闭 |
 | [ScheduledJobs.cs](../src/Wonder.Host/Jobs/ScheduledJobs.cs) | Quartz 内存触发器及每日任务补排 |

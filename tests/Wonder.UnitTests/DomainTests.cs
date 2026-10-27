@@ -7,7 +7,7 @@ using Wonder.Host.Features.Memory;
 using Wonder.Host.Features.Persona;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Platforms;
+using Wonder.Core.Protocols;
 
 namespace Wonder.UnitTests;
 
@@ -78,12 +78,12 @@ public sealed class DomainTests
         var policy = new GroupPolicy();
         var e = new NormalizedEvent("123", "1", "456", "789", ConversationKind.Group,
             [new MessageSegment(SegmentKind.Text, "hello")], DateTimeOffset.UtcNow);
-        await Assert.That(OneBotProtocol.Decide(e, bot, policy, false, true))
+        await Assert.That(MessageProtocol.Decide(e, bot, policy, false, true))
             .IsEqualTo(new TriggerDecision(true, false, false));
         var mentioned = e with { Segments = [new MessageSegment(SegmentKind.Mention, "123")] };
-        await Assert.That(OneBotProtocol.Decide(mentioned, bot, policy, false, false))
+        await Assert.That(MessageProtocol.Decide(mentioned, bot, policy, false, false))
             .IsEqualTo(new TriggerDecision(true, true, false));
-        await Assert.That(OneBotProtocol.Decide(mentioned, bot, withDummy(), false, true))
+        await Assert.That(MessageProtocol.Decide(mentioned, bot, withDummy(), false, true))
             .IsEqualTo(new TriggerDecision(false, false, false));
 
         GroupPolicy withDummy()
@@ -166,7 +166,7 @@ public sealed class DomainTests
     public async Task SegmentationPreservesUnicodeAndLength()
     {
         var text = string.Concat(Enumerable.Repeat("你😀好。", 600));
-        var parts = OneBotProtocol.Split(text, 101);
+        var parts = MessageProtocol.Split(text, 101);
         await Assert.That(string.Concat(parts)).IsEqualTo(text);
         foreach (var p in parts)
         {

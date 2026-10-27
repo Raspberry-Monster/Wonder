@@ -4,7 +4,7 @@ using Wonder.Core;
 using Wonder.Host.Features.Chat;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Platforms;
+using Wonder.Core.Protocols;
 using ChatMessage = Wonder.Core.ChatMessage;
 
 namespace Wonder.Host;
@@ -336,8 +336,6 @@ public sealed class ChatWorkflow(
     public static void QueueReply(WonderDbContext db, OutboxMessage source, Guid sessionId, string text,
         ContextSnapshot? provenance = null, bool systemNotice = false)
     {
-        if (ToolCallMarkup.Contains(text))
-            throw new ModelResponseException("Tool call markup cannot be queued as a conversational reply.");
         var batch = new OutgoingMessageBatch
         {
             BotId = source.BotId, ConversationId = source.ConversationId!.Value, SessionId = sessionId,
@@ -346,7 +344,7 @@ public sealed class ChatWorkflow(
         };
         db.Batches.Add(batch);
         var sequence = 0;
-        foreach (var part in OneBotProtocol.Split(text))
+        foreach (var part in MessageProtocol.Split(text))
             db.Parts.Add(new OutgoingMessagePart { BatchId = batch.Id, Sequence = sequence++, Text = part });
         Jobs.Add(db, source.BotId, JobKind.Outgoing, new IdPayload(batch.Id), source.ConversationId, source.Id,
             source.CorrelationId);

@@ -6,7 +6,7 @@ using Wonder.Infrastructure;
 
 namespace Wonder.Host;
 
-public static partial class EvidencePolicy
+public static class EvidencePolicy
 {
     public static async Task<bool> MayAdmitAsync(WonderDbContext db, Guid bot, Guid subject, MemoryCandidate candidate,
         CancellationToken ct)
@@ -33,8 +33,8 @@ public static partial class EvidencePolicy
             {
                 var references = Json.Read<MessageSegment[]>(message.SegmentsJson)
                     .Where(x => x.Kind == SegmentKind.ReplyReference).Select(x => x.Value).ToArray();
-                hasQuotation = references.Length > 0 || QuotedText().IsMatch(message.Text) ||
-                               HistoricalMarker().IsMatch(message.Text);
+                hasQuotation = references.Length > 0 || EvidenceRegex.QuotedText().IsMatch(message.Text) ||
+                               EvidenceRegex.HistoricalMarker().IsMatch(message.Text);
                 var quoted = await db.Messages.AsNoTracking().Where(x =>
                     x.BotId == bot && x.ConversationId == message.ConversationId &&
                     references.Contains(x.ExternalMessageId)).Select(x => x.Id).ToArrayAsync(ct);
@@ -74,13 +74,13 @@ public static partial class EvidencePolicy
 
                 if (!AnchorExists(message.Text, assertion.Start, assertion.Length, assertion.Anchor) ||
                     IsQuotedSpan(message.Text, assertion.Start, assertion.Length)) return false;
-                if (assertion.Role == "CurrentStatement" && !HistoricalMarker().IsMatch(assertion.Anchor)) continue;
+                if (assertion.Role == "CurrentStatement" && !EvidenceRegex.HistoricalMarker().IsMatch(assertion.Anchor)) continue;
                 if (assertion.Role != "CurrentConfirmation" || assertion.ConfirmationStart is not { } start ||
                     string.IsNullOrWhiteSpace(assertion.ConfirmationAnchor) ||
                     !AnchorExists(message.Text, start, assertion.ConfirmationAnchor.Length,
                         assertion.ConfirmationAnchor) ||
                     IsQuotedSpan(message.Text, start, assertion.ConfirmationAnchor.Length) ||
-                    !PresentConfirmation().IsMatch(assertion.ConfirmationAnchor)) return false;
+                    !EvidenceRegex.PresentConfirmation().IsMatch(assertion.ConfirmationAnchor)) return false;
             }
         }
 
@@ -96,20 +96,10 @@ public static partial class EvidencePolicy
 
     private static bool IsQuotedSpan(string text, int start, int length)
     {
-        foreach (Match match in QuotedText().Matches(text))
+        foreach (Match match in EvidenceRegex.QuotedText().Matches(text))
             if (start < match.Index + match.Length && start + length > match.Index)
                 return true;
         var lineStart = text.LastIndexOf('\n', Math.Max(0, start - 1));
         return text[(lineStart + 1)..start].TrimStart().StartsWith('>');
     }
-
-    [GeneratedRegex("[“「『][^”」』]*[”」』]|\"[^\"]*\"|`[^`]*`", RegexOptions.CultureInvariant)]
-    private static partial Regex QuotedText();
-
-    [GeneratedRegex("以前|过去|当时|曾经|引用|转发|他说|她说|used to|previously|quoted",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex HistoricalMarker();
-
-    [GeneratedRegex("现在|目前|如今|仍然|依然|还是如此|still|currently|now", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex PresentConfirmation();
 }

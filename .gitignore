@@ -442,3 +442,6 @@ FodyWeavers.xsd
 **/appsettings.Local.json
 TestResults/
 **/data/
+
+# Retained local checkout of the retired source dependency
+/external/LagrangeV2/

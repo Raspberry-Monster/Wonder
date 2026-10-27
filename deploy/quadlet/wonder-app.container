@@ -1,9 +1,7 @@
 [Unit]
 Description=Wonder Application Podman Container
-Requires=wonder-postgres.service
-After=wonder-postgres.service
-Wants=wonder-snowluma.service
-After=wonder-snowluma.service
+Requires=wonder-postgres.service wonder-milky.service
+After=wonder-postgres.service wonder-milky.service
 
 [Container]
 ContainerName=wonder-app

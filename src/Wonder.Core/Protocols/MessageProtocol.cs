@@ -1,48 +1,7 @@
-using System.Text.Json;
-using Wonder.Core;
+namespace Wonder.Core.Protocols;
 
-namespace Wonder.Platforms;
-
-public static class OneBotProtocol
+public static class MessageProtocol
 {
-    private static string Value(JsonElement element, string property)
-    {
-        return element.TryGetProperty(property, out var v) ? v.ToString() : "";
-    }
-
-    public static NormalizedEvent? Normalize(JsonElement e)
-    {
-        if (Value(e, "post_type") != "message") return null;
-        var kind = Value(e, "message_type") switch
-        {
-            "private" => ConversationKind.Private, "group" => ConversationKind.Group, _ => (ConversationKind?)null
-        };
-        if (kind is null || !e.TryGetProperty("message", out var message) ||
-            message.ValueKind != JsonValueKind.Array) return null;
-        var segments = new List<MessageSegment>();
-        foreach (var segment in message.EnumerateArray())
-        {
-            if (!segment.TryGetProperty("data", out var data)) continue;
-            switch (Value(segment, "type"))
-            {
-                case "text": segments.Add(new MessageSegment(SegmentKind.Text, Value(data, "text"))); break;
-                case "image": segments.Add(new MessageSegment(SegmentKind.Image, Value(data, "url"))); break;
-                case "at": segments.Add(new MessageSegment(SegmentKind.Mention, Value(data, "qq"))); break;
-                case "reply": segments.Add(new MessageSegment(SegmentKind.ReplyReference, Value(data, "id"))); break;
-            }
-        }
-
-        var sender = Value(e, "user_id");
-        var account = Value(e, "self_id");
-        var id = Value(e, "message_id");
-        if (sender.Length == 0 || account.Length == 0 || id.Length == 0) return null;
-        return new NormalizedEvent(account, id, sender, kind == ConversationKind.Group ? Value(e, "group_id") : sender,
-            kind.Value, segments,
-            e.TryGetProperty("time", out var time) && time.TryGetInt64(out var unix)
-                ? DateTimeOffset.FromUnixTimeSeconds(unix)
-                : DateTimeOffset.UtcNow);
-    }
-
     public static TriggerDecision Decide(NormalizedEvent e, BotInstance bot, GroupPolicy? policy, bool repliesToBot,
         bool consent)
     {
@@ -85,10 +44,3 @@ public static class OneBotProtocol
         return result;
     }
 }
-
-public interface IPlatformConnection
-{
-    Task<string> SendAsync(Guid bindingId, ConversationKind kind, string target, string text, CancellationToken ct);
-}
-
-public sealed class DeliveryUnknownException(string message, Exception? inner = null) : Exception(message, inner);

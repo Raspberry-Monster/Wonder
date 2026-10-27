@@ -10,7 +10,7 @@
 
 - GET / POST /api/v1/bots；GET / PATCH /api/v1/bots/{id}：当前 Owner 的实例。
 - GET / PUT /api/v1/bots/{id}/identity：读取历史 / 发布新身份。
-- GET / PUT /api/v1/bots/{id}/binding：QQ 账号、正向 WebSocket 与令牌。
+- GET / PUT /api/v1/bots/{id}/binding：PUT 接收 `platformAccountId`、`apiBaseUrl`、可选 `accessToken`、`enabled` 和 `clearAccessToken`。服务地址为 Milky HTTP(S) 基础地址，不带 `/api` 或 `/event`。令牌留空保留已有值，清除开关移除旧令牌；更换地址或账号会清除旧令牌，可在同次请求重新填写。GET 返回账号、地址、连接开关、`hasAccessToken` 和 `login`（`state`、`error`），不返回令牌。QQ 登录、扫码和签名均由独立 Milky 服务管理。同一 QQ 账号只能绑定一个 Bot。
 - GET / PUT /api/v1/bots/{id}/model-routes：只接受 Chat、LightReflection、StrongReflection、RollingSummary、Embedding 五类任务。PUT 为数组，可只更新其中一个任务。
 - GET /api/v1/bots/{id}/model-routes/tokenizers：列出可用词表；路由响应提供 tokenizerId 和 resolvedTokenizer。
 - GET /api/v1/bots/{id}/groups；GET / PUT /groups/{groupId}/policy：基础群触发和消息保存策略。
@@ -44,7 +44,7 @@ API 按功能整理在 src/Wonder.Host/Controllers，输入类型位于 Contract
 
 所有 POST / PUT / PATCH / DELETE 都要求 X-Wonder: 1。未授权返回 401，非本人 Bot 资源返回 404；Bot Owner 不能通过此身份读取其他人的私人记忆。列表支持固定上限；jobs 和 memories 接收 skip 分页。
 
-API 返回的密钥字段仅有 hasApiKey / hasAccessToken，绝不返回保护后的密文。更新密钥时留空表示保留旧值。消息保留期更改只作用于新消息。
+API 返回的密钥字段仅有 hasApiKey / hasAccessToken，绝不返回保护后的密文。模型 API Key 和 Milky 访问令牌留空表示保留旧值；QQ 凭据由独立 Milky 服务管理。消息保留期更改只作用于新消息。
 
 模型路由的 supportsTools 仅支持 Chat 任务开启；省略时保留原值，false 显式关闭。启用时提供时间与私聊历史查询；写工具还需独立服务端开关及本人授权，见 [交互工具与 Notes](../agent-tools.md)。
 

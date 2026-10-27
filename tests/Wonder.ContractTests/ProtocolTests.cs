@@ -9,30 +9,12 @@ using Wonder.Core;
 using Wonder.Host;
 using Wonder.Infrastructure;
 using Wonder.Infrastructure.Models;
-using Wonder.Platforms;
 using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.ContractTests;
 
 public sealed class ProtocolTests
 {
-    [Test]
-    public async Task OneBotNormalizesMixedSegmentsAndNumericIds()
-    {
-        using var json = JsonDocument.Parse("""
-                                            {"post_type":"message","message_type":"group","self_id":123,"user_id":456,"group_id":789,"message_id":100,"time":1792454400,"message":[
-                                              {"type":"text","data":{"text":"你好"}}, {"type":"at","data":{"qq":"123"}},
-                                              {"type":"image","data":{"url":"https://example.com/a.png"}}, {"type":"reply","data":{"id":"99"}}]}
-                                            """);
-        var e = OneBotProtocol.Normalize(json.RootElement)!;
-        await Assert.That(e).IsNotNull();
-        await Assert.That(e.AccountId).IsEqualTo("123");
-        await Assert.That(e.ConversationId).IsEqualTo("789");
-        await Assert.That(e.Kind).IsEqualTo(ConversationKind.Group);
-        await Assert.That(e.Segments.Select(x => x.Kind).SequenceEqual(new[]
-            { SegmentKind.Text, SegmentKind.Mention, SegmentKind.Image, SegmentKind.ReplyReference })).IsTrue();
-    }
-
     [Test]
     public async Task OfficialAdapterPreservesTextPartsImagesAndUsage()
     {

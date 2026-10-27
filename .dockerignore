@@ -2,6 +2,7 @@
 **/obj
 .local
 .git
+**/.git
 **/.env
 **/appsettings.Local.json
 data
@@ -13,3 +14,4 @@ TestResults
 **/dist
 **/playwright-report
 **/test-results
+external

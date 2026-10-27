@@ -10,7 +10,7 @@ Wonder 是面向个人自部署、少量可信用户的 QQ 多 Bot AI 聊天平�
 
 ```mermaid
 flowchart TB
-    QQ[QQ / SnowLuma / OneBot 11] --> INGEST[Host 入站与连接管理]
+    QQ[QQ / Lagrange.Milky] -->|HTTP + WebSocket| INGEST[Host 入站与连接管理]
     WEB[Vue 管理台] --> API[MVC API / Identity / 资源授权]
     INGEST --> DB[(PostgreSQL + pgvector)]
     API --> DB
@@ -29,10 +29,9 @@ flowchart TB
 
 | 项目 | 当前职责 |
 | --- | --- |
-| `Wonder.Host` | MVC API、认证配置、OneBot 连接、Features 工作流、模型预算、任务消费和 Quartz 调度 |
+| `Wonder.Host` | MVC API、认证配置、Milky.Net 客户端适配与消息标准化、Features 工作流、模型预算、任务消费和 Quartz 调度 |
 | `Wonder.Web` | Vue 3、TypeScript、Arco Design Vue 管理台 |
-| `Wonder.Core` | 领域实体、状态、消息和事件契约 |
-| `Wonder.Platforms` | OneBot 消息标准化、触发判断、回复分段及发送接口 |
+| `Wonder.Core` | 领域实体、平台接口与状态、触发判断、回复分段、消息和事件契约 |
 | `Wonder.Infrastructure` | EF Core / Npgsql、pgvector、任务领取、模型传输、Tokenizer、媒体、密钥保护 |
 
 HTTP 字段校验使用 FluentValidation，账号与 Cookie 使用 ASP.NET Core Identity。模型传输使用 OpenAI .NET SDK 和 Microsoft.Extensions.AI；Wonder 定义授权、证据、角色行为、会话顺序、预算及撤销等业务规则。
@@ -103,7 +102,7 @@ ModelRouter 创建每次请求的 ModelContextBudget。输入上限为上下文�
 
 调用前通过短串行化事务，为同一 Bot 的 UTC 日 / 月总额度预留输入与最大输出；调用后按供应商 usage 结算，缺失用量或结果不确定时估算。没有按任务独立额度。预留 15 分钟后失效，网络调用期间不持有预留事务。细节见 [统一上下文预算](context-budget.md) 和 [模型路由](model-routes.md)。
 
-仅最终回答发送到 QQ。工具循环使用 FunctionInvokingChatClient；供应商扩展由 SDK 扩展点传递。思考内容不发送到 QQ；正文中的 DSML 调用标记作为异常处理，不从文本推断执行工具。
+仅最终回答发送到 QQ。工具循环使用 FunctionInvokingChatClient；供应商扩展由 SDK 扩展点传递。思考内容不发送到 QQ；仅执行结构化 FunctionCallContent，普通 content 按文本处理。
 
 ## 运行与实现边界
 

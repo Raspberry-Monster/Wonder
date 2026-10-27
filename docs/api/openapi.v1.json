@@ -128,7 +128,24 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -2107,15 +2124,14 @@
       "BindingInput": {
         "required": [
           "platformAccountId",
-          "webSocketUrl",
-          "accessToken"
+          "apiBaseUrl"
         ],
         "type": "object",
         "properties": {
           "platformAccountId": {
             "type": "string"
           },
-          "webSocketUrl": {
+          "apiBaseUrl": {
             "type": "string"
           },
           "accessToken": {
@@ -2127,6 +2143,42 @@
           "enabled": {
             "type": "boolean",
             "default": true
+          },
+          "clearAccessToken": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "BindingResponse": {
+        "required": [
+          "id",
+          "platformAccountId",
+          "apiBaseUrl",
+          "enabled",
+          "hasAccessToken",
+          "login"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "platformAccountId": {
+            "type": "string"
+          },
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hasAccessToken": {
+            "type": "boolean"
+          },
+          "login": {
+            "$ref": "#/components/schemas/PlatformLoginStatus"
           }
         }
       },
@@ -2915,6 +2967,32 @@
         "properties": {
           "allowNotes": {
             "type": "boolean"
+          }
+        }
+      },
+      "PlatformLoginState": {
+        "enum": [
+          "Stopped",
+          "Connecting",
+          "Online",
+          "Disconnected",
+          "LoginFailed"
+        ]
+      },
+      "PlatformLoginStatus": {
+        "required": [
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/PlatformLoginState"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

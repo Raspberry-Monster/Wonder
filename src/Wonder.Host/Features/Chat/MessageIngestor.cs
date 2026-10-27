@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Host.Features.Chat;
 using Wonder.Infrastructure;
-using Wonder.Platforms;
+using Wonder.Core.Protocols;
 
 namespace Wonder.Host;
 
@@ -34,7 +34,7 @@ public sealed class MessageIngestor(
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var binding = await db.Bindings.SingleAsync(x => x.Id == bindingId && x.Enabled, ct);
-        if (binding.PlatformAccountId != e.AccountId) throw new InvalidOperationException("OneBot account mismatch.");
+        if (binding.PlatformAccountId != e.AccountId) throw new InvalidOperationException("QQ account mismatch.");
         var bot = await db.Bots.SingleAsync(x => x.Id == binding.BotId, ct);
         if (!bot.Enabled || e.SenderId == e.AccountId) return;
         if (await db.Messages.AnyAsync(
@@ -91,7 +91,7 @@ public sealed class MessageIngestor(
             where batch.BotId == bot.Id && conversation.Kind == e.Kind && conversation.ExternalId == e.ConversationId &&
                   part.ExternalId != null && replyIds.Contains(part.ExternalId)
             select part.Id).AnyAsync(ct);
-        var decision = OneBotProtocol.Decide(e, bot, policy, repliesToBot, user.AllowMemory);
+        var decision = MessageProtocol.Decide(e, bot, policy, repliesToBot, user.AllowMemory);
         if (!decision.ShouldPersist && !isHelp && !isBind && !isForce)
         {
             await db.SaveChangesAsync(ct);

@@ -153,9 +153,9 @@ public sealed class PlatformBinding
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BotId { get; set; }
-    public string AdapterType { get; set; } = "onebot11";
+    public string AdapterType { get; set; } = "milky";
     public string PlatformAccountId { get; set; } = "";
-    public string WebSocketUrl { get; set; } = "";
+    public string ApiBaseUrl { get; set; } = "";
     public string ProtectedAccessToken { get; set; } = "";
     public bool Enabled { get; set; } = true;
 }

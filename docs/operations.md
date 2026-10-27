@@ -9,7 +9,7 @@
 | 配置键 | 环境变量 | 默认值或用途 |
 | --- | --- | --- |
 | `ConnectionStrings:Postgres` | `ConnectionStrings__Postgres` | 必填，PostgreSQL + pgvector 数据库 |
-| `Workers:Enabled` | `Workers__Enabled` | `true`；关闭时不启动 OneBot、Outbox 消费者和 Quartz |
+| `Workers:Enabled` | `Workers__Enabled` | `true`；关闭时不启动 Milky QQ、Outbox 消费者和 Quartz |
 | `Storage:KeysPath` | `Storage__KeysPath` | `data/keys`；Data Protection 密钥环 |
 | `Storage:MediaPath` | `Storage__MediaPath` | `data/media` |
 | `Chat:TimeZone` | `Chat__TimeZone` | `Asia/Shanghai`，用于时间上下文和日常调度 |
@@ -25,13 +25,42 @@
 
 记忆管理权限见 [Memory 生命周期](memory-lifecycle.md)；工具配置与独立 Notes 授权见 [交互工具与 Notes](agent-tools.md)。
 
+## Lagrange.Milky 与签名服务
+
+Wonder 通过 Milky HTTP API 和正向 WebSocket 连接独立 QQ 服务；QQ 登录、扫码、设备验证、登录凭据与签名请求均由 Lagrange.Milky 负责。Wonder 不引用 Lagrange.Core 源码或 NuGet，不再读取旧的 SigningServerUrl / SigningServerToken 设置。官方 Core 提供 NuGet，独立服务使用官方 Milky 发布镜像，无需在 Wonder 中添加 SDK 依赖。
+
+部署模板使用官方镜像 `ghcr.io/lagrangedev/lagrange.milky:master`（[上游构建配置](https://github.com/LagrangeDev/Lagrange.Core/blob/master/.github/workflows/milky-docker.yaml)）；需要固定版本时将 Compose / Quadlet 的镜像改为验证过的 digest。每个 QQ 账号使用一个独立实例、配置与持久目录；更多 Bot 可复制服务并设置不同网络别名。
+
+将 [配置示例](../deploy/milky.appsettings.example.json) 复制到宿主 `~/quadlet.config.d/Wonder/Milky/appsettings.json`，设置 `Lagrange.Login.Uin` 为真实 QQ 号、`Milky.AccessToken` 为随机令牌。容器将整个目录挂载到工作目录 `/app/milky`，保存配置、二维码和 QQ 凭据；限制宿主目录读取权限，并备份这份目录。查看 Milky 日志完成首次扫码及设备验证。示例使用 `Milky.HttpServer.Host="*"` 通配监听以接受容器网络请求；启用 `Milky.Api.Http.Enabled` 和 `Milky.Event.WebSocket.Enabled`，默认端口 3000，无需发布到公网。
+
+Signing 在 Milky 的配置文件中设置：
+
+```json
+{
+  "Lagrange": {
+    "Protocol": {
+      "Signer": {
+        "BaseUrl": "https://sign.lagrangecore.org/api/",
+        "Token": ""
+      }
+    }
+  }
+}
+```
+
+该片段合并到 Milky 完整配置中。BaseUrl 是 Milky 支持的签名服务基础地址；请求协议与路径由 Milky 自身处理，不再使用 Wonder 原来的 `{version}` URL 模板。修改后重启 Milky。配置项见 [上游示例](https://github.com/LagrangeDev/Lagrange.Core/blob/master/Lagrange.Milky/Resources/appsettings.json)。
+
+在 Wonder 的平台连接中填写 QQ 号、服务基础地址（例如 `http://milky:3000`，不含 `/api` 或 `/event`）及同一访问令牌。HTTP 与 WebSocket 都使用 Bearer 鉴权；令牌留空保留已有值，勾选清除才移除；更换地址或 QQ 号会清除旧令牌，需重新填写。连接启用且 Bot 启用后，Worker 自动连接并检查服务登录账号。断开后按退避重连；已开始发送但没有可靠回执的消息标记 DeliveryUnknown，不自动重发。停机或重连间隙的消息不会自动补拉。
+
 ## 内部自部署验收
 
-Wonder 的主要使用方式是个人自部署，面向单 Host、少量可信用户。使用仓库 Docker Compose 或 rootless Quadlet 即可运行应用、PostgreSQL + pgvector 和 SnowLuma，不需要独立调度数据库。首次部署按以下顺序验收：
+Wonder 源码构建只需常规 NuGet 还原，无需初始化 Git 子模块。
 
-1. 修改数据库密码和端口绑定。仓库 SnowLuma 管理端口使用 `192.168.1.102`，必须替换为宿主机实际 IP；Wonder 5080 默认只绑定回环地址，远程管理可通过 SSH 转发。
-2. 持久化数据库与 Host 数据目录，确认应用用户可写密钥和媒体；按下节在空库上显式执行 `--migrate`，成功后启动应用。Compose 和 Quadlet 选择其一，使用一个 Host。
-3. 检查 `/health/live`、`/health/ready` 和控制台登录。配置五类模型路由、QQ 账号、OneBot 正向 WebSocket 与 Access Token，检查实际私聊收发；ready 只证明数据库可连接。
+Wonder 的主要使用方式是个人自部署，面向单 Host、少量可信用户。使用仓库 Docker Compose 或 rootless Quadlet 即可运行应用、Lagrange.Milky 和 PostgreSQL + pgvector，不需要独立调度数据库。首次部署按以下顺序验收：
+
+1. 修改数据库密码和端口绑定。Wonder 5080 默认只绑定回环地址，远程管理可通过 SSH 转发。
+2. 持久化数据库与 Host 数据目录，持久化 Milky 配置与登录凭据，确认应用用户可写密钥和媒体；按下节在空库上显式执行 `--migrate`，成功后启动应用。Compose 和 Quadlet 选择其一，使用一个 Host。
+3. 检查 `/health/live`、`/health/ready` 和控制台登录。配置五类模型路由，在独立 Milky 完成 QQ 登录后填写平台连接地址和令牌，检查实际私聊收发；ready 只证明数据库可连接。
 4. 按需启用 Chat 的“支持工具调用（聊天）”，通过 `/bind` 绑定本人，并分别开启长期记忆和 Notes 授权。确认 `/help`、`/end` 不产生 Chat 任务，`/end` 不出现在模型历史中；此前聊天内容仍会正常参与分段结束整理。
 5. 启用记忆时，发送可验证的简单事实，检查反思、向量和维护任务；发送图片验证目标环境的 DNS、FakeIP 与 HTTPS 连接。检查“运行状态”中是否存在持续失败或死信。
 6. 重启 Host，验证控制台登录、密钥解密、QQ 重连和待处理任务恢复；开始长期使用前，保存数据库与配套密钥备份，并在隔离库验证一次恢复。已有任务可以恢复，停机期间未接收的 QQ 消息不会自动补拉。
@@ -74,7 +103,7 @@ Wonder 的主要使用方式是个人自部署，面向单 Host、少量可信�
 
 ## 调度器与重启恢复
 
-保持单 Host 部署。`Workers:Enabled=true` 时启动 OneBot 连接、Outbox 消费者和 Quartz；设为 `false` 时这三部分均不启动，HTTP 服务仍可运行。
+保持单 Host 部署。`Workers:Enabled=true` 时启动 Milky QQ 连接、Outbox 消费者和 Quartz；设为 `false` 时这三部分均不启动，HTTP 服务仍可运行。
 
 Quartz 显式使用内存存储，每次启动注册三个 Job 和四个触发器：
 
@@ -158,7 +187,7 @@ pg_dump --format=custom --file=wonder.dump --dbname=wonder
 
 恢复步骤：
 
-1. 确认备份使用当前 `InitialCreate` 基线，停止 Host（包括其中的 Worker、Quartz 和 OneBot 连接），在隔离环境先演练恢复。
+1. 确认备份使用当前 `InitialCreate` 基线，停止 Host（包括其中的 Worker、Quartz 和 Milky QQ 连接），在隔离环境先演练恢复。
 2. 准备空的 PostgreSQL + pgvector 数据库，由运维执行：
 
    ~~~bash
