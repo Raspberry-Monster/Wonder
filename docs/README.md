@@ -32,4 +32,4 @@
 
 功能规则放在对应专题，运行命令与恢复步骤以运行指南为准；测试执行方式集中在测试指南。
 
-当前数据库使用唯一 `InitialCreate` 基线，旧迁移链的开发库需要手动重建；初始化与同基线更新的区别见 [运行指南](operations.md#数据库基线与首次初始化)。Quartz 内存触发器和持久 Outbox 的职责见 [调度器与重启恢复](operations.md#调度器与重启恢复)。
+当前数据库使用 `InitialCreate` 基线及 `ConversationReplay` 增量迁移，旧迁移链的开发库需要手动重建；初始化与同基线更新的区别见 [运行指南](operations.md#数据库基线与首次初始化)。Quartz 内存触发器和持久 Outbox 的职责见 [调度器与重启恢复](operations.md#调度器与重启恢复)。

@@ -1,3 +1,4 @@
+using Wonder.Host.Features.Chat;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
@@ -33,6 +34,7 @@ public sealed class OutgoingWorkflow(
                 retiredContext = true;
         if (retiredContext)
         {
+            if (generated is not null) await ConversationReplay.PurgeSourcesAsync(db, "Message", [generated.Id], ct);
             foreach (var part in parts.Where(x => x.Status == DeliveryStatus.Pending))
             {
                 part.Status = DeliveryStatus.Failed;

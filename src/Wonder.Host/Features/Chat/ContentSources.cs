@@ -1,3 +1,4 @@
+using Wonder.Host.Features.Chat;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -183,6 +184,7 @@ public static class ContentSources
         CancellationToken ct)
     {
         if (ids.Count == 0) return;
+        await ConversationReplay.PurgeSourcesAsync(db, "Memory", ids, ct);
         var messages = await db.Messages.AsNoTracking().Where(x => x.BotId == bot && !x.ContextInvalidated &&
                                                                    x.ContextSnapshotJson != null).ToListAsync(ct);
         var summaries = await db.Summaries.AsNoTracking().Where(x => x.BotId == bot).ToListAsync(ct);

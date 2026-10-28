@@ -19,6 +19,8 @@ public class WonderDbContext(DbContextOptions<WonderDbContext> options)
     public DbSet<ConversationSession> Sessions => Set<ConversationSession>();
     public DbSet<ChatMessage> Messages => Set<ChatMessage>();
     public DbSet<ConversationSummary> Summaries => Set<ConversationSummary>();
+    public DbSet<ConversationReplayState> ConversationReplays => Set<ConversationReplayState>();
+    public DbSet<ConversationReplayDependency> ReplayDependencies => Set<ConversationReplayDependency>();
     public DbSet<GlobalEmotionState> Emotions => Set<GlobalEmotionState>();
     public DbSet<EmotionEvent> EmotionEvents => Set<EmotionEvent>();
     public DbSet<RelationshipState> Relationships => Set<RelationshipState>();

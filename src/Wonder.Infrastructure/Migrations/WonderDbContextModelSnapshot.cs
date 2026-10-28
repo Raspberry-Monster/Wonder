@@ -423,6 +423,80 @@ namespace Wonder.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Wonder.Core.ConversationReplayDependency", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Version")
+                        .HasColumnType("text");
+
+                    b.HasKey("ConversationId", "Kind", "ResourceId", "Version");
+
+                    b.HasIndex("Kind", "ResourceId");
+
+                    b.ToTable("ReplayDependencies");
+                });
+
+            modelBuilder.Entity("Wonder.Core.ConversationReplayState", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FinalMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("FormatVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SummaryBaseline")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("ThroughSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("ConversationId");
+
+                    b.HasIndex("BotId");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ConversationReplays");
+                });
+
             modelBuilder.Entity("Wonder.Core.ConversationSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2101,6 +2175,30 @@ namespace Wonder.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("BotId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wonder.Core.ConversationReplayDependency", b =>
+                {
+                    b.HasOne("Wonder.Core.ConversationReplayState", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wonder.Core.ConversationReplayState", b =>
+                {
+                    b.HasOne("Wonder.Core.BotInstance", null)
+                        .WithMany()
+                        .HasForeignKey("BotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Wonder.Core.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

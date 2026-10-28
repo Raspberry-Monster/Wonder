@@ -8,6 +8,7 @@ public sealed class PromptCatalog
     {
         directory = Path.GetFullPath(directory);
         Shared = Read("Shared");
+        ChatContext = Read("ChatContext");
         Summary = Read("Summary");
         Reflection = Read("Reflection");
         MemoryMaintenance = Read("MemoryMaintenance");
@@ -35,6 +36,7 @@ public sealed class PromptCatalog
     }
 
     public string Shared { get; }
+    public string ChatContext { get; }
     public string Summary { get; }
     public string Reflection { get; }
     public string MemoryMaintenance { get; }

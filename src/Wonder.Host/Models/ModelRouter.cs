@@ -23,10 +23,11 @@ public sealed class ModelRouter(
     }
 
     public async Task<ChatResponse> GenerateAsync(ModelProfile profile, IEnumerable<ChatMessage> messages, bool json,
-        CancellationToken ct, IList<AITool>? tools = null, bool disableTools = false)
+        CancellationToken ct, IList<AITool>? tools = null, bool disableTools = false,
+        Action<IReadOnlyList<ChatMessage>>? observe = null)
     {
         using var client = CreateTransport(profile);
-        return await GenerateCoreAsync(client, profile, messages, json, ct, tools, disableTools);
+        return await GenerateCoreAsync(client, profile, messages, json, ct, tools, disableTools, observe: observe);
     }
 
     public ModelContextBudget Context(ModelProfile profile)
@@ -35,9 +36,10 @@ public sealed class ModelRouter(
     }
 
     public IChatClient CreateToolClient(ModelProfile profile, Action<List<ChatMessage>>? prepare = null,
-        Func<CancellationToken, Task>? beforeSend = null)
+        Func<CancellationToken, Task>? beforeSend = null,
+        Action<IReadOnlyList<ChatMessage>>? observe = null)
     {
-        return new AccountedChatClient(CreateTransport(profile), this, profile, prepare, beforeSend);
+        return new AccountedChatClient(CreateTransport(profile), this, profile, prepare, beforeSend, observe);
     }
 
     private IChatClient CreateTransport(ModelProfile profile)
@@ -50,11 +52,13 @@ public sealed class ModelRouter(
 
     private async Task<ChatResponse> GenerateCoreAsync(IChatClient client, ModelProfile profile,
         IEnumerable<ChatMessage> messages, bool json,
-        CancellationToken ct, IList<AITool>? tools, bool disableTools, int? outputTokens = null)
+        CancellationToken ct, IList<AITool>? tools, bool disableTools, int? outputTokens = null,
+        Action<IReadOnlyList<ChatMessage>>? observe = null)
     {
         var input = messages.ToArray();
         var context = outputTokens is { } output ? Context(profile).WithOutput(output) : Context(profile);
         var inputTokens = context.Require(input, tools);
+        observe?.Invoke(input);
         logger.LogInformation(
             "Model budget: Task={Task}, Model={Model}, Tokenizer={Tokenizer}, Input={Input}, Output={Output}, Remaining={Remaining}",
             profile.TaskKind, profile.Model, context.Tokenizer, inputTokens, context.OutputTokens,
@@ -90,6 +94,12 @@ public sealed class ModelRouter(
         await budget.SettleAsync(reservation, profile, i, o, CancellationToken.None,
             result.Usage?.InputTokenCount is null || result.Usage?.OutputTokenCount is null);
         logger.LogInformation("Model usage: Task={Task}, Input={Input}, Output={Output}", profile.TaskKind, i, o);
+        if (profile.TaskKind == TaskKind.Chat)
+        {
+            var cache = ChatCacheUsage.Read(result);
+            logger.LogInformation("Chat provider cache: CachedInputTokens={CachedInputTokens}, UncachedInputTokens={UncachedInputTokens}",
+                cache.Cached?.ToString() ?? "unknown", cache.Uncached?.ToString() ?? "unknown");
+        }
         // Failed generations still consume tokens; record usage before rejecting the response.
         var details = $"Task={profile.TaskKind}; Model={profile.Model}; " +
                       $"FinishReason={result.FinishReason?.Value ?? "unknown"}; " +
@@ -142,7 +152,8 @@ public sealed class ModelRouter(
         ModelRouter router,
         ModelProfile profile,
         Action<List<ChatMessage>>? prepare,
-        Func<CancellationToken, Task>? beforeSend) : DelegatingChatClient(inner)
+        Func<CancellationToken, Task>? beforeSend,
+        Action<IReadOnlyList<ChatMessage>>? observe) : DelegatingChatClient(inner)
     {
         private int calls;
         private int rounds;
@@ -160,7 +171,7 @@ public sealed class ModelRouter(
             if (output < Math.Min(256, profile.MaxOutputTokens))
                 throw new ContextLimitException("The required tool conversation leaves no room for a final answer.");
             var result = await router.GenerateCoreAsync(InnerClient, profile, input, false, cancellationToken,
-                options?.Tools, disabled, output);
+                options?.Tools, disabled, output, observe);
             var count = result.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>().Count();
             if (count > 8 - calls) throw new ModelResponseException("Model exceeded the tool call limit.");
             calls += count;

@@ -145,7 +145,8 @@ public sealed class ConversationContinuityTests
         await Assert.That(history).Contains("2026-10-19T23:58:00");
         using var time =
             JsonDocument.Parse(
-                messages[0].GetProperty("content").GetString()!.Split("[Application time context]\n")[1]);
+                messages.Select(x => x.GetProperty("content").GetString()!)
+                    .Last(x => x.Contains("[Application time context]\n")).Split("[Application time context]\n")[1]);
         await Assert.That(time.RootElement.TryGetProperty("currentTime", out _)).IsFalse();
         await Assert.That(time.RootElement.TryGetProperty("utcTime", out _)).IsFalse();
         await Assert.That(time.RootElement.TryGetProperty("weekday", out _)).IsFalse();

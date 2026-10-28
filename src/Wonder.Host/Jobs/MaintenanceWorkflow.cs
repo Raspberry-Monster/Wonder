@@ -1,3 +1,4 @@
+using Wonder.Host.Features.Chat;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Host.Features.Emotion;
@@ -100,6 +101,7 @@ public sealed class MaintenanceWorkflow(
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = clock.UtcNow;
+        await db.ConversationReplays.Where(x => x.ExpiresAt <= now).ExecuteDeleteAsync(ct);
         var projections = await db.Summaries.AsNoTracking()
             .Where(x => x.ProjectionExpiresAt <= now && x.SafeProjectionJson != null)
             .OrderBy(x => x.ProjectionExpiresAt).ThenBy(x => x.Id).Take(100)
@@ -109,12 +111,14 @@ public sealed class MaintenanceWorkflow(
         var expiredIds = await db.Messages.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id)
             .Select(x => x.Id)
             .Take(250).ToListAsync(ct);
+        await ConversationReplay.PurgeSourcesAsync(db, "Message", expiredIds, ct);
         await db.Messages.Where(x => expiredIds.Contains(x.Id)).ExecuteDeleteAsync(ct);
         var assets = await db.Media.Where(x => x.ExpiresAt <= now || !db.Messages.Any(m => m.Id == x.MessageId))
             .OrderBy(x => x.ExpiresAt).ThenBy(x => x.Id).Take(100)
             .ToListAsync(ct);
         foreach (var asset in assets)
         {
+            await ConversationReplay.PurgeSourcesAsync(db, "Media", [asset.Id], ct);
             if (File.Exists(asset.Path)) File.Delete(asset.Path);
             db.Media.Remove(asset);
         }

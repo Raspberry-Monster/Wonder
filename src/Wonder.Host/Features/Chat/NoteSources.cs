@@ -1,3 +1,4 @@
+using Wonder.Host.Features.Chat;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Infrastructure;
@@ -89,6 +90,7 @@ public static class NoteSources
         await db.Notes.Where(x => derivedNotes.Contains(x.Id))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.SourceInvalidated, true), ct);
         noteIds = affected.ToArray();
+        await ConversationReplay.PurgeSourcesAsync(db, "Note", noteIds, ct);
         var dependencies = await db.NoteDependencies.Where(x => noteIds.Contains(x.NoteId)).ToArrayAsync(ct);
         var messages = dependencies.Where(x => x.TargetKind == NoteDependencyTargetKind.Message).Select(x => x.TargetId)
             .ToArray();

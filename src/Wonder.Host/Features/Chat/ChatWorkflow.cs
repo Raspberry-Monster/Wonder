@@ -18,7 +18,9 @@ public sealed class ChatWorkflow(
     ConversationHistory conversations,
     ConversationClock clock,
     ConversationTools conversationTools,
-    InteractionBoundary interaction)
+    InteractionBoundary interaction,
+    ConversationReplay replays,
+    ILogger<ChatWorkflow> logger)
 {
     public async Task RunAsync(Guid jobId, CancellationToken ct, Guid? expectedLeaseId = null)
     {
@@ -130,7 +132,7 @@ public sealed class ChatWorkflow(
         var relationshipProjection = relationship is null
             ? ((string Text, ContentSource Source)?)null
             : await RelationshipClaims.ProjectionAsync(db, relationship, ct);
-        var context = contextBuilder.Build(new ContextInput(identity.Content, mood, relationshipProjection?.Text ?? "",
+        var contextInput = new ContextInput(identity.Content, mood, relationshipProjection?.Text ?? "",
             summary is null ? "" : ConversationHistory.TextForModel(summary), selected,
             history.Select(x => new ContextTurn(x.Role, x.Text,
                 SpeakerTag: SpeakerTags.For(conv.Id, x.SenderId, x.Role),
@@ -143,7 +145,7 @@ public sealed class ChatWorkflow(
             new ContextTurn(MessageRole.User, currentText, segments, SpeakerTags.For(conv.Id, message.SenderId),
                 user.PreferredName,
                 SentAt: clock.Local(message.CreatedAt), MessageIds: [message.Id, .. quotedSources.Select(x => x.Id)],
-                Sources: [ContentSources.Message(message), .. quotedSources]),
+                TurnSequence: message.Sequence, Sources: [ContentSources.Message(message), .. quotedSources]),
             models.Context(profile), conv.Id, names,
             summary is null ? null : ConversationHistory.MemoryIdsForModel(summary),
             clock.Context(message.CreatedAt, history.LastOrDefault()?.CreatedAt,
@@ -154,7 +156,15 @@ public sealed class ChatWorkflow(
                 ? null
                 : ContentSources.ProjectionReady(summary)
                     ? ContentSources.Projection(summary)
-                    : ContentSources.Summary(summary), relationshipProjection?.Source));
+                    : ContentSources.Summary(summary), relationshipProjection?.Source, BasicGroup: basicGroup);
+        var replayRead = basicGroup
+            ? new ReplayRead(null, null, "", "", [])
+            : await replays.LoadAsync(db, bot.Id, conv.Id, user, message.Sequence,
+                ConversationReplay.Fingerprint(contextBuilder.System(contextInput), profile, contextInput.Budget,
+                    toolDefinitions, user, identity.Revision), summary, clock.UtcNow, ct);
+        var context = contextBuilder.Build(contextInput with { Replay = replayRead.Replay });
+        logger.LogInformation("Chat context: Conversation={Conversation}, CandidateTokens={CandidateTokens}, HistoryTrimmed={HistoryTrimmed}, SummaryReason={SummaryReason}",
+            conv.Id, context.CandidateTokens, context.HistoryTrimmed, context.SummaryReason ?? "none");
         var request = context.Messages;
         foreach (var placeholder in request[^1].Contents.OfType<UriContent>().ToArray())
             request[^1].Contents.Remove(placeholder);
@@ -176,11 +186,29 @@ public sealed class ChatWorkflow(
                 .Add(new TextContent(
                     "[The current model cannot view this image. Tell the user if its content is needed.]"));
 
+        var mediaDependencies = replayRead.Dependencies.ToList();
+        var currentImages = request[^1].Contents.OfType<DataContent>().ToArray();
+        if (!basicGroup && currentImages.Length > 0)
+        {
+            var assets = await db.Media.AsNoTracking().Where(x => x.MessageId == message.Id && x.BotId == bot.Id)
+                .OrderBy(x => x.Id).ToArrayAsync(ct);
+            foreach (var image in currentImages)
+            {
+                var hash = ReplayMessages.ImageHash(image.Data);
+                var asset = assets.FirstOrDefault(x => x.ContentHash == hash && x.ContentType == image.MediaType);
+                // Legacy media without a content fingerprint can still be viewed, but cannot be checkpointed.
+                if (asset is null) continue;
+                mediaDependencies.Add(new ConversationReplayDependency
+                    { ConversationId = conv.Id, Kind = "Media", ResourceId = asset.Id, Version = hash });
+            }
+        }
+
         ChatResponse response;
         var retrievedIds = context.MemoryIds.ToHashSet();
         var sourceMessageIds = context.MessageIds.ToHashSet();
         var consumedSources = (context.Sources ?? []).ToHashSet();
         var sourceUserIds = history.SelectMany(ConversationHistory.SubjectIds).Append(user.Id)
+            .Concat(replayRead.Replay?.UserIds ?? [])
             .Concat(summary is null ? [] : Json.Read<Guid[]>(summary.SubjectIdsJson)).ToHashSet();
         await NoteSources.InheritAsync(db, NoteDependencyTargetKind.Chat, job.Id, sourceMessageIds.ToArray(),
             summary is not null && !ContentSources.ProjectionReady(summary) ? summary.Id : null, ct);
@@ -188,6 +216,10 @@ public sealed class ChatWorkflow(
 
         async Task ValidateSources(CancellationToken token)
         {
+            if (!await db.LogicalUsers.AsNoTracking().AnyAsync(x => x.Id == user.Id &&
+                    x.RevocationEpoch == user.RevocationEpoch && x.NotesEpoch == user.NotesEpoch, token) ||
+                !await ConversationReplay.DependenciesValidAsync(db, bot.Id, user.Id, mediaDependencies, clock.UtcNow, token))
+                throw new DbUpdateConcurrencyException("Replay scope or dependency changed; rebuild the conversation.");
             if (!await ContentSources.ValidAsync(db, bot.Id, consumedSources, token, user.Id, clock.UtcNow))
                 throw new DbUpdateConcurrencyException("Consumed content changed; rebuild the conversation.");
             if (!await NoteSources.ValidAsync(db, NoteDependencyTargetKind.Chat, job.Id, token))
@@ -200,13 +232,18 @@ public sealed class ChatWorkflow(
         if (force is not null)
             await db.ForceReceipts.Where(x => x.Id == force.Id && x.ProcessingStartedAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.ProcessingStartedAt, clock.UtcNow), ct);
+        IReadOnlyList<Microsoft.Extensions.AI.ChatMessage>? actualInput = null;
+        Action<IReadOnlyList<Microsoft.Extensions.AI.ChatMessage>>? observe = !basicGroup && replays.Enabled
+            ? input => actualInput = input.ToArray() : null;
         var ordinal = 0;
         var terminated = false;
+        ToolContextBudget? activeToolBudget = null;
         if (profile.SupportsTools)
         {
             var toolBudget = new ToolContextBudget(models.Context(profile), toolDefinitions!, context.OptionalGroups);
+            activeToolBudget = toolBudget;
             using var client =
-                new FunctionInvokingChatClient(models.CreateToolClient(profile, toolBudget.Prepare, ValidateSources))
+                new FunctionInvokingChatClient(models.CreateToolClient(profile, toolBudget.Prepare, ValidateSources, observe))
                 {
                     MaximumIterationsPerRequest = 4,
                     MaximumConsecutiveErrorsPerRequest = 0,
@@ -265,7 +302,8 @@ public sealed class ChatWorkflow(
         }
         else
         {
-            response = await models.GenerateAsync(profile, request, false, ct);
+            await ValidateSources(ct);
+            response = await models.GenerateAsync(profile, request, false, ct, observe: observe);
         }
 
         if (terminated || await db.ChatDispositions.AnyAsync(x => x.ChatJobId == job.Id, ct))
@@ -280,10 +318,24 @@ public sealed class ChatWorkflow(
             throw new ModelResponseException("Model did not return a final answer after tool use.");
         var text = final.Text.Trim();
         if (text.Length == 0) throw new InvalidOperationException("Model returned an empty response.");
+        var toolHistoryTrimmed = (context.ReplayGroups ?? []).Where(g => activeToolBudget?.TrimmedGroups
+            .Any(removed => removed.Intersect(g.Messages).Any()) == true).Sum(g => g.HistoryCount);
+        var needsSummary = context.NeedsSummary || (context.CanSummarize && toolHistoryTrimmed > 0);
+        logger.LogInformation("Chat final context: Conversation={Conversation}, HistoryTrimmed={HistoryTrimmed}, SummaryReason={SummaryReason}",
+            conv.Id, context.HistoryTrimmed + toolHistoryTrimmed,
+            context.SummaryReason ?? (toolHistoryTrimmed > 0 && context.CanSummarize ? "history_trimmed" : "none"));
         var snapshot = new ContextSnapshot(bot.Id, message.SessionId.Value, identity.Revision, mood.Revision,
             relationship?.Revision ?? 0, summary?.Revision ?? 0, retrievedIds.ToArray(), profile.Id.ToString(),
             sourceMessageIds.ToArray(), sourceUserIds.ToArray(), consumedSources.ToArray());
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (expectedLeaseId is { } finalLease)
+        {
+            var now = await InteractionBoundary.DatabaseNowAsync(db, clock.UtcNow, ct);
+            if (await db.Outbox.Where(x => x.Id == job.Id && x.Status == JobStatus.Running &&
+                    x.LeaseId == finalLease && x.LeaseUntil > now)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.LeaseId, finalLease), ct) != 1)
+                throw new DbUpdateConcurrencyException("Chat lease expired before final commit.");
+        }
         if (!await UserFence.CheckAsync(db, user.Id, user.RevocationEpoch, ct))
         {
             Jobs.Complete(db, job);
@@ -321,15 +373,20 @@ public sealed class ChatWorkflow(
         };
         db.Messages.Add(generated);
         await NoteSources.CopyChatAsync(db, job.Id, generated.Id, ct);
+        if (!basicGroup)
+            await replays.SaveAsync(db, replayRead, message, generated, actualInput, final, context, consumedSources,
+                retrievedIds, sourceMessageIds, sourceUserIds, job.Id, clock.UtcNow, ct);
         QueueReply(db, job, message.SessionId.Value, text, snapshot);
         Jobs.Complete(db, job);
-        if (!basicGroup && context.NeedsSummary && !await db.Outbox.AnyAsync(x => x.BotId == bot.Id &&
+        if (!basicGroup && needsSummary &&
+            await db.Models.AnyAsync(x => x.BotId == bot.Id && x.TaskKind == TaskKind.RollingSummary, ct) &&
+            !await db.Outbox.AnyAsync(x => x.BotId == bot.Id &&
                 x.ConversationId == conv.Id &&
                 x.Type == JobKind.Summary &&
-                x.Status == JobStatus.Pending, ct))
+                (x.Status == JobStatus.Pending || x.Status == JobStatus.Running), ct))
             Jobs.Add(db, bot.Id, JobKind.Summary, new SummaryJob(message.SessionId.Value, message.Sequence), conv.Id,
                 job.Id);
-        await db.SaveChangesAsync(ct);
+        await Jobs.SaveAsync(db, job, expectedLeaseId, ct);
         await tx.CommitAsync(ct);
     }
 

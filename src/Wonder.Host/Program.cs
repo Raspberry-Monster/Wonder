@@ -102,6 +102,7 @@ builder.Services.AddSingleton<JobProcessor>();
 builder.Services.AddSingleton(new PromptCatalog(Path.Combine(AppContext.BaseDirectory, "Prompts")));
 builder.Services.AddSingleton<PromptComposer>();
 builder.Services.AddSingleton<ContextBuilder>();
+builder.Services.AddSingleton<ConversationReplay>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ConversationClock>();
 builder.Services.AddSingleton<ConversationHistory>();

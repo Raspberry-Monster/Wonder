@@ -10,10 +10,14 @@ public sealed class ToolContextBudget(
     IReadOnlyList<AiMessage[]> optional)
 {
     private readonly Dictionary<string, string> results = new();
+    public List<AiMessage[]> TrimmedGroups { get; } = [];
 
     public void Prepare(List<AiMessage> messages)
     {
+        var present = optional.Where(x => x.Any(messages.Contains)).ToArray();
         Trim(messages, 0);
+        foreach (var group in present.Where(x => !x.Any(messages.Contains)))
+            if (!TrimmedGroups.Contains(group)) TrimmedGroups.Add(group);
     }
 
     private void Trim(List<AiMessage> messages, int reserve)

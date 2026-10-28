@@ -89,6 +89,7 @@ public sealed partial class MemoryService(
         user.RetainMemoryHistory = retainHistory ?? user.RetainMemoryHistory;
         if (preferredName is not null) user.PreferredName = preferredName.Trim();
         user.RevocationEpoch++;
+        await db.ConversationReplays.Where(x => x.UserId == subjectId).ExecuteDeleteAsync(ct);
         await db.MemoryCandidates.Where(x => x.SubjectId == subjectId && x.Status == MemoryMaintenanceStatus.Pending)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, MemoryMaintenanceStatus.Cancelled)
                 .SetProperty(x => x.Text, "").SetProperty(x => x.FactKey, "").SetProperty(x => x.EvidenceJson, "[]")

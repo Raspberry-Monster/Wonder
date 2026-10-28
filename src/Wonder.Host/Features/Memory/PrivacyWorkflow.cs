@@ -1,3 +1,4 @@
+using Wonder.Host.Features.Chat;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Infrastructure;
@@ -233,6 +234,8 @@ public sealed partial class PrivacyWorkflow(IDbContextFactory<WonderDbContext> f
 
     private static async Task FenceErasedSourcesAsync(WonderDbContext db, PrivacyTarget[] targets, CancellationToken ct)
     {
+        foreach (var group in targets.GroupBy(x => x.Kind))
+            await ConversationReplay.PurgeSourcesAsync(db, group.Key, group.Select(x => x.Id).ToArray(), ct);
         var messages = targets.Where(x => x.Kind == "Message").Select(x => x.Id).ToArray();
         var summaries = targets.Where(x => x.Kind == "Summary").Select(x => x.Id).ToArray();
         await db.Messages.Where(x => messages.Contains(x.Id))

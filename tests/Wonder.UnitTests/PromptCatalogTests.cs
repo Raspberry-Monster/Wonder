@@ -7,6 +7,18 @@ namespace Wonder.UnitTests;
 public sealed class PromptCatalogTests
 {
     [Test]
+    public async Task ChatRulesAreLoadedFromTheEditableTemplate()
+    {
+        using var files = new PromptFiles();
+        File.WriteAllText(Path.Combine(files.Directory.FullName, "ChatContext.prompt"),
+            "Custom rule\nIdentity={{identity}}\nTools={{toolsAvailable}}");
+        var composer = new PromptComposer(new PromptCatalog(files.Directory.FullName));
+        var compiled = composer.CompileChat("Wonder", false);
+        await Assert.That(compiled).Contains("Custom rule\nIdentity=Wonder\nTools=false");
+        await Assert.That(compiled).DoesNotContain("Historical emotion");
+    }
+
+    [Test]
     public async Task PromptsAreCachedUntilTheNextLoadAndKeepUtf8Contents()
     {
         using var files = new PromptFiles();
@@ -24,6 +36,7 @@ public sealed class PromptCatalogTests
 
     [Test]
     [Arguments("Shared.prompt", null)]
+    [Arguments("ChatContext.prompt", null)]
     [Arguments("SummaryProjection.prompt", null)]
     [Arguments("Reflection.prompt", "")]
     [Arguments("MemoryMaintenance.prompt", " \r\n\t")]

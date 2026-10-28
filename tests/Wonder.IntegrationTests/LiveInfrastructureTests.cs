@@ -45,7 +45,7 @@ public sealed class LiveInfrastructureTests
             await db.Database.MigrateAsync();
             await db.Database.MigrateAsync();
             await Assert.That(db.Database.HasPendingModelChanges()).IsFalse();
-            await Assert.That((await db.Database.GetAppliedMigrationsAsync()).Last()).EndsWith("_InitialCreate");
+            await Assert.That((await db.Database.GetAppliedMigrationsAsync()).Last()).EndsWith("_ConversationReplay");
             await Assert.That(await db.Database.SqlQueryRaw<int>("""
                                                                  SELECT count(*)::int AS "Value" FROM information_schema.schemata WHERE schema_name = 'retired_context'
                                                                  """).SingleAsync()).IsEqualTo(0);

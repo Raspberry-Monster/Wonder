@@ -1,3 +1,4 @@
+using Wonder.Host.Features.Chat;
 using Microsoft.EntityFrameworkCore;
 using Wonder.Core;
 using Wonder.Infrastructure;
@@ -33,6 +34,7 @@ public static class RelationshipClaims
                     ? "Blocked"
                     : "Tentative";
             claim.Revision++;
+            await ConversationReplay.PurgeSourcesAsync(db, "Relationship", [claim.RelationshipId], ct);
         }
     }
 

@@ -77,7 +77,7 @@ Wonder 的主要使用方式是个人自部署，面向单 Host、少量可信�
 
 ## 数据库基线与首次初始化
 
-当前只有一条 `InitialCreate` 迁移，位于 `src/Wonder.Infrastructure/Migrations`，包含当前业务表、Identity、pgvector、索引和约束。首次应用这条基线需要空库；不创建 `retired_context` 或 Quartz 表。
+当前迁移链位于 `src/Wonder.Infrastructure/Migrations`：`InitialCreate` 基线包含业务表、Identity、pgvector、索引和约束；`ConversationReplay` 增量增加私聊重放状态和来源依赖表。首次应用基线需要空库；已采用该基线的库可直接应用增量。先迁移再部署应用，无需回填聊天检查点；不创建 `retired_context` 或 Quartz 表。
 
 使用旧迁移链的开发库不能直接升级到此基线。开发者需自行备份、重建开发库并修改连接串；应用不提供旧库转换、导入或回填，也不会自动删除数据库。以下初始化命令不承担重建旧库的工作。
 

@@ -4,6 +4,14 @@ namespace Wonder.Host.Features.Persona;
 
 public sealed class PromptComposer(PromptCatalog prompts)
 {
+    public string CompileChat(string identity, bool toolsAvailable) => prompts.Shared + "\n\n" +
+        prompts.ChatContext.Replace("{{toolsAvailable}}", toolsAvailable ? "true" : "false", StringComparison.Ordinal)
+            .Replace("{{identity}}", identity, StringComparison.Ordinal);
+
+    public static string Expression(GlobalEmotionState mood) =>
+        $"Tone: {(mood.Valence < -.25 ? "quiet and thoughtful" : mood.Valence > .25 ? "warm and cheerful" : "calm and attentive")}; " +
+        $"pace: {(mood.Arousal > .65 ? "lively" : "unhurried")}; energy: {(mood.Energy < .3 ? "gentle and concise" : "engaged")}.";
+
     public string Compile(string identity, GlobalEmotionState mood)
     {
         return $"{prompts.Shared}\n\n[Identity]\n{identity}\n\n[Simulated expression]\n" +

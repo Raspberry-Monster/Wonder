@@ -39,16 +39,18 @@ HTTP 字段校验使用 FluentValidation，账号与 Cookie 使用 ASP.NET Core 
 ## 身份、提示和对话上下文
 
 ```text
-System = Shared 行为边界 + Owner 发布的 Identity + 已验证的 Emotion 表达状态
-Reference = 授权关系 + 长期记忆 + 滚动摘要 + 近期历史与引用
-Current = 当前用户消息
+Private System = Shared 行为边界 + ChatContext 固定解释规则 + Owner 发布的 Identity + 工具状态
+Private Prefix = 有效摘要／兼容旧历史 + 已发送请求与最终回复的原样重放
+Private Dynamic = 本轮 Emotion 表达状态 + 应用时间 + 授权关系 + 检索记忆
+Current = 当前用户消息、引用和图片
+Group = 保持原有 System 与 Current，不读取历史或重放检查点
 ```
 
 Identity 描述 Bot 自身，历史版本保留；用户称呼来自经过 QQ 验证的本人设置。关系、记忆、历史和工具结果均作为不可信参考数据，不能覆盖系统规则。发言者通过 Conversation 范围内稳定的匿名标签区分。
 
-静态提示词保存在 `src/Wonder.Host/Prompts/` 下的 UTF-8 `.prompt` 文件中：`Shared` 为聊天行为边界，`Summary` 为滚动摘要，`Reflection` 为反思，`MemoryMaintenance` 为记忆维护，`SummaryProjection` 为摘要安全投影。构建及发布会复制到应用目录的 `Prompts/`；启动时 `PromptCatalog` 从 `AppContext.BaseDirectory/Prompts` 一次性加载并缓存，必需文件缺失、不可读或为空时启动失败，错误中包含完整路径。文件按纯文本读取，不执行模板替换；Identity、Emotion、动态摘要压缩上限及用户数据仍由代码组装。
+静态提示词保存在 `src/Wonder.Host/Prompts/` 下的 UTF-8 `.prompt` 文件中：`Shared` 为聊天行为边界，`ChatContext` 为私聊固定解释策略，`Summary` 为滚动摘要，`Reflection` 为反思，`MemoryMaintenance` 为记忆维护，`SummaryProjection` 为摘要安全投影。构建及发布会复制到应用目录的 `Prompts/`；启动时 `PromptCatalog` 从 `AppContext.BaseDirectory/Prompts` 一次性加载并缓存，必需文件缺失、不可读或为空时启动失败，错误中包含完整路径。除 ChatContext 用 `{{identity}}`、`{{toolsAvailable}}` 装配身份和工具状态外，文件按纯文本读取；Emotion、动态摘要压缩上限及用户数据仍由代码组装。私聊使用实际请求重放检查点，详见 [Context 缓存与预算](context-budget.md)。
 
-本地修改源文件后重新执行 `dotnet run`，构建会同步文件；部署后直接修改应用目录中的 `.prompt` 文件则重启 Host 生效，无需重新编译。容器内目录为 `/app/Prompts`，也可将完整的自定义目录只读挂载到该位置。新版本部署时需同步这些文件；已固定的聊天上下文快照继续使用该轮保存的内容。
+本地修改源文件后重新执行 `dotnet run`，构建会同步文件；部署后直接修改应用目录中的 `.prompt` 文件则重启 Host 生效，无需重新编译。容器内目录为 `/app/Prompts`，也可将完整的自定义目录只读挂载到该位置。新版本部署时需同步这些文件；已经生成的回复保留其来源快照；新私聊请求检测到固定 Prompt 变化时重建重放基线。
 
 Conversation 对应一个私聊或群聊；Session 用于空闲结束和任务分段。私聊上下文可以跨 Session 延续，读取有效摘要及摘要之后最近 40 条候选消息，逐条校验来源后按预算选择。群聊只提供基础聊天和当前发言者识别，不读取历史、摘要、关系或记忆。
 
@@ -110,7 +112,7 @@ ModelRouter 创建每次请求的 ModelContextBudget。输入上限为上下文�
 
 ## 运行与实现边界
 
-- 普通启动不执行迁移；首次应用唯一 `InitialCreate` 基线需要空库，旧迁移链的开发库需手动重建。显式运行 `--migrate` 后再启动 Host；相同基线的重复迁移跳过已应用项。
+- 普通启动不执行迁移；首次应用 `InitialCreate` 基线需要空库，后续包含 `ConversationReplay` 增量迁移，旧迁移链的开发库需手动重建。显式运行 `--migrate` 后再启动 Host；相同基线的重复迁移跳过已应用项。
 - 密钥和 QQ 令牌使用 Data Protection 加密，密钥目录必须与数据库配套持久化。媒体位于私有目录；数据库备份由运维另行保存。
 - 消息默认保留 90 天，图片缓存 7 天，满足完成条件的发送正文缓存按 30 天清理。长期记忆和关系不随原始消息自动过期。
 - 图片仅下载 HTTPS 443 地址，DNS 解析结果允许内网及 FakeIP 地址，不跟随跳转、不使用显式代理；每轮最多 3 张，单张 5 MiB，每 Bot 缓存有约 128 MiB 的准入限制。网络配置见 [图片下载与网络](operations.md#图片下载与网络)。

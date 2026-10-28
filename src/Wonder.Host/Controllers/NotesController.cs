@@ -30,6 +30,7 @@ public sealed class NotesController(WonderDbContext db) : WonderControllerBase(d
         if (!await UserFence.CheckAsync(Db, user.Id, user.RevocationEpoch, ct)) return Conflict();
         user.AllowNotes = input.AllowNotes;
         user.NotesEpoch++;
+        await Db.ConversationReplays.Where(x => x.UserId == user.Id).ExecuteDeleteAsync(ct);
         if (!input.AllowNotes)
             await NoteSources.InvalidateAsync(Db,
                 await Db.Notes.Where(x => x.UserId == id).Select(x => x.Id).ToArrayAsync(ct), false, ct);
