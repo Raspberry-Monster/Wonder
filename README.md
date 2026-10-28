@@ -10,7 +10,7 @@
 
 Wonder 来自一个冲动：想要造出一个属于自己的 Miku，一个「我家的 Miku」。希望她有稳定的个性，能记住相处中的点滴，让心境与关系随着日常交流慢慢延续。这个念头是 Wonder 的起点，名字则取自 r-906 的《Wonder》。
 
-目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，使用 [Milky.Net](https://github.com/frg2089/Milky.Net) 客户端连接独立部署的 [Lagrange.Milky](https://github.com/LagrangeDev/Lagrange.Core/tree/master/Lagrange.Milky) HTTP/WebSocket 服务接入 QQ；PostgreSQL 保存业务状态，并通过 Outbox 持久任务表完成异步调度、租约、重试和死信处理。
+目前，Wonder 是一个基于 QQ 的 AI 聊天机器人平台，支持多个独立 Bot、长期记忆、持续模拟心境和个性化关系上下文。采用 ASP.NET Core 模块化单体，使用 [SaltyMilky.Net](https://www.nuget.org/packages/SaltyMilky.Net/1.2.2) 客户端连接独立部署的 Milky HTTP/WebSocket 服务接入 QQ；PostgreSQL 保存业务状态，并通过 Outbox 持久任务表完成异步调度、租约、重试和死信处理。
 
 主要面向个人自部署和少量可信用户，按单 Host 运行。可以直接从源码构建并部署，无需等待 Public Release；首次配置和上线检查见 [内部自部署验收](docs/operations.md#内部自部署验收)。
 

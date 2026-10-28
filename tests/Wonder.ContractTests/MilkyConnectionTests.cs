@@ -38,6 +38,12 @@ public sealed class MilkyConnectionTests
                                       {"self_id":999,"event_type":"bot_offline","time":1792454400,"data":{}}
                                       """);
         server.Events.Writer.TryWrite("""
+                                      {"self_id":123,"event_type":"friend_input_status","data":{"user_id":456,"status":1}}
+                                      """);
+        server.Events.Writer.TryWrite("""
+                                      {"self_id":123,"event_type":"future_event","data":{"new_field":true}}
+                                      """);
+        server.Events.Writer.TryWrite("""
                                       {"self_id":123,"event_type":"message_receive","data":{"message_scene":"friend",
                                       "peer_id":456,"sender_id":456,"message_seq":88,"time":1792454400,
                                       "segments":[{"type":"text","data":{"text":"你好"}}]}}
@@ -81,7 +87,11 @@ public sealed class MilkyConnectionTests
     [Arguments("malformed")]
     [Arguments("empty")]
     [Arguments("missing-sequence")]
+    [Arguments("null-sequence")]
     [Arguments("negative-sequence")]
+    [Arguments("failed-with-sequence")]
+    [Arguments("nonzero-retcode")]
+    [Arguments("null-response")]
     public async Task MilkyDoesNotRetryUnconfirmedSends(string failure)
     {
         await using var server = await MilkyServer.StartAsync();
@@ -97,6 +107,25 @@ public sealed class MilkyConnectionTests
             })
             .ThrowsExactly<DeliveryUnknownException>();
         await Assert.That(server.SendCount).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(0L)]
+    [Arguments(4294967296L)]
+    public async Task MilkyPreservesExplicitZeroAndFullWidthReceiptSequences(long sequence)
+    {
+        await using var server = await MilkyServer.StartAsync();
+        server.SendSequence = sequence;
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var transport = new SocketsHttpHandler { AllowAutoRedirect = false };
+        await using var client = new MilkyConnection(123, server.Url, "test-token", transport,
+            (_, _) => Task.CompletedTask, stop.Token);
+        await client.ConnectAsync();
+        await Assert.That(await client.SendAsync(ConversationKind.Private, "456", "私聊", stop.Token))
+            .IsEqualTo($"private:456:{sequence}");
+        await Assert.That(await client.SendAsync(ConversationKind.Group, "789", "群聊", stop.Token))
+            .IsEqualTo($"group:789:{sequence}");
+        await Assert.That(server.SendCount).IsEqualTo(2);
     }
 
     [Test]
@@ -217,6 +246,7 @@ public sealed class MilkyConnectionTests
         public bool RejectEvents { get; set; }
         public bool ChangeAccountOnSubscribe { get; set; }
         public long LoginAccount { get; set; } = 123;
+        public long SendSequence { get; set; } = 99;
         public TaskCompletionSource? AllowHandshake { get; set; }
 
         public TaskCompletionSource HandshakeRequested { get; } =
@@ -266,12 +296,19 @@ public sealed class MilkyConnectionTests
                     "http" => Results.StatusCode(503),
                     "malformed" => Results.Text("{broken-json", "application/json"),
                     "empty" => Results.Json(new { status = "ok", retcode = 0, data = (object?)null }),
+                    "null-response" => Results.Text("null", "application/json"),
                     "missing-sequence" => Results.Json(new
                         { status = "ok", retcode = 0, data = new { time = 1792454400 } }),
+                    "null-sequence" => Results.Json(new
+                        { status = "ok", retcode = 0, data = new { message_seq = (long?)null, time = 1792454400 } }),
                     "negative-sequence" => Results.Json(new
                         { status = "ok", retcode = 0, data = new { message_seq = -1, time = 1792454400 } }),
+                    "failed-with-sequence" => Results.Json(new
+                        { status = "failed", retcode = 0, data = new { message_seq = 99, time = 1792454400 } }),
+                    "nonzero-retcode" => Results.Json(new
+                        { status = "ok", retcode = 1, data = new { message_seq = 99, time = 1792454400 } }),
                     _ => Results.Json(new
-                        { status = "ok", retcode = 0, data = new { message_seq = 99, time = 1792454400 } })
+                        { status = "ok", retcode = 0, data = new { message_seq = server.SendSequence, time = 1792454400 } })
                 };
             });
             app.Map(prefix + "/event", async context =>

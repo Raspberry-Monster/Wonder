@@ -29,7 +29,7 @@ flowchart TB
 
 | 项目 | 当前职责 |
 | --- | --- |
-| `Wonder.Host` | MVC API、认证配置、Milky.Net 客户端适配与消息标准化、Features 工作流、模型预算、任务消费和 Quartz 调度 |
+| `Wonder.Host` | MVC API、认证配置、SaltyMilky.Net 客户端适配与消息标准化、Features 工作流、模型预算、任务消费和 Quartz 调度 |
 | `Wonder.Web` | Vue 3、TypeScript、Arco Design Vue 管理台 |
 | `Wonder.Core` | 领域实体、平台接口与状态、触发判断、回复分段、消息和事件契约 |
 | `Wonder.Infrastructure` | EF Core / Npgsql、pgvector、任务领取、模型传输、Tokenizer、媒体、密钥保护 |

@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Milky.Net.Model;
+using SaltyMilky.Net;
 using Wonder.Core;
 using Wonder.Host.Milky;
 
@@ -21,7 +21,7 @@ public sealed class MilkyProtocolTests
                                                     {"type":"face","data":{"face_id":"1"}}]}}
                                                 """);
         var e = MilkyProtocol.Normalize(123,
-            document.RootElement.Deserialize(MilkyJsonSerializerContext.Default.Event)!)!;
+            document.RootElement.Deserialize(MilkyJson.EventTypeInfo)!)!;
         await Assert.That(e.AccountId).IsEqualTo("123");
         await Assert.That(e.ConversationId).IsEqualTo("789");
         await Assert.That(e.SenderId).IsEqualTo("456");
@@ -43,7 +43,7 @@ public sealed class MilkyProtocolTests
 
         NormalizedEvent? Normalize()
         {
-            return MilkyProtocol.Normalize(123, message.Deserialize(MilkyJsonSerializerContext.Default.Event)!);
+            return MilkyProtocol.Normalize(123, message.Deserialize(MilkyJson.EventTypeInfo)!);
         }
 
         var groupA = Normalize()!;
@@ -65,6 +65,32 @@ public sealed class MilkyProtocolTests
         await Assert.That(Normalize()).IsNull();
         message["event_type"] = "message_recall";
         await Assert.That(Normalize()).IsNull();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task MilkyAcceptsFlatSegmentsAndWrappedMessagePayloads(bool wrapped)
+    {
+        var message = JsonNode.Parse("""
+                                     {"message_scene":"friend","peer_id":456,"sender_id":456,
+                                      "message_seq":4294967296,"time":1792454400,
+                                      "message_style":{"bubble_id":123},
+                                      "segments":[{"type":"text","text":"兼容消息"},
+                                        {"type":"mention","user_id":123},
+                                        {"type":"reply","message_seq":4294967295,"sender_id":123}]}
+                                     """)!;
+        var envelope = new JsonObject
+        {
+            ["self_id"] = 123,
+            ["event_type"] = "message_receive",
+            ["data"] = wrapped ? new JsonObject { ["message"] = message } : message
+        };
+        var result = MilkyProtocol.Normalize(123, envelope.Deserialize(MilkyJson.EventTypeInfo)!)!;
+        await Assert.That(result.MessageId).IsEqualTo("private:456:4294967296");
+        await Assert.That(result.OccurredAt).IsEqualTo(DateTimeOffset.FromUnixTimeSeconds(1792454400));
+        await Assert.That(result.Segments.Select(x => x.Value).SequenceEqual(new[]
+            { "兼容消息", "123", "private:456:4294967295" })).IsTrue();
     }
 
     [Test]

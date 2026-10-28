@@ -394,10 +394,10 @@ const jobColumns = [
     >
     <a-card
       v-if="!loading && tab === 'binding'"
-      title="QQ 连接 · Lagrange.Milky"
+      title="QQ 连接 · Milky"
     >
       <p class="muted">
-        请先在独立部署的 Lagrange.Milky 完成 QQ 登录，再填写服务地址和访问令牌。
+        请先在独立部署的 Milky 服务中完成 QQ 登录，再填写服务地址和访问令牌。
         QQ 扫码、登录凭据及签名服务均由 Milky 管理。
       </p>
       <EditorForm

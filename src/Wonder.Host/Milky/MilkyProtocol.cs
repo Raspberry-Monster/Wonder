@@ -1,47 +1,48 @@
 using System.Globalization;
-using Milky.Net.Model;
+using SaltyMilky.Net;
 using Wonder.Core;
 
 namespace Wonder.Host.Milky;
 
 public static class MilkyProtocol
 {
-    public static NormalizedEvent? Normalize(long accountId, Event envelope)
+    public static NormalizedEvent? Normalize(long accountId, MilkyEvent envelope)
     {
         if (accountId <= 0 || envelope.SelfId != accountId ||
-            envelope is not Event<IncomingMessage> received) return null;
-        var (kind, peer, sender, sequence, time, incoming) = received.Data switch
+            envelope.Data is not MilkyMessageReceiveEventData received) return null;
+        var message = received.Message;
+        var kind = message.MessageScene switch
         {
-            FriendIncomingMessage m => (ConversationKind.Private, m.PeerId, m.SenderId, m.MessageSeq, m.Time,
-                m.Segments),
-            GroupIncomingMessage m => (ConversationKind.Group, m.PeerId, m.SenderId, m.MessageSeq, m.Time, m.Segments),
-            _ => default
+            "friend" => ConversationKind.Private,
+            "group" => ConversationKind.Group,
+            _ => (ConversationKind?)null
         };
-        if (incoming is null) return null;
+        if (kind is null) return null;
+        var (peer, sender, sequence) = (message.PeerId, message.SenderId, message.MessageSeq);
         if (sender <= 0 || sender == accountId || peer <= 0 || sequence < 0) return null;
         var target = Id(peer);
         var segments = new List<MessageSegment>();
-        foreach (var segment in incoming)
+        foreach (var segment in message.Segments)
             switch (segment)
             {
-                case IncomingSegment<TextIncomingSegmentData> text:
-                    segments.Add(new MessageSegment(SegmentKind.Text, text.Data.Text ?? ""));
+                case MilkyIncomingTextSegment text:
+                    segments.Add(new MessageSegment(SegmentKind.Text, text.Text ?? ""));
                     break;
-                case IncomingSegment<ImageIncomingSegmentData> image
-                    when !string.IsNullOrWhiteSpace(image.Data.TempUrl):
-                    segments.Add(new MessageSegment(SegmentKind.Image, image.Data.TempUrl));
+                case MilkyIncomingImageSegment image
+                    when !string.IsNullOrWhiteSpace(image.TempUrl):
+                    segments.Add(new MessageSegment(SegmentKind.Image, image.TempUrl));
                     break;
-                case IncomingSegment<MentionIncomingSegmentData> mention:
-                    segments.Add(new MessageSegment(SegmentKind.Mention, Id(mention.Data.UserId)));
+                case MilkyIncomingMentionSegment mention:
+                    segments.Add(new MessageSegment(SegmentKind.Mention, Id(mention.UserId)));
                     break;
-                case IncomingSegment<ReplyIncomingSegmentData> reply:
+                case MilkyIncomingReplySegment reply:
                     segments.Add(new MessageSegment(SegmentKind.ReplyReference,
-                        MessageKey(kind, target, reply.Data.MessageSeq)));
+                        MessageKey(kind.Value, target, reply.MessageSeq)));
                     break;
             }
 
-        return new NormalizedEvent(Id(accountId), MessageKey(kind, target, sequence), Id(sender), target, kind,
-            segments, time);
+        return new NormalizedEvent(Id(accountId), MessageKey(kind.Value, target, sequence), Id(sender), target, kind.Value,
+            segments, DateTimeOffset.FromUnixTimeSeconds(message.Time));
     }
 
     // Milky sequences are scoped to a conversation, including private-message client sequences.
