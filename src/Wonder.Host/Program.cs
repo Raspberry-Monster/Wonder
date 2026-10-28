@@ -99,6 +99,7 @@ builder.Services.AddHttpClient("media", c => c.Timeout = TimeSpan.FromSeconds(30
     });
 builder.Services.AddSingleton<JobQueue>();
 builder.Services.AddSingleton<JobProcessor>();
+builder.Services.AddSingleton(new PromptCatalog(Path.Combine(AppContext.BaseDirectory, "Prompts")));
 builder.Services.AddSingleton<PromptComposer>();
 builder.Services.AddSingleton<ContextBuilder>();
 builder.Services.AddSingleton(TimeProvider.System);

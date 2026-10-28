@@ -46,6 +46,10 @@ Current = 当前用户消息
 
 Identity 描述 Bot 自身，历史版本保留；用户称呼来自经过 QQ 验证的本人设置。关系、记忆、历史和工具结果均作为不可信参考数据，不能覆盖系统规则。发言者通过 Conversation 范围内稳定的匿名标签区分。
 
+静态提示词保存在 `src/Wonder.Host/Prompts/` 下的 UTF-8 `.prompt` 文件中：`Shared` 为聊天行为边界，`Summary` 为滚动摘要，`Reflection` 为反思，`MemoryMaintenance` 为记忆维护，`SummaryProjection` 为摘要安全投影。构建及发布会复制到应用目录的 `Prompts/`；启动时 `PromptCatalog` 从 `AppContext.BaseDirectory/Prompts` 一次性加载并缓存，必需文件缺失、不可读或为空时启动失败，错误中包含完整路径。文件按纯文本读取，不执行模板替换；Identity、Emotion、动态摘要压缩上限及用户数据仍由代码组装。
+
+本地修改源文件后重新执行 `dotnet run`，构建会同步文件；部署后直接修改应用目录中的 `.prompt` 文件则重启 Host 生效，无需重新编译。容器内目录为 `/app/Prompts`，也可将完整的自定义目录只读挂载到该位置。新版本部署时需同步这些文件；已固定的聊天上下文快照继续使用该轮保存的内容。
+
 Conversation 对应一个私聊或群聊；Session 用于空闲结束和任务分段。私聊上下文可以跨 Session 延续，读取有效摘要及摘要之后最近 40 条候选消息，逐条校验来源后按预算选择。群聊只提供基础聊天和当前发言者识别，不读取历史、摘要、关系或记忆。
 
 每轮固定来源快照，记录身份、心境、关系、摘要版本及记忆、原消息和作者来源。摘要和生成快照使用 `ContentSource(Kind, Id, Version)` 记录实际来源，ID 索引不能替代版本校验；Notes 版本另外通过依赖边传递。只保留消息时间与固定时区，当前钟点按需调用时间工具；私聊可启用历史工具。写工具另需独立服务端能力开关、有效 Chat 租约及本人授权。详见 [对话延续与时间](conversation-continuity.md)。

@@ -9,6 +9,8 @@
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14" PrivateAssets="all"/>
     </ItemGroup>
     <ItemGroup>
+        <None Remove="Prompts/**/*.prompt"/>
+        <Content Include="Prompts/**/*.prompt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
         <Content Remove="Tokenizer/**/*"/>
         <None Remove="Tokenizer/**/*"/>
         <Content Include="Tokenizer/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>

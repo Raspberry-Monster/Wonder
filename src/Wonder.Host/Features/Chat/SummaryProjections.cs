@@ -7,7 +7,8 @@ using AiMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Wonder.Host;
 
-public sealed class SummaryProjections(IDbContextFactory<WonderDbContext> factory, ModelRouter models)
+public sealed class SummaryProjections(
+    IDbContextFactory<WonderDbContext> factory, ModelRouter models, PromptCatalog prompts)
 {
     public static OutboxMessage Queue(WonderDbContext db, ConversationSummary summary, Guid subject,
         Guid[] memoryIds, Guid[] messageIds, DateTimeOffset expiresAt)
@@ -57,7 +58,7 @@ public sealed class SummaryProjections(IDbContextFactory<WonderDbContext> factor
         AiMessage[] request =
         [
             new(ChatRole.System,
-                "Create a concise Chinese reading projection using only the supplied authorized data. Preserve authors, dates and uncertainty. Do not invent missing history. This projection is not new user evidence."),
+                prompts.SummaryProjection),
             new(ChatRole.User, Json.ForPrompt(new
             {
                 currentFacts = facts.Select(x => new { x.Text }),
